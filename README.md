@@ -106,6 +106,12 @@ user's GUI session or launchd, not over plain ssh.
 
 Pre-release. The schema (`"schema": 1`) may still change.
 
+## Releasing
+
+`main` takes changes only through a pull request that passes the tests and the identity check.
+Bump `version` in `pyproject.toml` in one, merge it, then tag the merge commit `vX.Y.Z` and push
+the tag: the Publish workflow puts it on PyPI by trusted publishing, with no stored token.
+
 ## 2mw2lt
 
 unlimited is part of [2mw2lt](https://2mw2lt.com) — *Too Much Work, Too Little Time* — a steering
