@@ -18,7 +18,7 @@ class Answer:
     retry_until: datetime | None = None
 
 
-USER_AGENT = "sounding (+https://github.com/endario/sounding)"
+USER_AGENT = "unlimited (+https://github.com/endario/unlimited)"
 
 # A refusal never blocks for longer than this, so a bad header or a clock jump cannot stop reads
 # indefinitely.

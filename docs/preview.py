@@ -13,8 +13,8 @@ sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 from rich.console import Console  # noqa: E402
 from rich.text import Text  # noqa: E402
 
-from sounding import projection, show  # noqa: E402
-from sounding.schema import limit, reading  # noqa: E402
+from unlimited import projection, show  # noqa: E402
+from unlimited.schema import limit, reading  # noqa: E402
 
 NOW = datetime(2026, 9, 21, 14, 0, tzinfo=timezone.utc)
 H, D = timedelta(hours=1), timedelta(days=1)
@@ -52,6 +52,6 @@ show._claude_dirs = lambda: {"work": "work"}
 
 out = Path(__file__).parent
 console = Console(record=True, width=104, file=open("/dev/null", "w"))
-console.print(Text.from_ansi("$ sounding\n" + show.render(readings, NOW, color=True).rstrip()))
-(out / "status.svg").write_text(console.export_svg(title="sounding"))
+console.print(Text.from_ansi("$ unlimited\n" + show.render(readings, NOW, color=True).rstrip()))
+(out / "status.svg").write_text(console.export_svg(title="unlimited"))
 print(json.dumps([dict(readings[0], limits=readings[0]["limits"][1:])], indent=2))  # the README's JSON

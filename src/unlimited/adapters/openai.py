@@ -84,7 +84,7 @@ def read(cred: Credential, now: datetime, get) -> dict:
     token = cred.secret["access_token"]
     expires = _jwt_expiry(token)
     if expires is not None and expires <= now:
-        # Codex refreshes its own token on its next run; sounding never writes auth.json.
+        # Codex refreshes its own token on its next run; unlimited never writes auth.json.
         return reading(VENDOR, cred.account, now, UNREAD, why="credential-expired")
     ans = get(URL, {"Authorization": f"Bearer {token}",
                     "ChatGPT-Account-Id": str(cred.secret["account_id"])}, now)

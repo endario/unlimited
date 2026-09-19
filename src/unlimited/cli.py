@@ -1,5 +1,5 @@
-"""`sounding` (a table for people), `sounding read [--vendor V]... [--max-age S] --json`,
-`sounding capture claude-statusline`."""
+"""`unlimited` (a table for people), `unlimited read [--vendor V]... [--max-age S] --json`,
+`unlimited capture claude-statusline`."""
 
 from __future__ import annotations
 
@@ -13,7 +13,7 @@ from .adapters import REGISTRY
 
 
 def main(argv: list[str] | None = None) -> int:
-    p = argparse.ArgumentParser(prog="sounding")
+    p = argparse.ArgumentParser(prog="unlimited")
     sub = p.add_subparsers(dest="cmd")
     st = sub.add_parser("status", help="usage per account, for people (the default)")
     for q in (p, st):

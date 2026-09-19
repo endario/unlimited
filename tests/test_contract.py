@@ -14,9 +14,9 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from unittest import mock
 
-from sounding import cache, cli, transport
-from sounding.adapters import openai, zai
-from sounding.transport import Answer
+from unlimited import cache, cli, transport
+from unlimited.adapters import openai, zai
+from unlimited.transport import Answer
 
 NOW = datetime(2026, 9, 19, 12, 0, tzinfo=timezone.utc)
 OPENAI_SECRET = "fixture-secret-openai-token"
@@ -160,7 +160,7 @@ class Contract(unittest.TestCase):
 
     def test_a_newer_local_reading_keeps_the_throttle_deadline(self):
         from types import SimpleNamespace
-        from sounding.schema import reading
+        from unlimited.schema import reading
         fresh = [reading("zai", None, NOW, "ok")]
         adapter = SimpleNamespace(VENDOR="zai", discover=zai.discover, read=lambda c, n, g: zai.read(c, n, self.up),
                                   local=lambda now: [dict(r, account=zai.discover()[0].account) for r in fresh])
@@ -181,8 +181,8 @@ class Contract(unittest.TestCase):
 
     def test_a_refused_account_keeps_its_deadline_while_a_stale_sibling_is_re_asked(self):
         from types import SimpleNamespace
-        from sounding.credential import Credential
-        from sounding.schema import reading
+        from unlimited.credential import Credential
+        from unlimited.schema import reading
         asked = []
         two = SimpleNamespace(VENDOR="zai", discover=lambda: [
             Credential("a", {"key": "k-a"}), Credential("b", {"key": "k-b"})],
@@ -191,7 +191,7 @@ class Contract(unittest.TestCase):
         seed = [reading("zai", "a", taken, "refused", why="http-429",
                         retry_until=NOW + timedelta(seconds=60)),
                 reading("zai", "b", taken, "ok")]
-        d = self.tmp / "cache" / "sounding"
+        d = self.tmp / "cache" / "unlimited"
         d.mkdir(parents=True)
         (d / "zai.json").write_text(json.dumps({"readings": seed}))
         self.read(two, max_age=30)
@@ -204,14 +204,14 @@ class Contract(unittest.TestCase):
         for vendor in (openai, zai):
             self.read(vendor, max_age=0)
         dumped = json.dumps([self.read(v, max_age=10**9) for v in (openai, zai)])
-        dumped += "".join(p.read_text() for p in (self.tmp / "cache" / "sounding").glob("*.json"))
+        dumped += "".join(p.read_text() for p in (self.tmp / "cache" / "unlimited").glob("*.json"))
         dumped += repr(openai.discover()) + repr(zai.discover())
         for secret in (OPENAI_SECRET, ZAI_SECRET):
             self.assertNotIn(secret, dumped)
 
     def test_cache_files_are_private(self):
         self.read(zai)
-        mode = (self.tmp / "cache" / "sounding" / "zai.json").stat().st_mode & 0o777
+        mode = (self.tmp / "cache" / "unlimited" / "zai.json").stat().st_mode & 0o777
         self.assertEqual(mode, 0o600)
 
     def test_every_request_names_this_tool_not_python_urllib(self):
@@ -244,7 +244,7 @@ class Contract(unittest.TestCase):
         self.assertEqual((l["name"], l["kind"]), ("time_limit 3x5", "TIME_LIMIT"))
 
     def test_an_empty_zai_answer_is_unread_not_zero(self):
-        from sounding.credential import Credential
+        from unlimited.credential import Credential
         got = zai.read(Credential("a", {"key": "k"}), NOW,
                        lambda u, h, n: Answer({"success": True, "data": {}}, 200, None))
         self.assertEqual((got["status"], got["why"]), ("unread", "no-limits"))

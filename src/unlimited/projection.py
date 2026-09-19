@@ -1,4 +1,4 @@
-"""Where each open window is heading: arithmetic on the readings sounding has already taken.
+"""Where each open window is heading: arithmetic on the readings unlimited has already taken.
 
 A reading says how much of a window is used; it cannot say whether that is a lot for the time
 elapsed. Two sources say where it is heading:

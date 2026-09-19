@@ -1,14 +1,14 @@
 [project]
-name = "sounding"
-version = "0.0.8"
-description = "Read AI-subscription quota usage, per window, as facts."
+name = "unlimited"
+version = "0.0.9"
+description = "Read AI-subscription quota usage, per window, as facts — and where each window is heading."
 requires-python = ">=3.11"
 license = "MIT"
 readme = "README.md"
 dependencies = []
 
 [project.scripts]
-sounding = "sounding.cli:main"
+unlimited = "unlimited.cli:main"
 
 [build-system]
 requires = ["hatchling"]

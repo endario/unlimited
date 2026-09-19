@@ -12,10 +12,10 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest import mock
 
-from sounding import cache, cli
-from sounding.adapters import anthropic, opencode, openai, xai
-from sounding.credential import Credential
-from sounding.transport import Answer
+from unlimited import cache, cli
+from unlimited.adapters import anthropic, opencode, openai, xai
+from unlimited.credential import Credential
+from unlimited.transport import Answer
 
 NOW = datetime(2026, 9, 19, 12, 0, tzinfo=timezone.utc)
 UUID = "11111111-2222-3333-4444-555555555555"
@@ -162,7 +162,7 @@ class Discovery(Base):
     def test_an_unstarted_session_window_is_zero_not_unknown(self):
         body = {"five_hour": {"utilization": 0.0, "resets_at": None}}
         got = anthropic.read(Credential(UUID, {"token": "t", "expires": None}), NOW, self.up(Answer(body, 200, None)))
-        from sounding.schema import settled
+        from unlimited.schema import settled
         l = settled(got, NOW + timedelta(days=1))["limits"][0]
         self.assertEqual((l["used_at_least"], l["resets_at"]), (0.0, None))
 

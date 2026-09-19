@@ -9,10 +9,10 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from unittest import mock
 
-from sounding import cache, projection, show
-from sounding.schema import limit, moment, reading
-from sounding.transport import Answer
-from sounding.adapters import zai
+from unlimited import cache, projection, show
+from unlimited.schema import limit, moment, reading
+from unlimited.transport import Answer
+from unlimited.adapters import zai
 
 NOW = datetime(2026, 9, 19, 12, 0, tzinfo=timezone.utc)
 WEEK = 10080
@@ -108,7 +108,7 @@ class Project(unittest.TestCase):
         self.assertEqual(projection.prune({"k": "junk"}, NOW), {})
 
     def test_a_window_past_its_reset_is_not_projected(self):
-        from sounding.schema import settled
+        from unlimited.schema import settled
         r = settled(at(NOW, 0.4), RESET + timedelta(seconds=1))
         self.assertIsNone(projection.attach(r, history((NOW, 0.4)))["limits"][0]["projection"])
 

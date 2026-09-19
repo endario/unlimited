@@ -15,7 +15,7 @@ from .schema import iso, moment, settled
 
 
 def default_dir() -> Path:
-    return Path(os.environ.get("XDG_CACHE_HOME") or Path.home() / ".cache") / "sounding"
+    return Path(os.environ.get("XDG_CACHE_HOME") or Path.home() / ".cache") / "unlimited"
 
 
 def _age(r: dict, now: datetime) -> float | None:

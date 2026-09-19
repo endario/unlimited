@@ -1,6 +1,6 @@
 """Anthropic (Claude Code, claude.ai sign-in). Two sources:
 
-- local: the `rate_limits` Claude Code hands its statusline, saved by `sounding capture
+- local: the `rate_limits` Claude Code hands its statusline, saved by `unlimited capture
   claude-statusline` into a per-account file. No network, no token.
 - api: `oauth/usage` on the token Claude Code keeps in the macOS keychain (or
   `.credentials.json` elsewhere). Read, never refreshed: refreshing rotates the refresh token and

@@ -1,29 +1,29 @@
-# sounding
+# unlimited
 
 Read AI-subscription quota usage, per window, as facts — and where each window is heading.
 
 ```
-uv tool install sounding                # or: pipx install sounding
+uv tool install unlimited                # or: pipx install unlimited
 ```
 
 ```
-sounding                                # usage per account, for people
-sounding read [--vendor V]... [--max-age SECONDS] --json
-sounding capture claude-statusline      # in a Claude Code statusline script
+unlimited                                # usage per account, for people
+unlimited read [--vendor V]... [--max-age SECONDS] --json
+unlimited capture claude-statusline      # in a Claude Code statusline script
 ```
 
 Each reading gives each limit's window length, the fraction used so far, and its reset time. It
 also gives whether the vendor says the limit is held, and why, and, where the vendor names it,
-the account's plan. sounding reports what the vendor says, and projects it forward: it never
+the account's plan. unlimited reports what the vendor says, and projects it forward: it never
 picks an account or draws a threshold. Choosing what to do with a reading is up to the consumer.
 
 ## For people
 
-![sounding status: one block per account, a bar per usage window, and a forecast line under each](docs/status.svg)
+![unlimited status: one block per account, a bar per usage window, and a forecast line under each](docs/status.svg)
 
 ## For agents
 
-`sounding read --json` gives the same readings, one per account, for load-balancing and pacing
+`unlimited read --json` gives the same readings, one per account, for load-balancing and pacing
 work across subscriptions (one limit shown):
 
 ```json
@@ -76,13 +76,13 @@ Read `projection.at_reset` against `used_at_least` rather than either alone, and
 | OpenCode Go | — | `zen/go/v1/usage` on the Go API key opencode keeps |
 | xAI Grok (SuperGrok, Grok CLI sign-in) | — | the Grok CLI's billing proxy on its own token |
 
-The network endpoints are not officially documented and may change without notice. sounding
+The network endpoints are not officially documented and may change without notice. unlimited
 reads each harness's credential where the harness keeps it. It never refreshes a token or
 writes a credential, and no token appears in its output, cache or errors.
 
 ## Projection
 
-Each limit also carries a `projection`: where the window is heading, from the readings sounding
+Each limit also carries a `projection`: where the window is heading, from the readings unlimited
 has taken. Within the window, two paces are extended to the reset — the average since it opened,
 and a recency-weighted pace with a half-life of a fourteenth of the window, which rises with a
 burst and falls in a quiet spell. Past windows of the same limit, kept for
@@ -96,7 +96,7 @@ without them. `samples`, `past_windows` and `since` say what it rests on. A proj
 
 ## Cache
 
-There is one cache file and one `flock` per vendor under `$XDG_CACHE_HOME/sounding`, mode
+There is one cache file and one `flock` per vendor under `$XDG_CACHE_HOME/unlimited`, mode
 `0600`. Concurrent callers share one upstream request. A 429's `Retry-After` holds off every
 caller until it passes, capped at 24 hours; a 429 or 5xx holds off at least five minutes, and the
 account's last good reading stands in the meantime. On macOS the keychain is readable only from the
@@ -108,6 +108,6 @@ Pre-release. The schema (`"schema": 1`) may still change.
 
 ## 2mw2lt
 
-sounding is part of [2mw2lt](https://2mw2lt.com) — *Too Much Work, Too Little Time* — a steering
+unlimited is part of [2mw2lt](https://2mw2lt.com) — *Too Much Work, Too Little Time* — a steering
 partner that coordinates work across AI workers and trusted people. 2mw2lt reads its accounts
-through sounding.
+through unlimited.

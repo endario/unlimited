@@ -6,8 +6,8 @@ import unittest
 from datetime import datetime, timedelta, timezone
 from unittest import mock
 
-from sounding import show
-from sounding.schema import limit, reading
+from unlimited import show
+from unlimited.schema import limit, reading
 
 NOW = datetime(2026, 9, 19, 12, 0, tzinfo=timezone.utc)
 
