@@ -1,7 +1,10 @@
 # sounding
 
-Read AI-subscription quota usage, per window, as facts — and where each window is heading. Part of
-the [2mw2lt](https://2mw2lt.com) family.
+Read AI-subscription quota usage, per window, as facts — and where each window is heading.
+
+```
+uv tool install sounding                # or: pipx install sounding
+```
 
 ```
 sounding                                # usage per account, for people
@@ -102,3 +105,9 @@ user's GUI session or launchd, not over plain ssh.
 ## Status
 
 Pre-release. The schema (`"schema": 1`) may still change.
+
+## 2mw2lt
+
+sounding is part of [2mw2lt](https://2mw2lt.com) — *Too Much Work, Too Little Time* — a steering
+partner that coordinates work across AI workers and trusted people. 2mw2lt reads its accounts
+through sounding.
