@@ -36,6 +36,11 @@ class Render(unittest.TestCase):
         r["retry_until"] = (NOW + timedelta(minutes=4)).isoformat()
         self.assertIn("(read 10m ago, throttled: next read in 4m)", show.render([r], NOW))
 
+    def test_colour_is_green_to_85_orange_to_95_then_red(self):
+        paint = lambda used: show._paint("x", used, None, True)
+        self.assertEqual([paint(u)[2:4] for u in (0.85, 0.86, 0.95, 0.96)], ["32", "38", "38", "31"])
+        self.assertIn("[31m", show._paint("x", 0.1, True, True), "held is red whatever the figure")
+
 
 if __name__ == "__main__":
     unittest.main()

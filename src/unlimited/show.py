@@ -45,8 +45,9 @@ def _until(t: datetime, now: datetime) -> str:
 def _paint(text: str, used: float | None, held: bool | None, color: bool) -> str:
     if not color:
         return text
-    code = "31" if held or (used is not None and used >= 0.9) else \
-        "33" if used is not None and used >= 0.75 else "32" if used is not None else "2"
+    # Green to 85%, orange to 95%, red past it or when held.
+    code = "2" if used is None and not held else "31" if held or used > 0.95 else \
+        "38;5;208" if used > 0.85 else "32"
     return f"\033[{code}m{text}\033[0m"
 
 
