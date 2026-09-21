@@ -61,8 +61,8 @@ class Contract(unittest.TestCase):
         (self.tmp / "codex").mkdir()
         (self.tmp / "codex" / "auth.json").write_text(json.dumps(
             {"tokens": {"access_token": OPENAI_SECRET, "account_id": "acct-fixture"}}))
-        env = {"CODEX_HOME": str(self.tmp / "codex"), "GLM_API_KEY": ZAI_SECRET,
-               "XDG_CACHE_HOME": str(self.tmp / "cache")}
+        env = {"CODEX_HOME": str(self.tmp / "codex"), "GLM_API_KEY": ZAI_SECRET, "CLAUDE_GLM_ENV": "",
+               "HOME": str(self.tmp / "home"), "XDG_CACHE_HOME": str(self.tmp / "cache")}
         self.env = mock.patch.dict(os.environ, env)
         self.env.start()
         self.addCleanup(self.env.stop)

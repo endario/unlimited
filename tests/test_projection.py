@@ -160,7 +160,7 @@ class ThroughCache(unittest.TestCase):
                 {"type": "CREDIT_LIMIT", "unit": 6, "number": 1, "usage": 10000, "currentValue": used["v"],
                  "nextResetTime": int(RESET.timestamp() * 1000)}]}}, 200, None)
 
-        with mock.patch.dict(os.environ, {"GLM_API_KEY": "k", "XDG_CACHE_HOME": str(tmp)}):
+        with mock.patch.dict(os.environ, {"GLM_API_KEY": "k", "CLAUDE_GLM_ENV": "", "HOME": str(tmp), "XDG_CACHE_HOME": str(tmp)}):
             cache.through(zai, max_age=60, clock=lambda: NOW - timedelta(days=1), get=get)
             used["v"] = 4000
             out = cache.through(zai, max_age=60, clock=lambda: NOW, get=get)

@@ -13,7 +13,7 @@ from types import SimpleNamespace
 from unittest import mock
 
 from unlimited import cache, cli
-from unlimited.adapters import anthropic, opencode, openai, xai
+from unlimited.adapters import anthropic, opencode, openai, xai, zai
 from unlimited.credential import Credential
 from unlimited.transport import Answer
 
@@ -28,7 +28,8 @@ class Base(unittest.TestCase):
         self.tmp = Path(tempfile.mkdtemp())
         self.home = self.tmp / "home"
         self.home.mkdir()
-        p = mock.patch.dict(os.environ, {"XDG_CACHE_HOME": str(self.tmp / "cache"), "HOME": str(self.home)})
+        p = mock.patch.dict(os.environ, {"XDG_CACHE_HOME": str(self.tmp / "cache"), "HOME": str(self.home),
+                                          "CLAUDE_GLM_ENV": "", "GLM_API_KEY": ""})
         p.start()
         self.addCleanup(p.stop)
         self.calls = []
@@ -224,6 +225,35 @@ class Grok(Base):
         got = xai.read(Credential("u", {"key": "k", "expires": (NOW - timedelta(minutes=1)).isoformat()}),
                        NOW, self.up(Answer(self.BODY, 200, None)))
         self.assertEqual((got["why"], self.calls), ("credential-expired", []))
+
+
+class Zai(Base):
+    def env(self, name: str, key: str) -> Path:
+        (self.home / ".config").mkdir(exist_ok=True)
+        f = self.home / ".config" / name
+        f.write_text(f'GLM_API_KEY="{key}"\nCLAUDE_CONFIG_DIR="$HOME/.claude-glm"\n')
+        return f
+
+    def test_every_wrappers_key_is_an_account_even_inside_one_glm_session(self):
+        self.env("claude-glm.env", "key-one")
+        second = self.env("claude-glm-2.env", "key-two")
+        # A claude-glm-2 session exports its own file and key; the first account stays in view.
+        with mock.patch.dict(os.environ, {"CLAUDE_GLM_ENV": str(second), "GLM_API_KEY": "key-two"}):
+            got = zai.discover()
+        self.assertEqual(sorted(c.secret["key"] for c in got), ["key-one", "key-two"])
+        self.assertEqual({c.account for c in got}, {zai.account_of("key-one"), zai.account_of("key-two")})
+
+    def test_a_token_limit_answered_as_a_percentage_is_a_usage_window(self):
+        at = int((NOW + timedelta(days=3)).timestamp() * 1000)
+        got = {l["window_minutes"]: l for l in zai.limits({"data": {"limits": [
+            {"type": "TOKENS_LIMIT", "unit": 3, "number": 5, "percentage": 0},
+            {"type": "TOKENS_LIMIT", "unit": 6, "number": 1, "percentage": 9, "nextResetTime": at},
+            {"type": "TIME_LIMIT", "unit": 5, "number": 1, "usage": 4000, "currentValue": 0,
+             "percentage": 0, "nextResetTime": at}]}}, NOW)}
+        self.assertEqual((got[10080]["name"], got[10080]["used_at_least"]), ("seven_day", 0.09))
+        # Unopened: no reset time, but zero is what the account says, not unknown.
+        self.assertEqual((got[300]["name"], got[300]["used_at_least"]), ("five_hour", 0.0))
+        self.assertNotIn("seven_day", [l["name"] for l in got.values() if l["kind"] == "TIME_LIMIT"])
 
 
 class LastGood(Base):
