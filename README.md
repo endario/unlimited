@@ -116,4 +116,5 @@ the tag: the Publish workflow puts it on PyPI by trusted publishing, with no sto
 
 unlimited is part of [2mw2lt](https://2mw2lt.com) — *Too Much Work, Too Little Time* — a steering
 partner that coordinates work across AI workers and trusted people. 2mw2lt reads its accounts
-through unlimited.
+through unlimited. Its sibling
+[work-tempo](https://github.com/endario/work-tempo) tracks source-code momentum across Git workspaces.
