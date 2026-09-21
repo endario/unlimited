@@ -18,7 +18,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from ..credential import Credential
-from ..schema import OK, UNREAD, failed, limit, reading
+from ..schema import OK, UNREAD, credits, failed, limit, reading
 
 VENDOR = "anthropic"
 URL = "https://api.anthropic.com/api/oauth/usage"
@@ -132,10 +132,35 @@ def _severity_limits(body: dict, now: datetime) -> list[dict]:
     return out
 
 
+def _money(m: object) -> tuple[float, str] | None:
+    """A vendor money object, `{amount_minor, currency, exponent}`, as (major units, currency)."""
+    if not isinstance(m, dict):
+        return None
+    minor, exp, cur = m.get("amount_minor"), m.get("exponent"), m.get("currency")
+    if not all(isinstance(x, int) and not isinstance(x, bool) for x in (minor, exp)) \
+            or not 0 <= exp <= 6 or not isinstance(cur, str):
+        return None
+    return minor / 10 ** exp, cur
+
+
+def _credits(body: dict, now: datetime) -> dict | None:
+    """The account's `spend`: what it may spend past its windows, and whether it is on."""
+    s = body.get("spend")
+    if not isinstance(s, dict) or not isinstance(s.get("enabled"), bool):
+        return None
+    used, limit, balance = (_money(s.get(k)) for k in ("used", "limit", "balance"))
+    text = lambda k: s.get(k) if isinstance(s.get(k), str) else None
+    return credits(now, enabled=s["enabled"], used=used[0] if used else None, limit=limit[0] if limit else None,
+                   balance=balance[0] if balance else None,
+                   currency=next((m[1] for m in (used, limit, balance) if m), None),
+                   severity=text("severity"), disabled_reason=text("disabled_reason"),
+                   can_purchase=s.get("can_purchase_credits") if isinstance(s.get("can_purchase_credits"), bool) else None)
+
+
 def _limits(body: dict, now: datetime) -> list[dict]:
     out = []
     for name, w in body.items():
-        if not isinstance(w, dict) or "utilization" not in w:
+        if name == "extra_usage" or not isinstance(w, dict) or "utilization" not in w:
             continue
         resets = _iso(w.get("resets_at"))
         u = w.get("utilization")
@@ -178,7 +203,8 @@ def read(cred: Credential, now: datetime, get) -> dict:
     org = (prof.body or {}).get("organization") if isinstance((prof.body or {}).get("organization"), dict) else {}
     tier = org.get("rate_limit_tier") if isinstance(org.get("rate_limit_tier"), str) else None
     return reading(VENDOR, cred.account, now, OK, plan=tier,
-                   limits=_limits(ans.body, now) + _severity_limits(ans.body, now))
+                   limits=_limits(ans.body, now) + _severity_limits(ans.body, now),
+                   credits=_credits(ans.body, now))
 
 
 # ---- local: statusline captures ----------------------------------------------------------

@@ -80,6 +80,9 @@ def through(adapter, *, max_age: float, clock, get, directory: Path | None = Non
             prior = cached.get(cred.account)
             best = _newer(prior if prior and prior.get("status") == "ok" else None,
                           local.get(cred.account))
+            # A local source has no credits; they change slowly, and carry their own `taken_at`.
+            if best is not None and best.get("credits") is None and prior is not None and prior.get("credits"):
+                best = dict(best, credits=prior["credits"])
             age = _age(best, now) if best else None
             # A refusal's deadline binds every caller, whatever --max-age it asked for, and stays
             # with whichever reading is kept.

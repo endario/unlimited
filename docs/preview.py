@@ -14,7 +14,7 @@ from rich.console import Console  # noqa: E402
 from rich.text import Text  # noqa: E402
 
 from unlimited import projection, show  # noqa: E402
-from unlimited.schema import limit, reading  # noqa: E402
+from unlimited.schema import credits, limit, reading  # noqa: E402
 
 NOW = datetime(2026, 9, 21, 14, 0, tzinfo=timezone.utc)
 H, D = timedelta(hours=1), timedelta(days=1)
@@ -39,7 +39,8 @@ history = {
 readings = [
     reading("anthropic", "work", NOW, "ok", plan="default_claude_max_20x", limits=[
         limit("five_hour", window_minutes=300, used_at_least=0.31, resets_at=NOW + 2 * H, held=False),
-        limit("seven_day", window_minutes=10080, used_at_least=0.41, resets_at=claude_week, held=False)]),
+        limit("seven_day", window_minutes=10080, used_at_least=0.41, resets_at=claude_week, held=False)],
+            credits=credits(NOW, enabled=True, used=12.5, limit=200.0, balance=None, currency="SGD")),
     reading("openai", "codex", NOW - 7 * 60 * timedelta(seconds=1), "ok", plan="pro", source="session-log", limits=[
         limit("codex", window_minutes=10080, used_at_least=0.7, resets_at=codex_week, held=False)]),
     dict(reading("zai", "glm", NOW - 12 * 60 * timedelta(seconds=1), "ok", plan="max", limits=[

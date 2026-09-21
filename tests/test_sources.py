@@ -123,6 +123,52 @@ class Discovery(Base):
                               else Answer(None, 403, "http-403"))
         self.assertEqual((down["status"], down["plan"]), ("ok", None))
 
+    SPEND = {"used": {"amount_minor": 15062, "currency": "SGD", "exponent": 2},
+             "limit": {"amount_minor": 15000, "currency": "SGD", "exponent": 2},
+             "balance": {"amount_minor": 4050, "currency": "SGD", "exponent": 2},
+             "enabled": False, "disabled_reason": "org_level_disabled_until", "severity": "critical",
+             "can_purchase_credits": False}
+
+    def test_spend_past_the_windows_is_read_as_credits_in_major_units(self):
+        body = {"five_hour": {"utilization": 100.0, "resets_at": (NOW + timedelta(hours=2)).isoformat()},
+                "extra_usage": {"utilization": 100.0, "is_enabled": False}, "spend": self.SPEND}
+        got = anthropic.read(Credential(UUID, {"token": "t", "expires": None}), NOW, self.up(Answer(body, 200, None)))
+        self.assertEqual(got["credits"], {
+            "taken_at": NOW.isoformat(), "enabled": False, "used": 150.62, "limit": 150.0, "balance": 40.5,
+            "currency": "SGD", "severity": "critical", "disabled_reason": "org_level_disabled_until",
+            "can_purchase": False})
+        self.assertEqual([l["name"] for l in got["limits"] if l["name"] == "extra_usage"], [],
+                         "spend is not a window; it must not also appear as a limit with no figure")
+
+    def test_an_account_that_never_enabled_credits_has_none_to_spend_and_says_so(self):
+        body = {"spend": {"used": {"amount_minor": 0, "currency": "USD", "exponent": 2}, "limit": None,
+                          "balance": None, "enabled": False, "disabled_reason": None}}
+        c = anthropic.read(Credential(UUID, {"token": "t", "expires": None}), NOW,
+                           self.up(Answer(body, 200, None)))["credits"]
+        self.assertEqual((c["enabled"], c["used"], c["limit"], c["balance"]), (False, 0.0, None, None))
+
+    def test_a_reply_without_a_readable_spend_has_no_credits_rather_than_a_guess(self):
+        for spend in (None, {}, {"enabled": "yes"}, []):
+            got = anthropic.read(Credential(UUID, {"token": "t", "expires": None}), NOW,
+                                 self.up(Answer({"spend": spend}, 200, None)))
+            self.assertIsNone(got["credits"], spend)
+        odd = dict(self.SPEND, used={"amount_minor": "15062", "currency": "SGD", "exponent": 2})
+        c = anthropic.read(Credential(UUID, {"token": "t", "expires": None}), NOW,
+                           self.up(Answer({"spend": odd}, 200, None)))["credits"]
+        self.assertIsNone(c["used"], "a malformed amount is unknown, not zero")
+
+    def test_a_fresh_capture_keeps_the_credits_the_api_named_with_their_own_age(self):
+        d = self.signed_in(".claude-account2")
+        claude = SimpleNamespace(VENDOR="anthropic", local=anthropic.local, read=anthropic.read,
+                                 discover=lambda: [Credential(UUID, {"token": "t", "expires": None})])
+        get = lambda url, headers, now: Answer({"spend": self.SPEND}, 200, None)
+        cache.through(claude, max_age=300, clock=lambda: NOW, get=get)
+        with mock.patch.dict(os.environ, {"CLAUDE_CONFIG_DIR": str(d)}):
+            anthropic.capture({"rate_limits": RL}, NOW + timedelta(seconds=30))
+        got = cache.through(claude, max_age=300, clock=lambda: NOW + timedelta(seconds=40), get=get)[0]
+        self.assertEqual((got["source"], got["credits"]["used"], got["credits"]["taken_at"]),
+                         ("statusline", 150.62, NOW.isoformat()))
+
     def test_an_empty_limits_list_is_the_accounts_word_that_nothing_holds_it(self):
         cred = Credential(UUID, {"token": "t", "expires": None})
         said = anthropic.read(cred, NOW, self.up(Answer({"limits": []}, 200, None)))

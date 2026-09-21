@@ -78,6 +78,27 @@ def _forecast(p: dict, now: datetime, color: bool) -> str:
     return text
 
 
+def _credits(c: dict, taken: datetime | None, now: datetime, color: bool) -> str:
+    """One row: what the account may spend once its windows are used, and whether that is on."""
+    used, limit, bal, cur = c.get("used"), c.get("limit"), c.get("balance"), c.get("currency") or ""
+    money = lambda v, unit=cur: f"{unit} {v:,.2f}".strip()
+    on = bool(c.get("enabled"))
+    state = "on" if on else f"OFF: {c['disabled_reason']}" if c.get("disabled_reason") else "off"
+    if limit is None and not used and bal is None:
+        return f"  {'credits':<15} " + _paint(state, None, None, color)
+    frac = used / limit if limit and used is not None else None
+    bar = ""
+    if frac is not None:
+        filled = min(round(frac * BAR), BAR)
+        bar = _paint("█" * filled + "░" * (BAR - filled) + f" {frac * 100:5.1f}%", frac, not on, color) + "  "
+    parts = [f"{money(used)} of {money(limit, '')}" if limit is not None and used is not None
+             else f"{money(used)} used" if used is not None else None,
+             f"{money(bal)} balance" if bal is not None else None, state]
+    age = moment(c.get("taken_at"))
+    stale = f"  (read {_until(now, age)} ago)" if age and taken and (taken - age).total_seconds() >= 60 else ""
+    return f"  {'credits':<15} {bar}" + " · ".join(p for p in parts if p) + stale
+
+
 def render(readings: list[dict], now: datetime, *, color: bool = False, all_limits: bool = False) -> str:
     labels = {**(_claude_dirs() if any(r.get("vendor") == "anthropic" for r in readings) else {}),
               **(_glm_wrappers() if any(r.get("vendor") == "zai" for r in readings) else {})}
@@ -119,5 +140,7 @@ def render(readings: list[dict], now: datetime, *, color: bool = False, all_limi
                 lines.append(" " * 18 + _forecast(l["projection"], now, color))
         if not shown:
             lines.append("  no usage windows reported")
+        if r.get("credits"):
+            lines.append(_credits(r["credits"], taken, now, color))
         lines.append("")
     return "\n".join(lines).rstrip() + "\n"

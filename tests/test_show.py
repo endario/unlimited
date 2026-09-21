@@ -10,7 +10,7 @@ from pathlib import Path
 from unittest import mock
 
 from unlimited import show
-from unlimited.schema import limit, reading
+from unlimited.schema import credits, limit, reading
 
 NOW = datetime(2026, 9, 19, 12, 0, tzinfo=timezone.utc)
 
@@ -38,6 +38,28 @@ class Render(unittest.TestCase):
         r = reading("zai", zai.account_of("two"), NOW, "ok", plan="max", limits=[])
         with mock.patch.dict(os.environ, {"HOME": str(home), "CLAUDE_GLM_ENV": ""}):
             self.assertIn("Z.ai GLM Max · claude-glm-2\n", show.render([r], NOW))
+
+    def credits(self, **kw):
+        return credits(NOW, **{"enabled": True, "used": 0.0, "limit": 200.0, "balance": None,
+                               "currency": "SGD", **kw})
+
+    def test_credits_show_what_is_left_to_spend_past_the_windows_and_whether_it_is_on(self):
+        show_ = lambda c: show.render([reading("anthropic", "a", NOW, "ok", credits=c)], NOW)
+        with mock.patch.object(show, "_claude_dirs", lambda: {}):
+            self.assertIn("SGD 12.50 of 200.00 · on", show_(self.credits(used=12.5)))
+            blocked = show_(self.credits(used=150.62, limit=150.0, enabled=False,
+                                         disabled_reason="org_level_disabled_until"))
+            self.assertIn("100.4%", blocked)
+            self.assertIn("SGD 150.62 of 150.00 · OFF: org_level_disabled_until", blocked)
+            self.assertIn("SGD 40.00 balance", show_(self.credits(balance=40.0)))
+            self.assertRegex(show_(self.credits(limit=None, used=0.0, enabled=False)), r"credits +off\n")
+            self.assertNotIn("credits", show.render([reading("openai", "a", NOW, "ok")], NOW))
+
+    def test_credits_older_than_the_reading_carrying_them_say_how_old(self):
+        old = credits(NOW - timedelta(hours=2), enabled=True, used=0.0, limit=10.0, balance=None, currency="SGD")
+        with mock.patch.object(show, "_claude_dirs", lambda: {}):
+            out = show.render([reading("anthropic", "a", NOW, "ok", credits=old)], NOW)
+        self.assertIn("(read 2h 00m ago)", out.split("credits")[1])
 
     def test_an_unread_account_says_why(self):
         r = reading("zai", "z", NOW, "refused", why="http-429", retry_until=NOW + timedelta(minutes=5))

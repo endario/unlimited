@@ -14,7 +14,8 @@ unlimited capture claude-statusline      # in a Claude Code statusline script
 
 Each reading gives each limit's window length, the fraction used so far, and its reset time. It
 also gives whether the vendor says the limit is held, and why, and, where the vendor names it,
-the account's plan. unlimited reports what the vendor says, and projects it forward: it never
+the account's plan and, for Claude, its credits: what it may spend once the windows are used.
+unlimited reports what the vendor says, and projects it forward: it never
 picks an account or draws a threshold. Choosing what to do with a reading is up to the consumer.
 
 ## For people
@@ -38,6 +39,17 @@ work across subscriptions (one limit shown):
     "status": "ok",
     "why": null,
     "retry_until": null,
+    "credits": {
+      "taken_at": "2026-09-21T14:00:00+00:00",
+      "enabled": true,
+      "used": 12.5,
+      "limit": 200.0,
+      "balance": null,
+      "currency": "SGD",
+      "severity": "normal",
+      "disabled_reason": null,
+      "can_purchase": false
+    },
     "limits": [
       {
         "name": "seven_day",
@@ -65,6 +77,18 @@ work across subscriptions (one limit shown):
 
 Read `projection.at_reset` against `used_at_least` rather than either alone, and
 `past_windows`/`samples` for how much the projection rests on.
+
+## Credits
+
+A window at 100% is not always the end. Where the vendor reports it (Claude's `spend`), the reading's
+`credits` says what the account may spend past its windows, in `currency`'s major units:
+`used` of `limit` this period, any prepaid `balance`, and whether spending is `enabled` now, with
+the vendor's own `disabled_reason` when it is not (e.g. `org_level_disabled_until`, a cap the
+organisation switched off). `limit: null` with `enabled: false` is an account that never turned
+credits on. Whether more can be spent is `enabled` and `used < limit`; unlimited draws no line.
+`credits.taken_at` is when the vendor said so: a fresh statusline `capture` carries the last
+API read's credits forward, dated. `credits` is `null` for vendors without the concept, and is
+not projected: the vendor reports no reset for it.
 
 ## Sources
 
