@@ -49,6 +49,7 @@ readings = [
 ]
 readings = [projection.attach(r, history) for r in readings]
 show._claude_dirs = lambda: {"work": "work"}
+show._glm_wrappers = lambda: {}
 
 out = Path(__file__).parent
 console = Console(record=True, width=104, file=open("/dev/null", "w"))

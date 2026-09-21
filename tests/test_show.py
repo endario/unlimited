@@ -2,8 +2,11 @@
 
 from __future__ import annotations
 
+import os
+import tempfile
 import unittest
 from datetime import datetime, timedelta, timezone
+from pathlib import Path
 from unittest import mock
 
 from unlimited import show
@@ -26,6 +29,15 @@ class Render(unittest.TestCase):
         self.assertRegex(out, r"resets in +2d 0h")
         self.assertNotIn("limits:session", out)
         self.assertIn("limits:session", show.render([r], NOW, all_limits=True))
+
+    def test_a_zai_account_is_named_by_the_wrapper_holding_its_key(self):
+        home = Path(tempfile.mkdtemp())
+        (home / ".config").mkdir()
+        (home / ".config" / "claude-glm-2.env").write_text("GLM_API_KEY=two\n")
+        from unlimited.adapters import zai
+        r = reading("zai", zai.account_of("two"), NOW, "ok", plan="max", limits=[])
+        with mock.patch.dict(os.environ, {"HOME": str(home), "CLAUDE_GLM_ENV": ""}):
+            self.assertIn("Z.ai GLM Max · claude-glm-2\n", show.render([r], NOW))
 
     def test_an_unread_account_says_why(self):
         r = reading("zai", "z", NOW, "refused", why="http-429", retry_until=NOW + timedelta(minutes=5))

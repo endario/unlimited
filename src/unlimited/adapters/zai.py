@@ -17,7 +17,7 @@ UNIT_MINUTES = {3: 60, 6: 10080}
 NAMES = {300: "five_hour", 10080: "seven_day"}
 
 
-def _env_files() -> list[Path]:
+def env_files() -> list[Path]:
     """Every wrapper's env file (claude-glm, claude-glm-2, ...), and $CLAUDE_GLM_ENV. A GLM
     session exports its own file and key, so neither may narrow discovery to that one account."""
     files = sorted((Path.home() / ".config").glob("claude-glm*.env"))
@@ -42,7 +42,7 @@ def account_of(key: str) -> str:
 
 
 def discover() -> list[Credential]:
-    keys = [os.environ.get("GLM_API_KEY")] + [key_in(f) for f in _env_files()]
+    keys = [os.environ.get("GLM_API_KEY")] + [key_in(f) for f in env_files()]
     found = {account_of(k): k for k in keys if k}
     return [Credential(a, {"key": k}) for a, k in sorted(found.items())]
 

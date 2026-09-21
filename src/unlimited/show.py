@@ -34,6 +34,17 @@ def _claude_dirs() -> dict[str, str]:
     return {k: ", ".join(v) for k, v in out.items()}
 
 
+def _glm_wrappers() -> dict[str, str]:
+    """Z.ai account id → the claude-glm wrappers holding its key, by their command name."""
+    from .adapters import zai
+    out: dict[str, list[str]] = {}
+    for f in zai.env_files():
+        key = zai.key_in(f)
+        if key:
+            out.setdefault(zai.account_of(key), []).append(f.stem)
+    return {k: ", ".join(dict.fromkeys(v)) for k, v in out.items()}
+
+
 def _until(t: datetime, now: datetime) -> str:
     s = int((t - now).total_seconds())
     if s <= 0:
@@ -68,7 +79,8 @@ def _forecast(p: dict, now: datetime, color: bool) -> str:
 
 
 def render(readings: list[dict], now: datetime, *, color: bool = False, all_limits: bool = False) -> str:
-    labels = _claude_dirs() if any(r.get("vendor") == "anthropic" for r in readings) else {}
+    labels = {**(_claude_dirs() if any(r.get("vendor") == "anthropic" for r in readings) else {}),
+              **(_glm_wrappers() if any(r.get("vendor") == "zai" for r in readings) else {})}
     lines = []
     for r in sorted(readings, key=lambda r: (r.get("vendor") or "", labels.get(r.get("account"), ""))):
         vendor = VENDOR_NAMES.get(r.get("vendor"), r.get("vendor"))
