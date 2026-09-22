@@ -188,8 +188,13 @@ def _iso(v: object) -> datetime | None:
 
 def read(cred: Credential, now: datetime, get) -> dict:
     token = cred.secret.get("token")
-    if not token:
+    if token is None:
         return reading(VENDOR, cred.account, now, UNREAD, why="no-credential")
+    if token == "":
+        # Claude Code's own tombstone for a failed OAuth refresh (`invalid_grant`): the record
+        # exists but says re-login is required, which is operationally different from finding
+        # none at all.
+        return reading(VENDOR, cred.account, now, UNREAD, why="signed-out")
     exp = _expiry({"expiresAt": cred.secret.get("expires")})
     if exp is not None and exp <= now:
         # Asking on an expired token answers 429, which reads like a real limit.

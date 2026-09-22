@@ -218,6 +218,21 @@ class Discovery(Base):
                              self.up(Answer({}, 200, None)))
         self.assertEqual((got["status"], got["why"], self.calls), ("unread", "credential-expired", []))
 
+    def test_an_account_with_no_oauth_record_reads_as_no_credential(self):
+        self.signed_in(".claude-a")
+        with mock.patch.object(anthropic, "_oauth", lambda d: []):
+            [cred] = anthropic.discover()
+        got = anthropic.read(cred, NOW, self.up(Answer({}, 200, None)))
+        self.assertEqual((got["status"], got["why"], self.calls), ("unread", "no-credential", []))
+
+    def test_a_tombstoned_account_reads_as_signed_out_not_as_no_credential(self):
+        self.signed_in(".claude-a")
+        tombstone = [{"accessToken": "", "refreshToken": "", "expiresAt": 0}]
+        with mock.patch.object(anthropic, "_oauth", lambda d: tombstone):
+            [cred] = anthropic.discover()
+        got = anthropic.read(cred, NOW, self.up(Answer({}, 200, None)))
+        self.assertEqual((got["status"], got["why"], self.calls), ("unread", "signed-out", []))
+
 
 class OpenCodeGo(Base):
     BODY = {"usage": {
