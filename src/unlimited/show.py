@@ -7,7 +7,8 @@ from datetime import datetime
 from .projection import MIN_PAST
 from .schema import moment
 
-VENDOR_NAMES = {"anthropic": "Claude", "openai": "Codex", "zai": "Z.ai GLM", "opencode": "OpenCode", "xai": "Grok"}
+VENDOR_NAMES = {"anthropic": "Claude", "openai": "Codex", "zai": "Z.ai GLM", "opencode": "OpenCode", "xai": "Grok",
+                "kimi": "Kimi Code"}
 WINDOW_NAMES = {"five_hour": "5-hour", "seven_day": "weekly", "month": "monthly", "codex": "weekly",
                 "gpt-reserve": "weekly reserve", "seven_day_opus": "weekly Opus",
                 "seven_day_sonnet": "weekly Sonnet", "period": "billing period"}
@@ -29,7 +30,8 @@ def _claude_dirs() -> dict[str, str]:
     for d in anthropic.config_dirs():
         who = anthropic.account_of(d)
         if who:
-            name = d.name.removeprefix(".claude").lstrip("-") or "default"
+            # "account1", not "default": sorts with its account2/account3 siblings, not after them.
+            name = d.name.removeprefix(".claude").lstrip("-") or "account1"
             out.setdefault(who, []).append(name)
     return {k: ", ".join(v) for k, v in out.items()}
 
@@ -42,6 +44,17 @@ def _glm_wrappers() -> dict[str, str]:
         key = zai.key_in(f)
         if key:
             out.setdefault(zai.account_of(key), []).append(f.stem)
+    return {k: ", ".join(dict.fromkeys(v)) for k, v in out.items()}
+
+
+def _kimi_wrappers() -> dict[str, str]:
+    """Kimi account id → the claude-kimi wrappers holding its key, by their command name."""
+    from .adapters import kimi
+    out: dict[str, list[str]] = {}
+    for f in kimi.env_files():
+        key = kimi.key_in(f)
+        if key:
+            out.setdefault(kimi.account_of(key), []).append(f.stem)
     return {k: ", ".join(dict.fromkeys(v)) for k, v in out.items()}
 
 
@@ -101,9 +114,11 @@ def _credits(c: dict, taken: datetime | None, now: datetime, color: bool) -> str
 
 def render(readings: list[dict], now: datetime, *, color: bool = False, all_limits: bool = False) -> str:
     labels = {**(_claude_dirs() if any(r.get("vendor") == "anthropic" for r in readings) else {}),
-              **(_glm_wrappers() if any(r.get("vendor") == "zai" for r in readings) else {})}
+              **(_glm_wrappers() if any(r.get("vendor") == "zai" for r in readings) else {}),
+              **(_kimi_wrappers() if any(r.get("vendor") == "kimi" for r in readings) else {})}
     lines = []
-    for r in sorted(readings, key=lambda r: (r.get("vendor") or "", labels.get(r.get("account"), ""))):
+    for r in sorted(readings, key=lambda r: (VENDOR_NAMES.get(r.get("vendor"), r.get("vendor") or ""),
+                                             labels.get(r.get("account"), ""))):
         vendor = VENDOR_NAMES.get(r.get("vendor"), r.get("vendor"))
         who = labels.get(r.get("account")) or (r.get("account") or "?")[:8]
         taken = moment(r.get("taken_at"))

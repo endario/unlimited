@@ -97,6 +97,7 @@ not projected: the vendor reports no reset for it.
 | Anthropic (Claude Code, claude.ai sign-in) | the `rate_limits` Claude Code hands its statusline, via `capture` | `oauth/usage` on Claude Code's own token |
 | OpenAI (Codex, ChatGPT sign-in) | `rate_limits` in Codex's session logs | `wham/usage` on Codex's own token |
 | Z.ai (GLM coding plan) | — | `quota/limit` on each claude-glm wrapper's API key |
+| Moonshot Kimi (Kimi Code coding plan) | — | `coding/v1/usages` on each claude-kimi wrapper's API key |
 | OpenCode Go | — | `zen/go/v1/usage` on the Go API key opencode keeps |
 | xAI Grok (SuperGrok, Grok CLI sign-in) | — | the Grok CLI's billing proxy on its own token |
 

@@ -13,7 +13,7 @@ from types import SimpleNamespace
 from unittest import mock
 
 from unlimited import cache, cli
-from unlimited.adapters import anthropic, opencode, openai, xai, zai
+from unlimited.adapters import anthropic, kimi, opencode, openai, xai, zai
 from unlimited.credential import Credential
 from unlimited.transport import Answer
 
@@ -29,7 +29,8 @@ class Base(unittest.TestCase):
         self.home = self.tmp / "home"
         self.home.mkdir()
         p = mock.patch.dict(os.environ, {"XDG_CACHE_HOME": str(self.tmp / "cache"), "HOME": str(self.home),
-                                          "CLAUDE_GLM_ENV": "", "GLM_API_KEY": ""})
+                                          "CLAUDE_GLM_ENV": "", "GLM_API_KEY": "",
+                                          "CLAUDE_KIMI_ENV": "", "KIMI_API_KEY": ""})
         p.start()
         self.addCleanup(p.stop)
         self.calls = []
@@ -315,6 +316,103 @@ class Zai(Base):
         # Unopened: no reset time, but zero is what the account says, not unknown.
         self.assertEqual((got[300]["name"], got[300]["used_at_least"]), ("five_hour", 0.0))
         self.assertNotIn("seven_day", [l["name"] for l in got.values() if l["kind"] == "TIME_LIMIT"])
+
+
+class Kimi(Base):
+    def env(self, name: str, key: str) -> Path:
+        (self.home / ".config").mkdir(exist_ok=True)
+        f = self.home / ".config" / name
+        f.write_text(f'KIMI_API_KEY="{key}"\nCLAUDE_CONFIG_DIR="$HOME/.claude-kimi"\n')
+        return f
+
+    def test_every_wrappers_key_is_an_account_even_inside_one_kimi_session(self):
+        self.env("claude-kimi.env", "key-one")
+        second = self.env("claude-kimi-2.env", "key-two")
+        with mock.patch.dict(os.environ, {"CLAUDE_KIMI_ENV": str(second), "KIMI_API_KEY": "key-two"}):
+            got = kimi.discover()
+        self.assertEqual(sorted(c.secret["key"] for c in got), ["key-one", "key-two"])
+        self.assertEqual({c.account for c in got}, {kimi.account_of("key-one"), kimi.account_of("key-two")})
+
+    def test_the_real_counts_are_read_ahead_of_the_vendors_broken_ratio(self):
+        # The real /usages shape: `usage`/`limits` give real, non-zero counts (as strings) for the
+        # same two windows `usages.limit_5h/7d.used_ratio` also names — but confirmed live against
+        # the account (and MoonshotAI/kimi-code#3951) to sit stuck at 0 regardless of real usage.
+        # The counts must win.
+        body = {"usages": {"limit_5h": {"used_ratio": 0, "reset_time": "2026-09-23T14:28:58Z"},
+                           "limit_7d": {"used_ratio": 0, "reset_time": "2026-09-28T09:28:58Z"}},
+                "usage": {"limit": "100", "used": "61", "resetTime": "2026-09-28T09:28:59.213744Z"},
+                "limits": [{"window": {"duration": 300, "timeUnit": "TIME_UNIT_MINUTE"},
+                           "detail": {"limit": "100", "used": "38", "resetTime": "2026-09-23T14:28:59.213744Z"}}]}
+        got = {l["name"]: l for l in kimi.limits(body, NOW)}
+        self.assertEqual(set(got), {"five_hour", "seven_day"})
+        self.assertEqual((got["five_hour"]["used_at_least"], got["seven_day"]["used_at_least"]), (0.38, 0.61))
+
+    def test_the_ratio_is_read_only_when_the_counts_are_entirely_absent(self):
+        got = kimi.limits({"usages": {"limit_5h": {"used_ratio": 0.5, "reset_time": "2026-09-23T14:28:58Z"}}}, NOW)
+        self.assertEqual([(l["name"], l["used_at_least"]) for l in got], [("five_hour", 0.5)])
+
+    def test_the_string_typed_limit_and_used_fields_are_parsed_as_numbers(self):
+        got = kimi.limits({"usage": {"limit": "100", "used": "61"}}, NOW)
+        self.assertAlmostEqual(got[0]["used_at_least"], 0.61)
+
+    def test_windowed_limits_are_named_from_their_duration_and_unit(self):
+        at = (NOW + timedelta(days=3)).isoformat().replace("+00:00", "Z")
+        body = {"limits": [
+            {"window": {"duration": 5, "timeUnit": "HOUR"}, "detail": {"limit": 100, "used": 30}},
+            {"window": {"duration": 7, "timeUnit": "DAY"}, "detail": {"limit": 1000, "used": 90, "resetTime": at}}]}
+        got = {l["name"]: l for l in kimi.limits(body, NOW)}
+        self.assertEqual((got["five_hour"]["window_minutes"], got["five_hour"]["used_at_least"]), (300, 0.3))
+        self.assertEqual((got["seven_day"]["window_minutes"], got["seven_day"]["used_at_least"],
+                          got["seven_day"]["resets_at"]), (10080, 0.09, at.replace("Z", "+00:00")))
+
+    def test_the_top_level_usage_total_is_the_weekly_window(self):
+        got = kimi.limits({"usage": {"limit": 1000, "used": 400}}, NOW)
+        self.assertEqual([(l["name"], l["window_minutes"], l["used_at_least"]) for l in got],
+                         [("seven_day", 10080, 0.4)])
+
+    def test_a_seven_day_entry_in_limits_is_not_duplicated_by_the_usage_aggregate(self):
+        # Both name the same window: `limits[]`'s own entry must win, and `usage` must not also
+        # append a second "seven_day" row.
+        body = {"limits": [{"window": {"duration": 7, "timeUnit": "DAY"}, "detail": {"limit": 1000, "used": 90}}],
+                "usage": {"limit": 1000, "used": 400}}
+        got = [l for l in kimi.limits(body, NOW) if l["name"] == "seven_day"]
+        self.assertEqual([l["used_at_least"] for l in got], [0.09])
+
+    def test_an_unrecognised_unit_string_does_not_substring_match_a_known_one(self):
+        # "HOUR" must not match inside an unrelated word that happens to contain it.
+        minutes = kimi._window_minutes({"duration": 5, "timeUnit": "SOMEHOURISH"})
+        self.assertIsNone(minutes)
+
+    def test_a_non_finite_value_is_read_as_unknown_not_a_crash(self):
+        for bad in ("Infinity", "-Infinity", "NaN"):
+            self.assertIsNone(kimi._float(bad), bad)
+        got = kimi.limits({"limits": [{"window": {"duration": "Infinity", "timeUnit": "HOUR"},
+                                       "detail": {"limit": 100, "used": 10}}]}, NOW)
+        self.assertEqual([l["window_minutes"] for l in got], [None])
+
+    def test_a_duration_whose_product_overflows_is_read_as_unknown_not_a_crash(self):
+        # "1e308" is itself finite; only `duration * per_minute` (1440 for DAY) overflows.
+        self.assertIsNone(kimi._window_minutes({"duration": "1e308", "timeUnit": "DAY"}))
+
+    def test_a_remaining_figure_without_used_is_read_as_used(self):
+        got = kimi.limits({"usage": {"limit": 100, "remaining": 70}}, NOW)
+        self.assertEqual(got[0]["used_at_least"], 0.3)
+
+    def test_a_relative_reset_in_seconds_is_read_against_now(self):
+        got = kimi.limits({"usage": {"limit": 100, "used": 1, "reset_in": 3600}}, NOW)
+        self.assertEqual(got[0]["resets_at"], (NOW + timedelta(hours=1)).isoformat())
+
+    def test_a_404_falls_back_to_the_singular_usage_endpoint(self):
+        def get(url, headers, now):
+            self.calls.append(url)
+            return Answer(None, 404, "http-404") if url == kimi.URL else Answer({"usage": {"limit": 10, "used": 1}}, 200, None)
+        got = kimi.read(Credential("a", {"key": "k"}), NOW, get)
+        self.assertEqual((self.calls, got["status"], got["limits"][0]["used_at_least"]),
+                         ([kimi.URL, kimi.FALLBACK_URL], "ok", 0.1))
+
+    def test_a_reply_with_no_readable_limits_is_unread_not_a_guess(self):
+        got = kimi.read(Credential("a", {"key": "k"}), NOW, self.up(Answer({}, 200, None)))
+        self.assertEqual((got["status"], got["why"]), ("unread", "no-limits"))
 
 
 class LastGood(Base):

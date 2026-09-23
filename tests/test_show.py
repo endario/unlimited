@@ -30,6 +30,20 @@ class Render(unittest.TestCase):
         self.assertNotIn("limits:session", out)
         self.assertIn("limits:session", show.render([r], NOW, all_limits=True))
 
+    def test_vendor_blocks_sort_by_their_displayed_name_not_their_internal_id(self):
+        # "kimi" < "openai" as internal ids, but "Codex" must still print before "Kimi Code".
+        readings = [reading("kimi", "k", NOW, "ok", limits=[]), reading("openai", "o", NOW, "ok", limits=[])]
+        out = show.render(readings, NOW)
+        self.assertLess(out.index("Codex"), out.index("Kimi Code"))
+
+    def test_the_bare_claude_directory_is_labeled_account1_not_default(self):
+        home = Path(tempfile.mkdtemp())
+        (home / ".claude").mkdir()
+        (home / ".claude" / ".claude.json").write_text('{"oauthAccount": {"accountUuid": "u"}}')
+        with mock.patch.dict(os.environ, {"HOME": str(home)}):
+            labels = show._claude_dirs()
+        self.assertEqual(labels, {"u": "account1"})
+
     def test_a_zai_account_is_named_by_the_wrapper_holding_its_key(self):
         home = Path(tempfile.mkdtemp())
         (home / ".config").mkdir()
@@ -38,6 +52,15 @@ class Render(unittest.TestCase):
         r = reading("zai", zai.account_of("two"), NOW, "ok", plan="max", limits=[])
         with mock.patch.dict(os.environ, {"HOME": str(home), "CLAUDE_GLM_ENV": ""}):
             self.assertIn("Z.ai GLM Max · claude-glm-2\n", show.render([r], NOW))
+
+    def test_a_kimi_account_is_named_by_the_wrapper_holding_its_key(self):
+        home = Path(tempfile.mkdtemp())
+        (home / ".config").mkdir()
+        (home / ".config" / "claude-kimi.env").write_text("KIMI_API_KEY=two\n")
+        from unlimited.adapters import kimi
+        r = reading("kimi", kimi.account_of("two"), NOW, "ok", limits=[])
+        with mock.patch.dict(os.environ, {"HOME": str(home), "CLAUDE_KIMI_ENV": ""}):
+            self.assertIn("Kimi Code · claude-kimi\n", show.render([r], NOW))
 
     def credits(self, **kw):
         return credits(NOW, **{"enabled": True, "used": 0.0, "limit": 200.0, "balance": None,
