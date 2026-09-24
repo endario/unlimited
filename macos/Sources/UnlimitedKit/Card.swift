@@ -25,7 +25,7 @@ public struct Card: Identifiable, Sendable {
 
     /// How far a marker past 100% may bleed beyond the bar's end, in points: the bar is inset
     /// this much at each end of its card, so the mark lands in that space.
-    public static let bleed: Double = 2.5
+    public static let bleed: Double = 5
 
     /// A marker's position on a bar `width` wide: to scale up to the limit, then only just past it.
     public static func marker(_ value: Double, width: Double) -> Double {
