@@ -1,6 +1,15 @@
 # unlimited
 
-Read AI-subscription quota usage, per window, as facts — and where each window is heading.
+How much of each AI subscription you have used, per window, and where each window is heading:
+Claude, Codex, Z.ai GLM, Kimi Code, OpenCode Go and Grok, across every account on the machine.
+
+![The menu bar strip: one tile per account, its weekly use coloured by where it is heading](docs/img/strip.png)
+
+It comes three ways, all from the same readings:
+
+- **In the menu bar**: a macOS app, one tile per account.
+- **In the terminal**: `unlimited`, a block per account.
+- **For agents**: `unlimited read --json`, for load-balancing and pacing work across subscriptions.
 
 ```
 uv tool install unlimited                # or: pipx install unlimited
@@ -16,17 +25,46 @@ Each reading gives each limit's window length, the fraction used so far, and its
 also gives whether the vendor says the limit is held, and why, and, where the vendor names it,
 the account's plan and, for Claude, its credits: what it may spend once the windows are used.
 unlimited reports what the vendor says, and projects it forward: a reading never
-picks an account or draws a threshold (only the status view colours its bars, for people).
-Choosing what to do with a reading is up to the consumer.
+picks an account or draws a threshold. Choosing what to do with a reading is up to the consumer.
 
-## For people
+## In the menu bar
+
+<img src="docs/img/popover.png" width="346" align="right" alt="The popover for one account: a card per window, with its bar, pace and forecast">
+
+Each tile shows an account's weekly use. When another of its windows is in worse shape, the tile
+cross-fades to it now and then. The thin bar beside each figure is how much of the week has
+passed. Where a vendor has several accounts, the one to use next is underlined.
+
+The colour says where the window is heading, once there is enough to go on:
+
+- **Blue**: it resets soon with room to spare. Spend it.
+- **Green**: it is heading well under the limit.
+- **Plain**: carry on.
+- **Amber**: it might run out before it resets.
+- **Red**: it will, or it has.
+
+Click a tile for its account's windows. On each bar, the line is where an even pace would be by
+now, ▼ is where today's pace reaches by the reset and ▲ is the forecast. Below it: 🔥 when it
+runs out, 🎲 the chance it does, ↻ when it resets and 📈 the forecast. A forecast in a thinner
+weight rests on this window alone, before past windows back it. Click another tile to switch
+accounts. Settings relabels, hides and reorders tiles.
+
+The app reads no credential and calls no vendor: it runs `unlimited read --json`. To build it,
+with Command Line Tools only:
+
+```
+cd macos && make app && open .build/Unlimited.app
+```
+
+<br clear="right">
+
+## In the terminal
 
 ![unlimited status: one block per account, a bar per usage window, and a forecast line under each](docs/status.svg)
 
 ## For agents
 
-`unlimited read --json` gives the same readings, one per account, for load-balancing and pacing
-work across subscriptions (one limit shown):
+`unlimited read --json` gives the same readings, one per account (one limit shown):
 
 ```json
 [
