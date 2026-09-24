@@ -98,9 +98,9 @@ struct CardView: View {
                         if let m = card.momentum { figure(m, "bolt.fill").help("At today's pace, by reset") }
                         if let p = card.projected { figure(p, "chart.line.uptrend.xyaxis").help("Forecast at reset") }
                     }
-                    .font(.callout.weight(.semibold)).monospacedDigit()
-                    // Half a weight lighter: a guess from this window's paces alone, before past windows back it.
-                    .fontWeight(card.fromHistory ? .semibold : .medium)
+                    .font(.callout).monospacedDigit()
+                    // Thinner than regular: a guess from this window's paces alone, before past windows back it.
+                    .fontWeight(card.fromHistory ? .regular : .light)
                     .foregroundStyle(tint)
                     Text(card.used.map(percent) ?? "?")
                         .font(.callout.weight(.semibold)).monospacedDigit()
@@ -143,7 +143,7 @@ struct CardView: View {
     /// pace marked above the bar, the forecast below. Past 100% a mark only just bleeds out.
     private var bar: some View {
         GeometryReader { g in
-            let w = g.size.width
+            let w = g.size.width - 2 * Card.bleed  // the bar, inset at each end for the marks
             ZStack(alignment: .leading) {
                 RoundedRectangle(cornerRadius: 1.5).fill(Color.primary.opacity(0.12)).frame(height: Self.barHeight)
                 // Neutral is grey: the accent colour is often blue, which here means a sprint.
@@ -157,6 +157,7 @@ struct CardView: View {
             }
             // Sized to the bar, so the taller stripe and the marks overhang it evenly.
             .frame(width: w, height: Self.barHeight)
+            .offset(x: Card.bleed)
         }
         .frame(height: Self.barHeight)
         .padding(.vertical, 12)
