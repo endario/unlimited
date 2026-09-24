@@ -76,7 +76,8 @@ struct Box<Content: View>: View {
             .frame(maxWidth: .infinity, alignment: .leading)
             .padding(.vertical, 10)
             .padding(.horizontal, 8)
-            .background(Color.primary.opacity(0.06), in: .rect(cornerRadius: 10))
+            // Darker than the popover, so coloured text stands off it by brightness.
+            .background(Color.black.opacity(0.35), in: .rect(cornerRadius: 10))
     }
 }
 

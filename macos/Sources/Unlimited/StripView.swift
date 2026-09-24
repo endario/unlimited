@@ -2,15 +2,16 @@ import SwiftUI
 import UnlimitedKit
 
 extension Health {
-    /// Neutral is the menu bar's own colour: nothing to act on.
+    /// One palette for the strip, the text, the bars and the marks. Light tints: saturated
+    /// colours sit at the dark card's own brightness and read poorly on it (each tint measured
+    /// at 4.5:1 or better against a card). Neutral is the system's own foreground.
     var color: Color {
         switch self {
-        case .sprint: .blue
-        case .underUsed: .green
+        case .sprint: Color(red: 0.62, green: 0.78, blue: 1)
+        case .underUsed: Color(red: 0.56, green: 0.9, blue: 0.62)
         case .normal: .primary
-        case .amber: .orange
-        // A coral, not system red: pure red vibrates against the popover's dark grey.
-        case .red: Color(red: 1, green: 0.41, blue: 0.38)
+        case .amber: Color(red: 1, green: 0.78, blue: 0.47)
+        case .red: Color(red: 1, green: 0.68, blue: 0.66)
         }
     }
 }
