@@ -30,7 +30,7 @@ struct PopoverView: View {
 
     /// Which account this is: the strip above is the tabs, so the popover only names it.
     private func header(_ t: Tile, _ r: Reading) -> some View {
-        HStack(alignment: .firstTextBaseline, spacing: 6) {
+        HStack(alignment: .center, spacing: 6) {
             Text(t.label).font(.headline.monospaced())
             Text(([Tile.vendorName(t.vendor)] + r.names).joined(separator: " · "))
                 .font(.callout).foregroundStyle(.secondary)
@@ -88,8 +88,8 @@ struct CardView: View {
     var body: some View {
         Box {
             VStack(alignment: .leading, spacing: 6) {
-                // One baseline for the title, the forecasts and the figure: they mix sizes.
-                HStack(alignment: .firstTextBaseline, spacing: 10) {
+                // Centred, not on one baseline: the owner's call for rows that mix sizes.
+                HStack(alignment: .center, spacing: 10) {
                     Text(card.title).font(.callout.weight(.semibold))
                     Spacer()
                     Group {
@@ -106,7 +106,7 @@ struct CardView: View {
                 }
                 bar
                 if card.resets != nil || card.odds != nil || card.runsOut != nil {
-                HStack(alignment: .firstTextBaseline) {
+                HStack(alignment: .center) {
                     if let resets = card.resets { Text(resets).foregroundStyle(.secondary) }
                     Spacer()
                     Group {
