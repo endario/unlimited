@@ -88,32 +88,46 @@ struct CardView: View {
     var body: some View {
         Box {
             VStack(alignment: .leading, spacing: 6) {
-                HStack {
+                // One baseline for the title, the forecasts and the figure: they mix sizes.
+                HStack(alignment: .firstTextBaseline, spacing: 10) {
                     Text(card.title).font(.callout.weight(.semibold))
                     Spacer()
+                    Group {
+                        if let m = card.momentum { figure(m, "bolt.fill").help("At today's pace, by reset") }
+                        if let p = card.projected { figure(p, "chart.line.uptrend.xyaxis").help("Forecast at reset") }
+                    }
+                    .font(.caption).monospacedDigit()
+                    // Italic: a guess from this window's paces alone, before past windows back it.
+                    .italic(!card.fromHistory)
+                    .foregroundStyle(tint)
                     Text(card.used.map(percent) ?? "?")
                         .font(.callout.weight(.semibold)).monospacedDigit()
                         .foregroundStyle(card.health.color)
                 }
                 bar
-                if let resets = card.resets { Text(resets).font(.caption).foregroundStyle(.secondary) }
-                if card.momentum != nil || card.projected != nil || card.runsOut != nil {
-                    HStack(spacing: 10) {
-                        if let m = card.momentum { Label(percent(m), systemImage: "bolt.fill").help("At today's pace, by reset") }
-                        if let p = card.projected {
-                            Label(percent(p), systemImage: "chart.line.uptrend.xyaxis").help("Forecast at reset")
-                        }
-                        if let r = card.runsOut { Text(r) }
+                if card.resets != nil || card.odds != nil || card.runsOut != nil {
+                HStack(alignment: .firstTextBaseline) {
+                    if let resets = card.resets { Text(resets).foregroundStyle(.secondary) }
+                    Spacer()
+                    Group {
                         if let o = card.odds { Text("\(o)% chance").help("Of running out, from past windows") }
+                        if let r = card.runsOut { Text(r) }
                     }
-                    .font(.caption).monospacedDigit()
-                    // Italic: a guess from this window's paces alone, before past windows back it.
                     .italic(!card.fromHistory)
-                    .foregroundStyle(card.health == .normal ? Color.secondary : card.health.color)
+                    .foregroundStyle(tint)
+                }
+                .font(.caption).monospacedDigit()
                 }
             }
         }
     }
+
+    /// An icon and its figure, closer than `Label` sets them.
+    private func figure(_ v: Double, _ icon: String) -> some View {
+        HStack(spacing: 2) { Image(systemName: icon); Text(percent(v)) }
+    }
+
+    private var tint: Color { card.health == .normal ? .secondary : card.health.color }
 
     private func percent(_ v: Double) -> String { "\(Int((v * 100).rounded()))%" }
 
