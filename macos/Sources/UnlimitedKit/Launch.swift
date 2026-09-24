@@ -1,15 +1,15 @@
 import Foundation
 
-/// Where to open a Claude Code session as one account: the owner's per-account wrappers in
-/// `~/.local/bin` (`claude-3`, `claude-glm`, …) and the rebranded VS Code bundle whose launcher
-/// runs the matching `code-…` wrapper (see ~/endario/vscode-rebranding).
+/// Where to open a Claude Code session as one account: a per-account wrapper in `~/.local/bin`
+/// (`claude-N`, `claude-glm`, …) and, when installed, a VS Code app bundle whose launcher script
+/// runs the matching `code-…` wrapper.
 public struct Launch: Equatable, Sendable {
-    /// The CLI wrapper, e.g. `~/.local/bin/claude-3`.
+    /// The CLI wrapper, e.g. `~/.local/bin/claude-2`.
     public let cli: URL
     /// The VS Code bundle for this account, when one is installed.
     public let editor: URL?
 
-    /// `account3` is the `a3` family (`claude-3`); a `claude-…` name is its wrapper already.
+    /// `accountN` runs as `claude-N`; a `claude-…` name is its wrapper already.
     static func wrapper(_ names: [String]) -> String? {
         for n in names {
             if n.hasPrefix("claude-") { return n }
@@ -22,7 +22,7 @@ public struct Launch: Equatable, Sendable {
         guard let name = wrapper(names) else { return nil }
         let cli = home.appending(path: ".local/bin/\(name)")
         guard FileManager.default.isExecutableFile(atPath: cli.path) else { return nil }
-        // Each bundle's launcher ends `exec "…/.local/bin/code-3" "$@"`.
+        // Each bundle's launcher ends `exec "…/.local/bin/code-N" "$@"`.
         let code = "/.local/bin/code-\(name.dropFirst("claude-".count))\""
         let apps = home.appending(path: "Applications")
         let bundles = (try? FileManager.default.contentsOfDirectory(at: apps, includingPropertiesForKeys: nil)) ?? []

@@ -23,12 +23,12 @@ private func home(wrappers: [String], launchers: [String: String]) throws -> URL
 @Test func anAccountOpensItsOwnWrapperAndTheBundleThatRunsIt() throws {
     // code-3 must not match code-3x, nor code-glm match code-glm-2: each decoy sorts first.
     let h = try home(wrappers: ["claude-3", "claude-glm"],
-                     launchers: ["Code Claude 3": "code-3", "A Claude 3x": "code-3x",
-                                 "Code GLM 1": "code-glm", "Code GLM 0": "code-glm-2"])
+                     launchers: ["Code A": "code-3", "Code A decoy": "code-3x",
+                                 "Code B": "code-glm", "Code B decoy": "code-glm-2"])
     let a3 = try #require(Launch.resolve(names: ["account3"], home: h))
     #expect(a3.cli.lastPathComponent == "claude-3")
-    #expect(a3.editor?.lastPathComponent == "Code Claude 3.app")
-    #expect(Launch.resolve(names: ["claude-glm"], home: h)?.editor?.lastPathComponent == "Code GLM 1.app")
+    #expect(a3.editor?.lastPathComponent == "Code A.app")
+    #expect(Launch.resolve(names: ["claude-glm"], home: h)?.editor?.lastPathComponent == "Code B.app")
 }
 
 @Test func anAccountWithoutAWrapperOffersNoLaunch() throws {
