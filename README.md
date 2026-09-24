@@ -67,6 +67,7 @@ work across subscriptions (one limit shown):
         "scope": null,
         "projection": {
           "at_reset": [0.873, 0.9436],
+          "recent_at_reset": 0.9436,
           "exhausts_at": null,
           "run_out": 0.164,
           "samples": 2,
@@ -124,7 +125,8 @@ burst and falls in a quiet spell. Past windows of the same limit, kept for
 eight windows, add the shape of use (quiet nights, busy Mondays): each one's use from this point
 to its end, shifted to today's. They take over from the paces between the third and eighth window.
 
-`at_reset` is `[low, high]`, unclamped, so `1.07` means use would pass the limit. `exhausts_at`
+`at_reset` is `[low, high]`, unclamped, so `1.07` means use would pass the limit. `recent_at_reset` is the recent pace alone
+extended to the reset: today's momentum, which past windows do not move. `exhausts_at`
 is when the high end reaches it, if before the reset. `run_out` is how likely use passes it, from the past windows that did, or `null`
 without them. `samples`, `past_windows` and `since` say what it rests on. A projection is only as good as how often something reads: a statusline
 `capture` feeds it continuously.

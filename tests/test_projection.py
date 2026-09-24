@@ -50,6 +50,13 @@ class Project(unittest.TestCase):
         self.assertGreater(hi, 1)
         self.assertLess(moment(p["exhausts_at"]), RESET)
 
+    def test_the_recent_pace_alone_is_reported_whichever_end_it_lands(self):
+        # A consumer can name "today's pace", which the sorted [low, high] cannot.
+        burst = proj(history((NOW - timedelta(days=1), 0.2), (NOW, 0.45)), NOW, 0.45)
+        self.assertEqual(burst["recent_at_reset"], burst["at_reset"][1])
+        quiet = proj(history((NOW - timedelta(days=1), 0.4), (NOW, 0.4)), NOW, 0.4)
+        self.assertEqual(quiet["recent_at_reset"], quiet["at_reset"][0])
+
     def test_a_quiet_spell_lowers_the_recent_pace_below_the_average(self):
         # 40% in the first three days, nothing in the last one.
         h = history((NOW - timedelta(days=1), 0.4), (NOW, 0.4))
@@ -140,6 +147,12 @@ class FromPastWindows(unittest.TestCase):
         self.assertGreater(p["run_out"], 0.8)
         self.assertAlmostEqual((moment(p["exhausts_at"]) - NOW) / timedelta(days=1), 2, delta=0.1)
 
+    def test_past_windows_move_the_range_but_not_the_recent_pace(self):
+        front = lambda x: min(x / (4 / 7), 1) * 0.4
+        p = proj(self.entry([front] * 8), NOW, 0.4)
+        self.assertNotEqual(p["recent_at_reset"], p["at_reset"][1])
+        self.assertEqual(p["recent_at_reset"], proj(self.entry([]), NOW, 0.4)["recent_at_reset"])
+
     def test_too_few_past_windows_leave_the_paces_in_charge(self):
         front = lambda x: min(x / (4 / 7), 1) * 0.4
         self.assertEqual(proj(self.entry([front]), NOW, 0.4)["at_reset"], [0.7, 0.7])
@@ -174,7 +187,7 @@ class Shown(unittest.TestCase):
     def test_the_status_row_shows_the_projected_range(self):
         r = projection.attach(at(NOW, 0.45), history((NOW - timedelta(days=1), 0.2), (NOW, 0.45)))
         out = show.render([r], NOW)
-        self.assertRegex(out, r"\n {18}→ \d+–\d+% at reset · runs out \w{3} \d\d:\d\d \(in \d+d \d+h\)\n")
+        self.assertRegex(out, r"\n {18}→ \d+–\d+% at reset · runs out in \d+d \d+h\n")
 
     def test_a_full_window_has_no_forecast_and_past_windows_are_named(self):
         full = projection.attach(at(NOW, 1.0), history((NOW, 1.0)))

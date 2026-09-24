@@ -12,6 +12,8 @@ elapsed. Two sources say where it is heading:
 
 With few past windows the projection is the paces'; it moves to the past windows' as they
 accumulate. `at_reset` is [low, high], unclamped: 1.07 means use would pass the limit.
+`recent_at_reset` is the recent pace alone, extended to the reset: today's momentum, which
+past windows do not move.
 `exhausts_at` is when the high end reaches 1.0, if before the reset. `run_out` is how likely use
 passes the limit, from the past windows that, shifted to today's use, did. None of it is advice.
 """
@@ -222,6 +224,7 @@ def project(entry: object, l: dict) -> dict | None:
         return None
     avg, recent = _paces(pts, start, window)
     lo, hi = sorted([u + avg * left, u + recent * left])
+    now_pace = u + recent * left
     fast = max(avg, recent)
     eta = (1 - u) / fast if u < 1 < u + fast * left else None
     run_out = None
@@ -234,7 +237,8 @@ def project(entry: object, l: dict) -> dict | None:
         elif hi < 1:
             eta = None
     exhausts = t + timedelta(seconds=eta) if eta is not None and u < 1 and eta < left else None
-    return {"at_reset": [round(lo, 4), round(hi, 4)], "exhausts_at": iso(exhausts),
+    return {"at_reset": [round(lo, 4), round(hi, 4)], "recent_at_reset": round(now_pace, 4),
+            "exhausts_at": iso(exhausts),
             "run_out": round(run_out, 3) if run_out is not None else None,
             "samples": len(pts), "past_windows": len(past), "since": iso(pts[0][0])}
 

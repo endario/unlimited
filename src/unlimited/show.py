@@ -46,7 +46,7 @@ def _forecast(p: dict, now: datetime, color: bool) -> str:
     text = "→ " + _paint(f"{lo}%" if lo == hi else f"{lo}–{hi}%", hi / 100, None, color) + " at reset"
     ends = moment(p.get("exhausts_at"))
     if ends:
-        text += (f" · runs out {ends.astimezone():%a %H:%M} (in {_until(ends, now)})" if ends > now
+        text += (f" · runs out in {_until(ends, now)}" if ends > now
                  else " · runs out now")
     if p.get("run_out") is not None:
         text += f" · {round(p['run_out'] * 100)}% chance of running out"
