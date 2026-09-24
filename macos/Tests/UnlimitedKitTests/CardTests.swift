@@ -48,6 +48,7 @@ func claude() throws -> Reading {
 @Test func aMarkerPastTheLimitBleedsJustPastTheBarsEnd() {
     #expect(Card.marker(0.5, width: 200) == 100)
     #expect(Card.marker(1.0, width: 200) == 200)
+    #expect(Card.marker(1.06, width: 200) == 212, "past the limit, still to scale while it fits")
     #expect(Card.marker(2.7, width: 200) == 200 + Card.bleed - 3, "not drawn at 270%: at the far edge")
     #expect(Card.marker(1.004, width: 200) <= 200, "printed as 100%, so drawn at the end, not past it")
     #expect(Card.marker(-0.1, width: 200) == 0)
