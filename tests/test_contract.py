@@ -250,5 +250,22 @@ class Contract(unittest.TestCase):
         self.assertEqual((got["status"], got["why"]), ("unread", "no-limits"))
 
 
+class Version(unittest.TestCase):
+    def test_version_prints_the_installed_release_so_a_consumer_can_require_a_minimum(self):
+        out = io.StringIO()
+        with mock.patch("importlib.metadata.version", lambda name: "0.0.22"), redirect_stdout(out):
+            code = cli.main(["--version"])
+        self.assertEqual((code, out.getvalue()), (0, "unlimited 0.0.22\n"))
+
+    def test_a_source_tree_says_its_version_is_unknown_rather_than_failing(self):
+        from importlib import metadata
+
+        def missing(name):
+            raise metadata.PackageNotFoundError(name)
+        with mock.patch("importlib.metadata.version", missing):
+            self.assertEqual(cli._version(), "unknown")
+
+
 if __name__ == "__main__":
     unittest.main()
+

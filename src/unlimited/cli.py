@@ -12,8 +12,17 @@ from . import cache, transport
 from .adapters import REGISTRY
 
 
+def _version() -> str:
+    from importlib import metadata
+    try:
+        return metadata.version("unlimited")
+    except metadata.PackageNotFoundError:
+        return "unknown"  # run from a source tree, not installed
+
+
 def main(argv: list[str] | None = None) -> int:
     p = argparse.ArgumentParser(prog="unlimited")
+    p.add_argument("--version", action="store_true", help="print the installed release")
     sub = p.add_subparsers(dest="cmd")
     st = sub.add_parser("status", help="usage per account, for people (the default)")
     for q in (p, st):
@@ -27,6 +36,10 @@ def main(argv: list[str] | None = None) -> int:
     c = sub.add_parser("capture", help="save a harness's own usage report (never prints)")
     c.add_argument("source", choices=["claude-statusline"])
     a = p.parse_args(argv)
+    if a.version:
+        # Looked up only when asked: `capture` must never fail on a broken install's metadata.
+        print(f"unlimited {_version()}")
+        return 0
     if a.cmd == "capture":
         # Runs inside the statusline chain: it must never print, block or fail the line.
         try:
