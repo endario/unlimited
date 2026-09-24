@@ -39,7 +39,7 @@ struct TileView: View {
 
     var body: some View {
         let showAlt = alternating && tile.alternate != nil && !reduceMotion
-        VStack(spacing: -1) {
+        VStack(spacing: -0.5) {
             Text(tile.label)
                 .font(.system(size: 8, weight: .medium, design: .monospaced))
                 .underline(tile.best, color: .primary.opacity(0.7))
