@@ -35,10 +35,36 @@ public struct Tile: Identifiable, Equatable, Sendable {
     public let dimmed: Bool
     public var health: Health = .normal
     public var alternate: Alternate?
+    /// The vendor's account to use next: marked only where a vendor has more than one.
+    public var best = false
+    /// The high end of the weekly forecast, for choosing the best pick.
+    var heading: Double?
 
     public init(id: String, label: String, value: Value, dimmed: Bool, health: Health = .normal,
-                alternate: Alternate? = nil) {
-        (self.id, self.label, self.value, self.dimmed, self.health, self.alternate) = (id, label, value, dimmed, health, alternate)
+                alternate: Alternate? = nil, best: Bool = false) {
+        (self.id, self.label, self.value, self.dimmed, self.health, self.alternate, self.best) =
+            (id, label, value, dimmed, health, alternate, best)
+    }
+
+    /// The same tile under another label.
+    public func labelled(_ label: String) -> Tile {
+        var t = Tile(id: id, label: label, value: value, dimmed: dimmed, health: health, alternate: alternate, best: best)
+        t.heading = heading
+        return t
+    }
+
+    /// Of one vendor's accounts that nothing is stopping, the one whose room expires soonest
+    /// (blue), else the one with the most room at reset.
+    static func pick(_ tiles: [Tile]) -> String? {
+        let open = tiles.filter { t in
+            guard case .percent = t.value, !t.dimmed, t.health < .amber else { return false }
+            return (t.alternate?.health ?? .normal) < .amber
+        }
+        guard tiles.count > 1 else { return nil }
+        return open.min { a, b in
+            if (a.health == .sprint) != (b.health == .sprint) { return a.health == .sprint }
+            return (a.heading ?? 1) < (b.heading ?? 1)
+        }?.id
     }
 
     public static let waiting = Tile(id: "", label: "", value: .waiting, dimmed: false)
@@ -96,10 +122,15 @@ public struct Tile: Identifiable, Equatable, Sendable {
         let numbered = tiles.map { t -> Tile in
             guard counts[t.label, default: 0] > 1 else { return t }
             seen[t.label, default: 0] += 1
-            return Tile(id: t.id, label: t.label + String(seen[t.label]!), value: t.value, dimmed: t.dimmed,
-                        health: t.health, alternate: t.alternate)
+            return t.labelled(t.label + String(seen[t.label]!))
         }
-        return numbered.isEmpty ? [.waiting] : numbered
+        let picks = Set(Dictionary(grouping: numbered, by: \.vendor).values.compactMap(pick))
+        let marked = numbered.map { t -> Tile in
+            var t = t
+            t.best = picks.contains(t.id)
+            return t
+        }
+        return marked.isEmpty ? [.waiting] : marked
     }
 
     static func tile(_ r: Reading, now: Date) -> (vendor: String, tile: Tile) {
@@ -121,8 +152,13 @@ public struct Tile: Identifiable, Equatable, Sendable {
             Alternate(role: $0.role ?? "", value: $0.usedAtLeast.map { .percent(Int(($0 * 100).rounded())) } ?? .unknown,
                       health: $0.health(now: now))
         } : nil
-        return (r.vendor, Tile(id: id, label: label(r), value: value, dimmed: throttled || !usable,
-                               health: usable ? r.weekly?.health(now: now) ?? .normal : .normal, alternate: alt))
+        var tile = Tile(id: id, label: label(r), value: value, dimmed: throttled || !usable,
+                        health: usable ? r.weekly?.health(now: now) ?? .normal : .normal, alternate: alt)
+        // Where it is heading, if the forecast is trusted yet; else how much is used so far.
+        tile.heading = r.weekly.flatMap { w in
+            w.projection.flatMap { w.trusted($0, now: now) ? $0.atReset.last : nil } ?? w.usedAtLeast
+        }
+        return (r.vendor, tile)
     }
 
     /// The vendor's code plus the number in its first identity name: `account2` → CL2,

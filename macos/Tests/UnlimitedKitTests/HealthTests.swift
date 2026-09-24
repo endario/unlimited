@@ -20,15 +20,23 @@ func week(used: Double?, range: [Double]?, elapsed: Double = 3, past: Int = 0, h
     #expect(week(used: 0.6, range: [0.9, 1.0]).health(now: now) == .amber)
 }
 
-@Test func roomLeftAtResetSaysUseMore() {
-    #expect(week(used: 0.1, range: [0.2, 0.69]).health(now: now) == .useMore)
-    #expect(week(used: 0.3, range: [0.5, 0.7]).health(now: now) == .normal, "0.7 itself is not room to spare")
+@Test func roomLeftAtResetIsGreen() {
+    #expect(week(used: 0.1, range: [0.2, 0.79]).health(now: now) == .underUsed)
+    #expect(week(used: 0.3, range: [0.5, 0.8]).health(now: now) == .normal, "0.8 itself is not under-used")
+}
+
+@Test func nearResetWithRoomTheRecentPaceWillNotSpendIsBlue() {
+    // 6.1 of 7 days gone: the last 15%.
+    #expect(week(used: 0.5, range: [0.6, 0.89], elapsed: 6.1).health(now: now) == .sprint)
+    #expect(week(used: 0.1, range: [0.2, 0.3], elapsed: 6.1).health(now: now) == .sprint, "blue beats green")
+    #expect(week(used: 0.7, range: [0.85, 0.9], elapsed: 6.1).health(now: now) == .normal, "on course for the cap")
+    #expect(week(used: 0.5, range: [0.6, 0.89], elapsed: 5.5).health(now: now) == .normal, "not yet the final stretch")
 }
 
 @Test func anUntrustedProjectionSaysNothingEitherWay() {
     // 0.5 days into a week is under 10%: early paces are guesses.
     #expect(week(used: 0.01, range: [0.02, 0.1], elapsed: 0.5).health(now: now) == .normal)
-    #expect(week(used: 0.01, range: [0.02, 0.1], elapsed: 0.5, past: 3).health(now: now) == .useMore)
+    #expect(week(used: 0.01, range: [0.02, 0.1], elapsed: 0.5, past: 3).health(now: now) == .underUsed)
     #expect(week(used: 0.5, range: [1.1, 1.4], elapsed: 0.5).health(now: now) == .normal)
     #expect(week(used: 1.0, range: [1.1, 1.4], elapsed: 0.5).health(now: now) == .red, "a used-up window is a fact")
     #expect(week(used: 0.2, range: nil).health(now: now) == .normal)
@@ -39,7 +47,7 @@ func week(used: Double?, range: [Double]?, elapsed: Double = 3, past: Int = 0, h
     let limits = [week(used: 0.4, range: [0.5, 0.6]),
                   week(used: 0.5, range: [0.9, 1.1], role: "session", minutes: 300, exhausts: later),
                   week(used: 0.6, range: [0.95, 1.2], role: "weekly_model", exhausts: soon),
-                  week(used: 0.1, range: [0.1, 0.2], role: "month", minutes: 43200)]
+                  week(used: 0.1, range: [0.1, 0.2], elapsed: 4, role: "month", minutes: 43200)]
     let o = Tile.override(limits, weekly: limits[0], now: now)
     #expect(o?.role == "weekly_model", "equal state: the one that runs out first")
     #expect(Tile.override([limits[0], limits[3]], weekly: limits[0], now: now) == nil, "nothing worse than weekly")
@@ -72,6 +80,44 @@ func week(used: Double?, range: [Double]?, elapsed: Double = 3, past: Int = 0, h
         "role": "session", "projection": {"at_reset": [0.95, 1.2], "past_windows": 5}}]}]
     """.utf8)
     let t = try #require(Tile.strip(Reading.decode(data), now: now).first)
-    #expect(t.health == .useMore)
+    #expect(t.health == .underUsed)
     #expect(t.alternate == Tile.Alternate(role: "session", value: .percent(90), health: .amber))
+}
+
+func account(_ id: String, weekly: [Double], elapsed: Double = 3, session: [Double]? = nil, past: Int = 5) -> Reading {
+    let resets = { (m: Int, e: Double) in iso(now.addingTimeInterval(Double(m) * 60 - e * 86400)) }
+    let s = session.map { r in
+        #", {"name": "five_hour", "window_minutes": 300, "used_at_least": 0.1, "resets_at": "\#(resets(300, 0.1))", "role": "session", "projection": {"at_reset": [\#(r[0]), \#(r[1])], "past_windows": 5}}"#
+    } ?? ""
+    let json = #"{"schema": 1, "vendor": "zai", "account": "\#(id)", "status": "ok", "taken_at": "\#(iso(now))", "names": ["claude-glm-\#(id)"], "limits": [{"name": "seven_day", "window_minutes": 10080, "used_at_least": 0.1, "resets_at": "\#(resets(10080, elapsed))", "role": "weekly", "projection": {"at_reset": [\#(weekly[0]), \#(weekly[1])], "past_windows": \#(past)}}\#(s)]}"#
+    return try! Reading.decode(Data("[\(json)]".utf8))[0]
+}
+
+func iso(_ d: Date) -> String { ISO8601DateFormatter().string(from: d) }
+
+@Test func theBestPickIsTheAccountWithTheMostRoomAtReset() {
+    let tiles = Tile.strip([account("1", weekly: [0.5, 0.6]), account("2", weekly: [0.2, 0.3]),
+                            account("3", weekly: [0.9, 1.1])], now: now)
+    #expect(tiles.filter(\.best).map(\.label) == ["ZAI2"])
+}
+
+@Test func roomAboutToExpireIsPickedBeforeRoomThatWillKeep() {
+    let tiles = Tile.strip([account("1", weekly: [0.2, 0.3]), account("2", weekly: [0.6, 0.7], elapsed: 6.2)], now: now)
+    #expect(tiles.filter(\.best).map(\.label) == ["ZAI2"])
+}
+
+@Test func anAccountStoppedByAnotherWindowIsNotPicked() {
+    let tiles = Tile.strip([account("1", weekly: [0.1, 0.2], session: [1.1, 1.3]), account("2", weekly: [0.5, 0.6])], now: now)
+    #expect(tiles.filter(\.best).map(\.label) == ["ZAI2"])
+}
+
+@Test func aVendorWithOneAccountHasNoPick() {
+    #expect(Tile.strip([account("1", weekly: [0.1, 0.2])], now: now).allSatisfy { !$0.best })
+}
+
+@Test func anAccountEarlyInItsWeekIsJudgedByWhatItHasUsedNotByAnUntrustedForecast() {
+    // Half a day in: its forecast of 103% is a guess, and it has the most room.
+    let early = account("1", weekly: [0.6, 1.03], elapsed: 0.5, past: 0)
+    let tiles = Tile.strip([early, account("2", weekly: [0.85, 0.94])], now: now)
+    #expect(tiles.filter(\.best).map(\.label) == ["ZAI1"])
 }

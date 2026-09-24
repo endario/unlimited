@@ -5,7 +5,8 @@ extension Health {
     /// Neutral is the menu bar's own colour: nothing to act on.
     var color: Color {
         switch self {
-        case .useMore: .green
+        case .sprint: .blue
+        case .underUsed: .green
         case .normal: .primary
         case .amber: .orange
         case .red: .red
@@ -36,6 +37,7 @@ struct TileView: View {
         VStack(spacing: -1) {
             Text(tile.label)
                 .font(.system(size: 8, weight: .medium, design: .monospaced))
+                .underline(tile.best, color: .primary.opacity(0.7))
             ZStack {
                 Text(tile.value.text)
                     .foregroundStyle(tile.health.color)

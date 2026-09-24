@@ -19,10 +19,7 @@ public struct Preferences: Codable, Equatable, Sendable {
         return tiles
             .filter { !hidden.contains($0.id) }
             .sorted { (rank[$0.id] ?? .max) < (rank[$1.id] ?? .max) }
-            .map { t in
-                Tile(id: t.id, label: labels[t.id] ?? t.label, value: t.value, dimmed: t.dimmed,
-                     health: t.health, alternate: t.alternate)
-            }
+            .map { $0.labelled(labels[$0.id] ?? $0.label) }
     }
 
     public mutating func rename(_ id: String, to label: String) {
