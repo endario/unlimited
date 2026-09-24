@@ -83,7 +83,7 @@ struct Box<Content: View>: View {
 
 struct CardView: View {
     let card: Card
-    static let barHeight: CGFloat = 4
+    static let barHeight: CGFloat = 5
 
     var body: some View {
         Box {
