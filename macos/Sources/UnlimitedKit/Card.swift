@@ -26,10 +26,11 @@ public struct Card: Identifiable, Sendable {
 
     /// How far a marker past 100% may bleed beyond the bar's end, in points: the bar is inset
     /// this much at each end of its card, so the mark lands in that space.
-    public static let bleed: Double = 10
+    public static let bleed: Double = 20
 
-    /// How far past the bar's end a marker past 100% sits: clear of a mark at 100%, not out at the card's edge.
-    public static let over: Double = 5
+    /// Where a marker past 100% sits past the bar's end: at the far edge of the inset, less half
+    /// the 6pt mark so it stays inside the card's content.
+    public static let over: Double = bleed - 3
 
     /// A marker's position on a bar `width` wide: to scale up to the limit, then only just past it.
     /// Judged on the whole percent the card prints, so a mark labelled 100% sits at the bar's end.
