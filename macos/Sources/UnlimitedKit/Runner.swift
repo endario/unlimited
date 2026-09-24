@@ -7,6 +7,8 @@ public struct Runner: Sendable {
 
     public let binary: URL
 
+    public init(binary: URL) { self.binary = binary }
+
     /// A login-item launch gets no shell `PATH`, so look where installers put it.
     public static func locate(home: URL = FileManager.default.homeDirectoryForCurrentUser) -> Runner? {
         let candidates = [home.appending(path: ".local/bin/unlimited"),

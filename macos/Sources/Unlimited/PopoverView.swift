@@ -23,7 +23,8 @@ struct PopoverView: View {
                 }
                 footer(reading)
             } else {
-                Text("Reading…").foregroundStyle(.secondary)
+                Text(model.accounts.isEmpty ? "Reading…" : "Every account is hidden: see Settings.")
+                    .foregroundStyle(.secondary)
                 footer(nil)
             }
         }
@@ -78,6 +79,8 @@ struct PopoverView: View {
             Spacer()
             Button { model.refresh(maxAge: 0) } label: { Image(systemName: "arrow.clockwise") }
                 .buttonStyle(.plain).help("Read now")
+            Button { SettingsWindow.show(model) } label: { Image(systemName: "gearshape") }
+                .buttonStyle(.plain).help("Settings")
             Button { NSApp.terminate(nil) } label: { Image(systemName: "power") }
                 .buttonStyle(.plain).help("Quit")
         }

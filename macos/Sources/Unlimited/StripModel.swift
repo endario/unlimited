@@ -8,6 +8,47 @@ final class StripModel: ObservableObject {
     @Published private(set) var readings: [String: Reading] = [:]
     /// The account the popover shows, by tile id.
     @Published var selected: String?
+    /// Every account as read, before the owner's hiding: what Settings lists.
+    @Published private(set) var accounts: [Tile] = []
+    @Published private(set) var prefs: Preferences = StripModel.loadPrefs()
+
+    private static let prefsKey = "preferences", pathKey = "unlimitedPath"
+
+    private static func loadPrefs() -> Preferences {
+        UserDefaults.standard.data(forKey: prefsKey)
+            .flatMap { try? JSONDecoder().decode(Preferences.self, from: $0) } ?? Preferences()
+    }
+
+    /// Changes the owner's arrangement and redraws the strip from the last reading.
+    func arrange(_ change: (inout Preferences) -> Void) {
+        change(&prefs)
+        save()
+        redraw()
+    }
+
+    var customPath: String {
+        get { UserDefaults.standard.string(forKey: Self.pathKey) ?? "" }
+        set {
+            UserDefaults.standard.set(newValue, forKey: Self.pathKey)
+            runner = nil
+            refresh()
+        }
+    }
+
+    private var lastRead: [Reading] = []
+
+    private func redraw() {
+        guard !lastRead.isEmpty else { return }
+        accounts = Tile.strip(lastRead, now: Date())
+        tiles = prefs.apply(accounts)
+        if tiles.isEmpty { tiles = [.waiting] }
+        save()
+        pace()
+    }
+
+    private func save() {
+        if let data = try? JSONEncoder().encode(prefs) { UserDefaults.standard.set(data, forKey: Self.prefsKey) }
+    }
     /// Why the strip is a single `!`, for the menu; nil when it reads.
     @Published private(set) var problem: String?
     /// The strip's phase: each weekly figure for `weeklyShown`, then any alternate window for
@@ -35,7 +76,9 @@ final class StripModel: ObservableObject {
 
     func refresh(maxAge: Int? = nil) {
         guard !busy else { return }
-        runner = runner ?? Runner.locate()  // installed after launch: found on the next tick
+        let custom = customPath
+        runner = runner ?? (custom.isEmpty ? Runner.locate()  // installed after launch: found on the next tick
+                                           : Runner(binary: URL(filePath: (custom as NSString).expandingTildeInPath)))
         guard let runner else { return fail("unlimited not found in ~/.local/bin, /opt/homebrew/bin or /usr/local/bin") }
         busy = true
         // The version is checked again only when the binary is replaced (an upgrade).
@@ -50,10 +93,10 @@ final class StripModel: ObservableObject {
                 switch result {
                 case .success(let readings):
                     self.problem = nil
-                    self.tiles = Tile.strip(readings, now: Date())
+                    self.lastRead = readings
+                    self.redraw()
                     self.readings = Dictionary(readings.map { ("\($0.vendor)/\($0.account ?? "")", $0) },
                                                uniquingKeysWith: { a, _ in a })
-                    self.pace()
                 case .failure(let e as Reading.SchemaError):
                     self.fail("unlimited speaks schema \(e.schema); this app reads schema 1")
                 case .failure(Problem.tooOld):
