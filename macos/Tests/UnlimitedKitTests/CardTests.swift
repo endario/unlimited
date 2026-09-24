@@ -53,7 +53,7 @@ func claude() throws -> Reading {
 }
 
 @Test func creditsSayWhatIsLeftToSpendAndWhetherItIsOn() throws {
-    #expect(Card.credits(try claude()) == "SGD 150.62 of 150.00 · off: org_level_disabled_until")
+    #expect(Card.credits(try claude()) == "SGD 150.62 of 150.00 · off")
 }
 
 @Test func creditsNeverSwitchedOnJustSayOff() throws {

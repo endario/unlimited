@@ -64,7 +64,8 @@ def _credits(c: dict, taken: datetime | None, now: datetime, color: bool) -> str
     used, limit, bal, cur = c.get("used"), c.get("limit"), c.get("balance"), c.get("currency") or ""
     money = lambda v, unit=cur: f"{unit} {v:,.2f}".strip()
     on = bool(c.get("enabled"))
-    state = "on" if on else f"OFF: {c['disabled_reason']}" if c.get("disabled_reason") else "off"
+    # The vendor's reason code (e.g. org_level_disabled_until) means nothing to a person; it stays in the JSON.
+    state = "on" if on else "off"
     if limit is None and not used and bal is None:
         return f"  {'credits':<15} " + _paint(state, None, None, color)
     frac = used / limit if limit and used is not None else None

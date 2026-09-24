@@ -52,7 +52,8 @@ class Render(unittest.TestCase):
         blocked = show_(self.credits(used=150.62, limit=150.0, enabled=False,
                                      disabled_reason="org_level_disabled_until"))
         self.assertIn("100.4%", blocked)
-        self.assertIn("SGD 150.62 of 150.00 · OFF: org_level_disabled_until", blocked)
+        self.assertIn("SGD 150.62 of 150.00 · off", blocked)
+        self.assertNotIn("org_level", blocked, "a vendor's reason code is for machines")
         self.assertIn("SGD 40.00 balance", show_(self.credits(balance=40.0)))
         self.assertRegex(show_(self.credits(limit=None, used=0.0, enabled=False)), r"credits +off\n")
         self.assertNotIn("credits", show.render([reading("openai", "a", NOW, "ok")], NOW))

@@ -69,7 +69,7 @@ public struct Card: Identifiable, Sendable {
     public static func credits(_ r: Reading) -> String? {
         guard let c = r.credits else { return nil }
         let unit = c.currency.map { "\($0) " } ?? ""
-        let state = c.enabled ? "on" : c.disabledReason.map { "off: \($0)" } ?? "off"
+        let state = c.enabled ? "on" : "off"  // the vendor's reason code means nothing to a person
         let money = { (v: Double) in String(format: "%.2f", v) }
         switch (c.used, c.limit) {
         case (0?, nil), (nil, nil): return state  // never switched on, or nothing to say
