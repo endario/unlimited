@@ -33,6 +33,10 @@ class Base(unittest.TestCase):
                                           "CLAUDE_KIMI_ENV": "", "KIMI_API_KEY": ""})
         p.start()
         self.addCleanup(p.stop)
+        # A real OPENCODE_2_API_KEY (or higher) on the machine running this suite would otherwise
+        # leak into every opencode.discover() call below, however many the test expects.
+        for k in [k for k in os.environ if opencode.ENV_KEY.match(k)]:
+            del os.environ[k]
         self.calls = []
 
     def signed_in(self, name: str, uuid: str = UUID) -> Path:
@@ -258,10 +262,42 @@ class OpenCodeGo(Base):
         (d / "auth.json").write_text(json.dumps({"openai": {"type": "oauth", "access": "x"},
                                                  "opencode-go": {"type": "api", "key": "go-secret"}}))
         with mock.patch.dict(os.environ, {"XDG_DATA_HOME": str(self.tmp / "data")}):
-            os.environ.pop("OPENCODE_API_KEY", None)
             (c,) = opencode.discover()
         self.assertEqual(c.secret["key"], "go-secret")
         self.assertNotIn("go-secret", repr(c) + c.account)
+
+    def test_a_second_isolated_identity_is_a_second_go_account(self):
+        default = self.tmp / "data" / "opencode"
+        default.mkdir(parents=True)
+        (default / "auth.json").write_text(json.dumps({"opencode-go": {"type": "api", "key": "key-one"}}))
+        second = self.home / ".opencode-2" / "opencode"
+        second.mkdir(parents=True)
+        (second / "auth.json").write_text(json.dumps({"opencode-go": {"type": "api", "key": "key-two"}}))
+        with mock.patch.dict(os.environ, {"XDG_DATA_HOME": str(self.tmp / "data")}):
+            got = opencode.discover()
+        self.assertEqual(sorted(c.secret["key"] for c in got), ["key-one", "key-two"])
+        self.assertEqual({c.account for c in got}, {opencode.account_of("key-one"), opencode.account_of("key-two")})
+
+    def test_a_numbered_launcher_key_is_also_an_account(self):
+        with mock.patch.dict(os.environ, {"XDG_DATA_HOME": str(self.tmp / "data"),
+                                          "OPENCODE_API_KEY": "key-one", "OPENCODE_2_API_KEY": "key-two"}):
+            got = opencode.discover()
+        self.assertEqual(sorted(c.secret["key"] for c in got), ["key-one", "key-two"])
+        self.assertEqual({c.account for c in got}, {opencode.account_of("key-one"), opencode.account_of("key-two")})
+
+    def test_slots_sort_numerically_past_nine_and_a_renamed_slot_is_ignored(self):
+        for name in (".opencode-2", ".opencode-10", ".opencode-old"):
+            (self.home / name).mkdir()
+        with mock.patch.dict(os.environ, {"XDG_DATA_HOME": str(self.tmp / "data")}):
+            got = opencode.data_homes()
+        self.assertEqual([p.name for p in got[1:]], [".opencode-2", ".opencode-10"])
+
+    def test_xdg_data_home_pointed_at_a_slot_is_not_listed_twice(self):
+        slot = self.home / ".opencode-2"
+        slot.mkdir()
+        with mock.patch.dict(os.environ, {"XDG_DATA_HOME": str(slot)}):
+            got = opencode.data_homes()
+        self.assertEqual(got, [slot])
 
 
 class Grok(Base):

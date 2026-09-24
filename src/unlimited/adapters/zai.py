@@ -2,12 +2,11 @@
 
 from __future__ import annotations
 
-import hashlib
 import os
 from datetime import datetime, timezone
 from pathlib import Path
 
-from ..credential import Credential
+from ..credential import Credential, account_of, dedupe
 from ..schema import OK, REFUSED, UNREAD, failed, limit, reading
 
 VENDOR = "zai"
@@ -36,15 +35,9 @@ def key_in(path: Path) -> str | None:
     return None
 
 
-def account_of(key: str) -> str:
-    # Z.ai publishes no account id, so a truncated hash of the key stands in.
-    return hashlib.sha256(key.encode()).hexdigest()[:16]
-
-
 def discover() -> list[Credential]:
     keys = [os.environ.get("GLM_API_KEY")] + [key_in(f) for f in env_files()]
-    found = {account_of(k): k for k in keys if k}
-    return [Credential(a, {"key": k}) for a, k in sorted(found.items())]
+    return dedupe(keys)
 
 
 def _millis(value: object) -> datetime | None:

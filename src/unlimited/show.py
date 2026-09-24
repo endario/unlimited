@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 from datetime import datetime
 
 from .projection import MIN_PAST
@@ -44,6 +45,23 @@ def _glm_wrappers() -> dict[str, str]:
         key = zai.key_in(f)
         if key:
             out.setdefault(zai.account_of(key), []).append(f.stem)
+    return {k: ", ".join(dict.fromkeys(v)) for k, v in out.items()}
+
+
+def _opencode_identities() -> dict[str, str]:
+    """OpenCode Go account id → every isolated data directory or launcher variable holding its
+    key, by a short name."""
+    from .adapters import opencode
+    out: dict[str, list[str]] = {}
+    for i, d in enumerate(opencode.data_homes()):
+        key = opencode.key_in(d)
+        if key:
+            # The default XDG_DATA_HOME carries no ".opencode-N" name of its own.
+            name = "account1" if i == 0 else d.name.removeprefix(".opencode-")
+            out.setdefault(opencode.account_of(key), []).append(name)
+    for k, v in os.environ.items():
+        if opencode.ENV_KEY.match(k) and v:
+            out.setdefault(opencode.account_of(v), []).append(k)
     return {k: ", ".join(dict.fromkeys(v)) for k, v in out.items()}
 
 
@@ -115,7 +133,8 @@ def _credits(c: dict, taken: datetime | None, now: datetime, color: bool) -> str
 def render(readings: list[dict], now: datetime, *, color: bool = False, all_limits: bool = False) -> str:
     labels = {**(_claude_dirs() if any(r.get("vendor") == "anthropic" for r in readings) else {}),
               **(_glm_wrappers() if any(r.get("vendor") == "zai" for r in readings) else {}),
-              **(_kimi_wrappers() if any(r.get("vendor") == "kimi" for r in readings) else {})}
+              **(_kimi_wrappers() if any(r.get("vendor") == "kimi" for r in readings) else {}),
+              **(_opencode_identities() if any(r.get("vendor") == "opencode" for r in readings) else {})}
     lines = []
     for r in sorted(readings, key=lambda r: (VENDOR_NAMES.get(r.get("vendor"), r.get("vendor") or ""),
                                              labels.get(r.get("account"), ""))):
