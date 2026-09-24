@@ -15,8 +15,9 @@ unlimited capture claude-statusline      # in a Claude Code statusline script
 Each reading gives each limit's window length, the fraction used so far, and its reset time. It
 also gives whether the vendor says the limit is held, and why, and, where the vendor names it,
 the account's plan and, for Claude, its credits: what it may spend once the windows are used.
-unlimited reports what the vendor says, and projects it forward: it never
-picks an account or draws a threshold. Choosing what to do with a reading is up to the consumer.
+unlimited reports what the vendor says, and projects it forward: a reading never
+picks an account or draws a threshold (only the status view colours its bars, for people).
+Choosing what to do with a reading is up to the consumer.
 
 ## For people
 
