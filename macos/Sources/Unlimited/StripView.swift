@@ -9,7 +9,8 @@ extension Health {
         case .underUsed: .green
         case .normal: .primary
         case .amber: .orange
-        case .red: .red
+        // A coral, not system red: pure red vibrates against the popover's dark grey.
+        case .red: Color(red: 1, green: 0.41, blue: 0.38)
         }
     }
 }
