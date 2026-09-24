@@ -55,7 +55,7 @@ struct TileView: View {
                     .opacity(showAlt ? 1 : 0)
                 }
             }
-            .font(.system(size: 11, weight: .semibold, design: .rounded))
+            .font(.system(size: 10, weight: .semibold, design: .rounded))
             .monospacedDigit()
         }
         // With Reduce Motion there is no cross-fade: a corner dot says another window is worse.
