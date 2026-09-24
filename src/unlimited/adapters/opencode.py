@@ -19,9 +19,6 @@ VENDOR = "opencode"
 URL = "https://opencode.ai/zen/go/v1/usage"
 # The month is anchored to the subscription day, so its length varies; 30 days names it.
 WINDOWS = {"rolling": ("five_hour", 300), "weekly": ("seven_day", 10080), "monthly": ("month", 43200)}
-# A second (or Nth) Go key that never went through `opencode auth login` on this machine — e.g.
-# one a launcher hands a worker by environment — names itself OPENCODE_2_API_KEY, OPENCODE_3_...
-ENV_KEY = re.compile(r"^OPENCODE(?:_\d+)?_API_KEY$")
 # The exact shape the provisioning wizard creates: a numbered slot, never an open-ended prefix
 # match, so a renamed or unrelated ".opencode-backup" is never mistaken for a live identity.
 _SLOT = re.compile(r"^\.opencode-(\d+)$")
@@ -59,8 +56,7 @@ def key_in(data_home: Path) -> str | None:
 
 
 def discover() -> list[Credential]:
-    keys = [key_in(d) for d in data_homes()] + [v for k, v in os.environ.items() if ENV_KEY.match(k)]
-    return dedupe(keys)
+    return dedupe([key_in(d) for d in data_homes()])
 
 
 def _iso(v: object) -> datetime | None:

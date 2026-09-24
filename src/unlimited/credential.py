@@ -17,7 +17,7 @@ def account_of(key: str) -> str:
 
 
 def dedupe(keys: list[str | None]) -> list[Credential]:
-    """One `Credential` per distinct key, sorted by account id. Several sources naming the same
-    key (an env var alongside the file that already holds it) collapse to one account."""
+    """One `Credential` per distinct key, sorted by account id; several sources naming the same key
+    collapse to one account."""
     found = {account_of(k): k for k in keys if k}
     return [Credential(a, {"key": k}) for a, k in sorted(found.items())]

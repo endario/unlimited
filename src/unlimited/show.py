@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import os
 from datetime import datetime
 
 from .projection import MIN_PAST
@@ -49,8 +48,7 @@ def _glm_wrappers() -> dict[str, str]:
 
 
 def _opencode_identities() -> dict[str, str]:
-    """OpenCode Go account id → every isolated data directory or launcher variable holding its
-    key, by a short name."""
+    """OpenCode Go account id → every isolated data directory holding its key, by a short name."""
     from .adapters import opencode
     out: dict[str, list[str]] = {}
     for i, d in enumerate(opencode.data_homes()):
@@ -59,9 +57,6 @@ def _opencode_identities() -> dict[str, str]:
             # The default XDG_DATA_HOME carries no ".opencode-N" name of its own.
             name = "account1" if i == 0 else d.name.removeprefix(".opencode-")
             out.setdefault(opencode.account_of(key), []).append(name)
-    for k, v in os.environ.items():
-        if opencode.ENV_KEY.match(k) and v:
-            out.setdefault(opencode.account_of(v), []).append(k)
     return {k: ", ".join(dict.fromkeys(v)) for k, v in out.items()}
 
 
