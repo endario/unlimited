@@ -16,6 +16,7 @@ struct PopoverView: View {
                 ForEach(Card.cards(reading, now: Date())) { CardView(card: $0) }
                 if let credits = Card.credits(reading) {
                     Box { Label(credits, systemImage: "creditcard").font(.callout) }
+                        .help("Extra usage credits: whether the account may spend past its limits")
                 }
                 footer(reading)
             } else {
@@ -32,7 +33,7 @@ struct PopoverView: View {
     private func header(_ t: Tile, _ r: Reading) -> some View {
         HStack(alignment: .center, spacing: 6) {
             Text(([Tile.vendorName(t.vendor)] + r.names).joined(separator: " · "))
-                .font(.callout).foregroundStyle(.secondary)
+                .font(.callout).foregroundStyle(.secondary).help("The account shown: pick another on the strip")
             Spacer()
             // The star is drawn taller than the rectangles beside it: 11.25pt medium matches their ink height and stroke.
             if t.best { Image(systemName: "star").font(.system(size: 11.25, weight: .medium)).help("Best pick") }
@@ -52,11 +53,12 @@ struct PopoverView: View {
         HStack {
             if let r {
                 VStack(alignment: .leading, spacing: 2) {
-                    if let plan = Card.plan(r) { Text(plan) }
+                    if let plan = Card.plan(r) { Text(plan).help("The account's plan") }
                     // Only a stale reading is worth a word.
                     if let at = r.takenAt, Date().timeIntervalSince(at) > Tile.staleAfter {
                         Label("Read \(Card.until(Date(), at)) ago", systemImage: "exclamationmark.triangle.fill")
                             .foregroundStyle(Health.amber.color)
+                            .help("This reading is old: no newer one has come in")
                     }
                 }
             }
@@ -96,10 +98,11 @@ struct CardView: View {
                 // middle is centred on the card. Above the bar: today's pace, whose mark is above
                 // it; below: the forecast, whose mark is below it.
                 row {
-                    Text(card.title).font(.callout.weight(.semibold))
+                    Text(card.title).font(.callout.weight(.semibold)).help("The usage window")
                 } middle: {
                     Text(card.used.map(percent) ?? "?")
                         .font(.callout.weight(.semibold)).foregroundStyle(card.health.color)
+                        .help("Used so far this window")
                 } right: {
                     if let m = card.momentum { guess(figure(m, "bolt.fill")).help("At today's pace, by reset") }
                 }
@@ -111,7 +114,8 @@ struct CardView: View {
                     }
                 } middle: {
                     if let resets = card.resets {
-                        figure(resets, "arrow.counterclockwise").foregroundStyle(.secondary).help(card.resetsAt ?? "")
+                        figure(resets, "arrow.counterclockwise").foregroundStyle(.secondary)
+                            .help("Resets in \(resets)" + (card.resetsAt.map { ", \($0)" } ?? ""))
                     }
                 } right: {
                     if let p = card.projected { guess(figure(p, "chart.line.uptrend.xyaxis")).help("Forecast at reset") }
@@ -171,6 +175,8 @@ struct CardView: View {
         }
         .frame(height: Self.barHeight)
         .padding(.vertical, 12)
+        .contentShape(Rectangle())
+        .help("Filled: used so far. Line: where an even pace would be by now. ▼ today's pace at reset, ▲ the forecast at reset")
     }
 
     private func arrow(down: Bool) -> some View {
