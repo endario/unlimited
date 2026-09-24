@@ -159,8 +159,8 @@ struct CardView: View {
                     .frame(width: w * min(card.used ?? 0, 1), height: Self.barHeight)
                 Rectangle().fill(Color.primary.opacity(0.6)).frame(width: 1, height: (Self.barHeight + 4) * 2)
                     .offset(x: w * card.elapsed - 0.5)
-                if let m = card.momentum { arrow(down: true).offset(x: Card.marker(m, width: w) - 3, y: -(Self.barHeight + 2.5)) }
-                if let p = card.projected { arrow(down: false).offset(x: Card.marker(p, width: w) - 3, y: Self.barHeight + 2.5) }
+                if let m = card.momentum { arrow(down: true).offset(x: Card.marker(m, width: w) - 3, y: -(Self.barHeight + 1)) }
+                if let p = card.projected { arrow(down: false).offset(x: Card.marker(p, width: w) - 3, y: Self.barHeight + 1) }
             }
             // Sized to the bar, so the taller stripe and the marks overhang it evenly.
             .frame(width: w, height: Self.barHeight)
