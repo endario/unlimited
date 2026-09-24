@@ -99,8 +99,8 @@ struct CardView: View {
                         if let p = card.projected { figure(p, "chart.line.uptrend.xyaxis").help("Forecast at reset") }
                     }
                     .font(.callout.weight(.semibold)).monospacedDigit()
-                    // Italic: a guess from this window's paces alone, before past windows back it.
-                    .italic(!card.fromHistory)
+                    // Half a weight lighter: a guess from this window's paces alone, before past windows back it.
+                    .fontWeight(card.fromHistory ? .semibold : .medium)
                     .foregroundStyle(tint)
                     Text(card.used.map(percent) ?? "?")
                         .font(.callout.weight(.semibold)).monospacedDigit()
@@ -117,7 +117,7 @@ struct CardView: View {
                         if let o = card.odds { figure("\(o)%", "dice").help("Chance of running out, from past windows") }
                         if let r = card.runsOut { figure(r, "flame").help("Runs out in \(r)") }
                     }
-                    .italic(!card.fromHistory)
+                    .fontWeight(card.fromHistory ? .regular : .light)
                     .foregroundStyle(tint)
                 }
                 .font(.callout).monospacedDigit()
@@ -152,8 +152,8 @@ struct CardView: View {
                     .frame(width: w * min(card.used ?? 0, 1), height: Self.barHeight)
                 Rectangle().fill(Color.primary.opacity(0.6)).frame(width: 1, height: (Self.barHeight + 4) * 2)
                     .offset(x: w * card.elapsed - 0.5)
-                if let m = card.momentum { arrow(down: true).offset(x: Card.marker(m, width: w) - 3, y: -(Self.barHeight + 3)) }
-                if let p = card.projected { arrow(down: false).offset(x: Card.marker(p, width: w) - 3, y: Self.barHeight + 3) }
+                if let m = card.momentum { arrow(down: true).offset(x: Card.marker(m, width: w) - 3, y: -(Self.barHeight + 2.5)) }
+                if let p = card.projected { arrow(down: false).offset(x: Card.marker(p, width: w) - 3, y: Self.barHeight + 2.5) }
             }
             // Sized to the bar, so the taller stripe and the marks overhang it evenly.
             .frame(width: w, height: Self.barHeight)
