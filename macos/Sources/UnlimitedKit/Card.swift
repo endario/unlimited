@@ -10,7 +10,23 @@ public struct Card: Identifiable, Sendable {
     public let elapsed: Double
     public let health: Health
     public let resets: String?
-    public let forecast: String?
+    /// Where today's pace alone reaches by the reset.
+    public let momentum: Double?
+    /// Where the forecast puts it at the reset: the middle of its range.
+    public let projected: Double?
+    public let runsOut: String?
+    /// Chance of running out, in percent, from past windows.
+    public let odds: Int?
+    /// Whether the forecast rests on enough past windows to be more than this window's paces.
+    public let fromHistory: Bool
+
+    /// How far a marker past 100% may bleed beyond the bar's end, in points.
+    public static let bleed: Double = 3
+
+    /// A marker's position on a bar `width` wide: to scale up to the limit, then only just past it.
+    public static func marker(_ value: Double, width: Double) -> Double {
+        value > 1 ? width + bleed : max(value, 0) * width
+    }
 
     static let order = ["session", "weekly", "weekly_model", "month", "extra"]
 
@@ -22,11 +38,16 @@ public struct Card: Identifiable, Sendable {
             .map { l in
                 let length = Double(l.windowMinutes ?? 0) * 60
                 let left = l.resetsAt.map { $0.timeIntervalSince(now) }
+                let p = l.held == true || (l.usedAtLeast ?? 0) >= 1 ? nil : l.projection
+                let ends = p?.exhaustsAt.flatMap { $0 > now ? "runs out in \(until($0, now))" : "runs out now" }
                 return Card(name: l.name, title: title(l), used: l.usedAtLeast,
                             elapsed: length > 0 && left != nil ? min(max(1 - left! / length, 0), 1) : 0,
                             health: l.health(now: now),
                             resets: l.resetsAt.map { "Resets in \(until($0, now)) · \(clock($0, timeZone))" },
-                            forecast: forecast(l, now: now, timeZone: timeZone))
+                            momentum: p?.recentAtReset,
+                            projected: p.flatMap { $0.atReset.count == 2 ? ($0.atReset[0] + $0.atReset[1]) / 2 : nil },
+                            runsOut: ends, odds: p?.runOut.map { Int(($0 * 100).rounded()) },
+                            fromHistory: (p?.pastWindows ?? 0) >= Health.trustPastWindows)
             }
     }
 
@@ -38,20 +59,6 @@ public struct Card: Identifiable, Sendable {
         case "month": "Monthly"
         default: l.scope ?? l.name
         }
-    }
-
-    /// Where the window is heading, when it runs out, and what that rests on; the same facts
-    /// `unlimited`'s status view prints under each window.
-    static func forecast(_ l: Limit, now: Date, timeZone: TimeZone) -> String? {
-        guard let p = l.projection, p.atReset.count == 2, l.held != true, (l.usedAtLeast ?? 0) < 1 else { return nil }
-        let (lo, hi) = (Int((p.atReset[0] * 100).rounded()), Int((p.atReset[1] * 100).rounded()))
-        var parts = [lo == hi ? "→ \(lo)% at reset" : "→ \(lo)–\(hi)% at reset"]
-        if let ends = p.exhaustsAt {
-            parts.append(ends > now ? "runs out \(clock(ends, timeZone)) (in \(until(ends, now)))" : "runs out now")
-        }
-        if let odds = p.runOut { parts.append("\(Int((odds * 100).rounded()))% chance of running out") }
-        if let n = p.pastWindows, n >= Health.trustPastWindows { parts.append("from \(n) past windows") }
-        return parts.joined(separator: " · ")
     }
 
     public static func credits(_ r: Reading) -> String? {

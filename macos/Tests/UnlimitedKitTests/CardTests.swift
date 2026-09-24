@@ -12,8 +12,8 @@ func claude() throws -> Reading {
        {"name": "limits:weekly_scoped:Fable", "window_minutes": 10080, "used_at_least": 0.03,
         "resets_at": "2026-09-30T06:00:00+00:00", "role": "weekly_model", "scope": "Fable"},
        {"name": "seven_day", "window_minutes": 10080, "used_at_least": 0.4, "resets_at": "2026-09-27T06:00:00+00:00",
-        "role": "weekly", "projection": {"at_reset": [0.9, 1.34], "exhausts_at": "2026-09-27T01:00:00+00:00",
-                                         "run_out": null, "past_windows": 2}},
+        "role": "weekly", "projection": {"at_reset": [0.9, 1.34], "recent_at_reset": 1.34,
+                                         "exhausts_at": "2026-09-27T01:00:00+00:00", "run_out": null, "past_windows": 2}},
        {"name": "limits:session", "window_minutes": 300, "used_at_least": 0.04, "role": null},
        {"name": "five_hour", "window_minutes": 300, "used_at_least": 0.04, "resets_at": "2026-09-24T07:15:00+00:00",
         "role": "session", "projection": {"at_reset": [0.04, 0.07], "run_out": 0.18, "past_windows": 8}}]}]
@@ -31,13 +31,24 @@ func claude() throws -> Reading {
     #expect(weekly.health == .amber, "the range crosses the limit: it might run out")
 }
 
-@Test func theForecastLineSaysWhereItIsHeadingAndWhatThatRestsOn() throws {
+@Test func aCardSaysTodaysPaceTheForecastAndWhenItRunsOut() throws {
     let tz = TimeZone(identifier: "UTC")!
     let cards = Card.cards(try claude(), now: now, timeZone: tz)
-    #expect(cards[0].forecast == "→ 4–7% at reset · 18% chance of running out · from 8 past windows")
-    #expect(cards[1].forecast == "→ 90–134% at reset · runs out Sun 01:00 (in 2d 19h)")
-    #expect(cards[2].forecast == nil)
+    #expect(cards[1].momentum == 1.34, "today's pace alone")
+    #expect(abs((cards[1].projected ?? 0) - 1.12) < 1e-9, "the forecast's midpoint")
+    #expect(cards[1].runsOut == "runs out in 2d 19h")
+    #expect(cards[0].momentum == nil, "an older unlimited reports no recent pace")
+    #expect(cards[0].odds == 18)
+    #expect(cards[0].fromHistory && !cards[1].fromHistory, "8 past windows back the 5-hour; 2 do not back the week")
+    #expect(cards[2].projected == nil)
     #expect(cards[1].resets == "Resets in 3d 0h · Sun 06:00")
+}
+
+@Test func aMarkerPastTheLimitBleedsJustPastTheBarsEnd() {
+    #expect(Card.marker(0.5, width: 200) == 100)
+    #expect(Card.marker(1.0, width: 200) == 200)
+    #expect(Card.marker(2.7, width: 200) == 200 + Card.bleed, "not drawn at 270%")
+    #expect(Card.marker(-0.1, width: 200) == 0)
 }
 
 @Test func creditsSayWhatIsLeftToSpendAndWhetherItIsOn() throws {

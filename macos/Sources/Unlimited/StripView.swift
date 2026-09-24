@@ -69,7 +69,7 @@ struct TileView: View {
 }
 
 struct StripView: View {
-    static let spacing: CGFloat = 3, padding: CGFloat = 4
+    static let spacing: CGFloat = 3, padding: CGFloat = 2
     @ObservedObject var model: StripModel
 
     var body: some View {

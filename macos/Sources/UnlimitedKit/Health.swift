@@ -25,6 +25,8 @@ public struct Projection: Decodable, Sendable {
     public let pastWindows: Int?
     /// How likely use passes the limit, from past windows that did; nil without them.
     public var runOut: Double? = nil
+    /// The recent pace alone extended to the reset; absent before unlimited 0.0.24.
+    public var recentAtReset: Double? = nil
 
     public init(atReset: [Double], exhaustsAt: Date?, pastWindows: Int?, runOut: Double? = nil) {
         (self.atReset, self.exhaustsAt, self.pastWindows, self.runOut) = (atReset, exhaustsAt, pastWindows, runOut)
