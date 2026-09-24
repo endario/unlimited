@@ -31,7 +31,12 @@ public struct Reading: Decodable, Sendable {
 
     public let schema: Int
 
-    enum CodingKeys: String, CodingKey { case schema, vendor, account, takenAt, status, why, retryUntil, limits, names }
+    public let plan: String?
+    public let credits: Credits?
+
+    enum CodingKeys: String, CodingKey {
+        case schema, vendor, account, takenAt, status, why, retryUntil, limits, names, plan, credits
+    }
 
     public init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
@@ -44,9 +49,20 @@ public struct Reading: Decodable, Sendable {
         retryUntil = try c.decodeIfPresent(Date.self, forKey: .retryUntil)
         limits = try c.decodeIfPresent([Limit].self, forKey: .limits) ?? []
         names = try c.decodeIfPresent([String].self, forKey: .names) ?? []
+        plan = try c.decodeIfPresent(String.self, forKey: .plan)
+        credits = try c.decodeIfPresent(Credits.self, forKey: .credits)
     }
 
     public var weekly: Limit? { limits.first { $0.role == "weekly" } }
+}
+
+/// What an account may spend past its windows, in `currency`'s major units.
+public struct Credits: Decodable, Sendable {
+    public let enabled: Bool
+    public let used: Double?
+    public let limit: Double?
+    public let currency: String?
+    public let disabledReason: String?
 }
 
 public struct Limit: Decodable, Sendable {

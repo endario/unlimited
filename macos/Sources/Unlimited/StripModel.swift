@@ -5,6 +5,9 @@ import UnlimitedKit
 @MainActor
 final class StripModel: ObservableObject {
     @Published private(set) var tiles: [Tile] = [.waiting]
+    @Published private(set) var readings: [String: Reading] = [:]
+    /// The account the popover shows, by tile id.
+    @Published var selected: String?
     /// Why the strip is a single `!`, for the menu; nil when it reads.
     @Published private(set) var problem: String?
     /// The strip's phase: each weekly figure for `weeklyShown`, then any alternate window for
@@ -30,7 +33,7 @@ final class StripModel: ObservableObject {
         }
     }
 
-    func refresh() {
+    func refresh(maxAge: Int? = nil) {
         guard !busy else { return }
         runner = runner ?? Runner.locate()  // installed after launch: found on the next tick
         guard let runner else { return fail("unlimited not found in ~/.local/bin, /opt/homebrew/bin or /usr/local/bin") }
@@ -40,7 +43,7 @@ final class StripModel: ObservableObject {
         let checked = stamp != nil && stamp == versionChecked
         Task.detached {
             let recent = checked || runner.isRecentEnough()
-            let result: Result<[Reading], Error> = recent ? Result { try runner.read() } : .failure(Problem.tooOld)
+            let result: Result<[Reading], Error> = recent ? Result { try runner.read(maxAge: maxAge) } : .failure(Problem.tooOld)
             await MainActor.run { if recent { self.versionChecked = stamp } }
             await MainActor.run {
                 self.busy = false
@@ -48,6 +51,8 @@ final class StripModel: ObservableObject {
                 case .success(let readings):
                     self.problem = nil
                     self.tiles = Tile.strip(readings, now: Date())
+                    self.readings = Dictionary(readings.map { ("\($0.vendor)/\($0.account ?? "")", $0) },
+                                               uniquingKeysWith: { a, _ in a })
                     self.pace()
                 case .failure(let e as Reading.SchemaError):
                     self.fail("unlimited speaks schema \(e.schema); this app reads schema 1")

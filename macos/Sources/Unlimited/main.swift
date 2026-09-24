@@ -1,13 +1,18 @@
 import AppKit
 import Combine
 import SwiftUI
+import UnlimitedKit
 
 @MainActor
-final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
+final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
     private let model = StripModel()
     private var item: NSStatusItem!
     private var host: NSHostingView<StripView>!
     private var sizeWatch: Any?
+    private let popover = NSPopover()
+    /// A transient popover closes on the mouse-down that also clicks the strip; that click must
+    /// not reopen it.
+    private var closedAt = Date.distantPast
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         item = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
@@ -18,9 +23,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         sizeWatch = model.objectWillChange.sink { [weak self] _ in
             DispatchQueue.main.async { self?.fit() }
         }
-        let menu = NSMenu()
-        menu.delegate = self
-        item.menu = menu
+        popover.behavior = .transient
+        popover.delegate = self
+        popover.contentViewController = NSHostingController(rootView: PopoverView(model: model))
+        item.button?.target = self
+        item.button?.action = #selector(toggle)
         model.start()
     }
 
@@ -30,17 +37,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         item.length = size.width
     }
 
-    func menuNeedsUpdate(_ menu: NSMenu) {
-        menu.removeAllItems()
-        if let why = model.problem {
-            menu.addItem(withTitle: why, action: nil, keyEquivalent: "")
-            menu.addItem(.separator())
-        }
-        menu.addItem(withTitle: "Refresh", action: #selector(refresh), keyEquivalent: "r").target = self
-        menu.addItem(withTitle: "Quit Unlimited", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
+    /// Opens on the account under the pointer.
+    @objc private func toggle() {
+        if popover.isShown { return popover.performClose(nil) }
+        guard Date().timeIntervalSince(closedAt) > 0.3 else { return }
+        guard let button = item.button, let event = NSApp.currentEvent else { return }
+        let x = button.convert(event.locationInWindow, from: nil).x
+        model.selected = Tile.at(x, in: model.tiles, width: TileView.width, spacing: StripView.spacing,
+                                 padding: StripView.padding)?.id
+        model.refresh(maxAge: 60)
+        popover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
+        popover.contentViewController?.view.window?.makeKey()
     }
 
-    @objc private func refresh() { model.refresh() }
+    func popoverDidClose(_ notification: Notification) { closedAt = Date() }
 }
 
 let app = NSApplication.shared

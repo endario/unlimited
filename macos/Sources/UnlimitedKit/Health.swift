@@ -19,9 +19,11 @@ public struct Projection: Decodable, Sendable {
     public let atReset: [Double]
     public let exhaustsAt: Date?
     public let pastWindows: Int?
+    /// How likely use passes the limit, from past windows that did; nil without them.
+    public var runOut: Double? = nil
 
-    public init(atReset: [Double], exhaustsAt: Date?, pastWindows: Int?) {
-        (self.atReset, self.exhaustsAt, self.pastWindows) = (atReset, exhaustsAt, pastWindows)
+    public init(atReset: [Double], exhaustsAt: Date?, pastWindows: Int?, runOut: Double? = nil) {
+        (self.atReset, self.exhaustsAt, self.pastWindows, self.runOut) = (atReset, exhaustsAt, pastWindows, runOut)
     }
 }
 

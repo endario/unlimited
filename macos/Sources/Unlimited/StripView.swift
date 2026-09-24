@@ -25,6 +25,7 @@ extension Tile.Alternate {
 }
 
 struct TileView: View {
+    static let width: CGFloat = 26
     let tile: Tile
     /// Whether the strip is in the phase that shows each tile's alternate window.
     let alternating: Bool
@@ -58,18 +59,19 @@ struct TileView: View {
             }
         }
         .opacity(tile.dimmed ? 0.45 : 1)
-        .frame(width: 26)
+        .frame(width: Self.width)
     }
 }
 
 struct StripView: View {
+    static let spacing: CGFloat = 3, padding: CGFloat = 4
     @ObservedObject var model: StripModel
 
     var body: some View {
-        HStack(spacing: 3) {
+        HStack(spacing: Self.spacing) {
             ForEach(model.tiles) { TileView(tile: $0, alternating: model.alternating) }
         }
-        .padding(.horizontal, 4)
+        .padding(.horizontal, Self.padding)
         .frame(height: 22)
     }
 }
