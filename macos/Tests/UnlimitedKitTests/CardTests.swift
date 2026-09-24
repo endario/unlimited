@@ -36,12 +36,13 @@ func claude() throws -> Reading {
     let cards = Card.cards(try claude(), now: now, timeZone: tz)
     #expect(cards[1].momentum == 1.34, "today's pace alone")
     #expect(abs((cards[1].projected ?? 0) - 1.12) < 1e-9, "the forecast's midpoint")
-    #expect(cards[1].runsOut == "runs out in 2d 19h")
+    #expect(cards[1].runsOut == "2d 19h")
     #expect(cards[0].momentum == nil, "an older unlimited reports no recent pace")
     #expect(cards[0].odds == 18)
     #expect(cards[0].fromHistory && !cards[1].fromHistory, "8 past windows back the 5-hour; 2 do not back the week")
     #expect(cards[2].projected == nil)
-    #expect(cards[1].resets == "Resets in 3d 0h · Sun 06:00")
+    #expect(cards[1].resets == "3d 0h")
+    #expect(cards[1].resetsAt == "Resets Sun 06:00")
 }
 
 @Test func aMarkerPastTheLimitBleedsJustPastTheBarsEnd() {

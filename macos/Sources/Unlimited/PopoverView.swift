@@ -108,11 +108,13 @@ struct CardView: View {
                 bar
                 if card.resets != nil || card.odds != nil || card.runsOut != nil {
                 HStack(alignment: .center) {
-                    if let resets = card.resets { Text(resets).foregroundStyle(.secondary) }
+                    if let resets = card.resets {
+                        figure(resets, "arrow.counterclockwise").foregroundStyle(.secondary).help(card.resetsAt ?? "")
+                    }
                     Spacer()
                     Group {
-                        if let o = card.odds { Text("\(o)% chance").help("Of running out, from past windows") }
-                        if let r = card.runsOut { Text(r) }
+                        if let o = card.odds { figure("\(o)%", "dice").help("Chance of running out, from past windows") }
+                        if let r = card.runsOut { figure(r, "flame").help("Runs out in \(r)") }
                     }
                     .italic(!card.fromHistory)
                     .foregroundStyle(tint)
@@ -124,8 +126,10 @@ struct CardView: View {
     }
 
     /// An icon and its figure, closer than `Label` sets them.
-    private func figure(_ v: Double, _ icon: String) -> some View {
-        HStack(spacing: 2) { Image(systemName: icon); Text(percent(v)) }
+    private func figure(_ v: Double, _ icon: String) -> some View { figure(percent(v), icon) }
+
+    private func figure(_ text: String, _ icon: String) -> some View {
+        HStack(spacing: 2) { Image(systemName: icon); Text(text) }
     }
 
     private var tint: Color { card.health == .normal ? .secondary : card.health.color }

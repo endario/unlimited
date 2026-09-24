@@ -9,11 +9,14 @@ public struct Card: Identifiable, Sendable {
     /// How far through its window we are, 0...1: where the bar's pace tick sits.
     public let elapsed: Double
     public let health: Health
+    /// Time to the reset, and (for a tooltip) when it is.
     public let resets: String?
+    public let resetsAt: String?
     /// Where today's pace alone reaches by the reset.
     public let momentum: Double?
     /// Where the forecast puts it at the reset: the middle of its range.
     public let projected: Double?
+    /// Time until it runs out, or "now".
     public let runsOut: String?
     /// Chance of running out, in percent, from past windows.
     public let odds: Int?
@@ -39,11 +42,12 @@ public struct Card: Identifiable, Sendable {
                 let length = Double(l.windowMinutes ?? 0) * 60
                 let left = l.resetsAt.map { $0.timeIntervalSince(now) }
                 let p = l.held == true || (l.usedAtLeast ?? 0) >= 1 ? nil : l.projection
-                let ends = p?.exhaustsAt.flatMap { $0 > now ? "runs out in \(until($0, now))" : "runs out now" }
+                let ends = p?.exhaustsAt.flatMap { $0 > now ? until($0, now) : "now" }
                 return Card(name: l.name, title: title(l), used: l.usedAtLeast,
                             elapsed: length > 0 && left != nil ? min(max(1 - left! / length, 0), 1) : 0,
                             health: l.health(now: now),
-                            resets: l.resetsAt.map { "Resets in \(until($0, now)) · \(clock($0, timeZone))" },
+                            resets: l.resetsAt.map { until($0, now) },
+                            resetsAt: l.resetsAt.map { "Resets \(clock($0, timeZone))" },
                             momentum: p?.recentAtReset,
                             projected: p.flatMap { $0.atReset.count == 2 ? ($0.atReset[0] + $0.atReset[1]) / 2 : nil },
                             runsOut: ends, odds: p?.runOut.map { Int(($0 * 100).rounded()) },
