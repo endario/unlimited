@@ -8,6 +8,10 @@ final class StripModel: ObservableObject {
     @Published private(set) var readings: [String: Reading] = [:]
     /// The account the popover shows, by tile id.
     @Published var selected: String?
+    /// Whether the popover is showing, so the strip can mark the selected tile.
+    @Published var open = false
+    /// Closes the popover: set by the app, used by what the popover opens (Settings).
+    var closePopover: () -> Void = {}
     /// Every account as read, before the owner's hiding: what Settings lists.
     @Published private(set) var accounts: [Tile] = []
     @Published private(set) var prefs: Preferences = StripModel.loadPrefs()

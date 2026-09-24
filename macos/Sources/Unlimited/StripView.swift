@@ -28,6 +28,8 @@ extension Tile.Alternate {
 struct TileView: View {
     static let width: CGFloat = 26
     let tile: Tile
+    /// The account the open popover shows.
+    var focused = false
     /// Whether the strip is in the phase that shows each tile's alternate window.
     let alternating: Bool
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -61,7 +63,8 @@ struct TileView: View {
             }
         }
         .opacity(tile.dimmed ? 0.45 : 1)
-        .frame(width: Self.width)
+        .frame(width: Self.width, height: 22)
+        .background(focused ? Color.primary.opacity(0.18) : .clear, in: .rect(cornerRadius: 4))
     }
 }
 
@@ -71,7 +74,9 @@ struct StripView: View {
 
     var body: some View {
         HStack(spacing: Self.spacing) {
-            ForEach(model.tiles) { TileView(tile: $0, alternating: model.alternating) }
+            ForEach(model.tiles) { t in
+                TileView(tile: t, focused: model.open && t.id == model.selected, alternating: model.alternating)
+            }
         }
         .padding(.horizontal, Self.padding)
         .frame(height: 22)

@@ -86,18 +86,13 @@ public struct Tile: Identifiable, Equatable, Sendable {
     /// Tunable: a reading older than this says nothing about now.
     public static let staleAfter: TimeInterval = 15 * 60
 
-    static let vendors: [(id: String, code: String, name: String, tab: String)] = [
-        ("anthropic", "CL", "Claude", "CLA"), ("openai", "CDX", "Codex", "CDX"), ("zai", "ZAI", "Z.ai", "ZAI"),
-        ("kimi", "KMI", "Kimi", "KMI"), ("opencode", "OPC", "OpenCode", "OPC"), ("xai", "GRK", "Grok", "GRK"),
+    static let vendors: [(id: String, code: String, name: String)] = [
+        ("anthropic", "CL", "Claude"), ("openai", "CDX", "Codex"), ("zai", "ZAI", "Z.ai"), ("kimi", "KMI", "Kimi"),
+        ("opencode", "OPC", "OpenCode"), ("xai", "GRK", "Grok"),
     ]
 
     /// The vendor's name for a person; an unknown vendor shows its id.
     public static func vendorName(_ id: String) -> String { vendors.first { $0.id == id }?.name ?? id }
-
-    /// Three letters, for the popover's tabs.
-    public static func vendorTab(_ id: String) -> String {
-        vendors.first { $0.id == id }?.tab ?? String(id.prefix(3)).uppercased()
-    }
 
     /// The tile under `x`, measured from the strip's leading edge.
     public static func at(_ x: Double, in tiles: [Tile], width: Double, spacing: Double, padding: Double) -> Tile? {
