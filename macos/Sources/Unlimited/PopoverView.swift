@@ -35,7 +35,13 @@ struct PopoverView: View {
             Text(([Tile.vendorName(t.vendor)] + r.names).joined(separator: " · "))
                 .font(.callout).foregroundStyle(.secondary)
             Spacer()
-            if t.best { Text("best pick").font(.caption).foregroundStyle(.secondary) }
+            // The star is drawn taller than the rectangles beside it: 11.25pt medium matches their ink height and stroke.
+            if t.best { Image(systemName: "star").font(.system(size: 11.25, weight: .medium)).help("Best pick") }
+            // Placeholders: neither launches anything yet.
+            Button {} label: { Image(systemName: "text.rectangle") }
+                .buttonStyle(.plain).help("Open a VS Code session as \(t.label)")
+            Button {} label: { Image(systemName: "terminal") }
+                .buttonStyle(.plain).help("Open a CLI session in tmux as \(t.label)")
         }
     }
 
