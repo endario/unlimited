@@ -14,7 +14,8 @@ public struct Card: Identifiable, Sendable {
     public let resetsAt: String?
     /// Where today's pace alone reaches by the reset.
     public let momentum: Double?
-    /// Where the forecast puts it at the reset: the middle of its range.
+    /// Where the forecast puts it at the reset: the high end of its range, the pace the run-out
+    /// time is measured at, so the two agree.
     public let projected: Double?
     /// Time until it runs out, or "now".
     public let runsOut: String?
@@ -50,7 +51,7 @@ public struct Card: Identifiable, Sendable {
                             resets: l.resetsAt.map { until($0, now) },
                             resetsAt: l.resetsAt.map { "Resets \(clock($0, timeZone))" },
                             momentum: p?.recentAtReset,
-                            projected: p.flatMap { $0.atReset.count == 2 ? ($0.atReset[0] + $0.atReset[1]) / 2 : nil },
+                            projected: p.flatMap { $0.atReset.count == 2 ? $0.atReset[1] : nil },
                             runsOut: ends, odds: p?.runOut.map { Int(($0 * 100).rounded()) },
                             fromHistory: (p?.pastWindows ?? 0) >= Health.trustPastWindows)
             }
