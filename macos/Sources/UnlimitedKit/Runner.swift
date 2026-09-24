@@ -3,7 +3,7 @@ import Foundation
 /// Runs the `unlimited` CLI. The app never reads a credential or calls a vendor; this is its
 /// only source.
 public struct Runner: Sendable {
-    public static let minimumVersion = [0, 0, 21]  // the first to emit `role` and `names`
+    public static let minimumVersion = [0, 0, 23]  // roles even for limits an older install cached
 
     public let binary: URL
 

@@ -58,6 +58,7 @@ public struct Limit: Decodable, Sendable {
     /// session | weekly | weekly_model | month | extra, or nil for entries that are not windows.
     public let role: String?
     public let scope: String?
+    public let projection: Projection?
 }
 
 /// Python's `isoformat()`: `2026-09-24T05:53:26.402753+00:00`, the fraction optional and up to six

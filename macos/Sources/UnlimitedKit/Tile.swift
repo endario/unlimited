@@ -21,15 +21,42 @@ public struct Tile: Identifiable, Equatable, Sendable {
         }
     }
 
+    /// Another window more likely to stop this account than its weekly one.
+    public struct Alternate: Equatable, Sendable {
+        public let role: String
+        public let value: Value
+        public let health: Health
+    }
+
     public let id: String
     public let label: String
     public let value: Value
     /// A throttled or unusable reading: shown, but not to be trusted as current.
     public let dimmed: Bool
+    public var health: Health = .normal
+    public var alternate: Alternate?
+
+    public init(id: String, label: String, value: Value, dimmed: Bool, health: Health = .normal,
+                alternate: Alternate? = nil) {
+        (self.id, self.label, self.value, self.dimmed, self.health, self.alternate) = (id, label, value, dimmed, health, alternate)
+    }
 
     public static let waiting = Tile(id: "", label: "", value: .waiting, dimmed: false)
     /// The whole strip when `unlimited` cannot be run; the menu says why.
     public static let broken = Tile(id: "", label: "", value: .unread, dimmed: false)
+
+    /// The non-weekly window in a worse state than the weekly one; of equals, the one that runs
+    /// out first.
+    static func override(_ limits: [Limit], weekly: Limit?, now: Date) -> Limit? {
+        let floor = weekly?.health(now: now) ?? .normal
+        return limits
+            .filter { $0.role != nil && $0.role != "weekly" && $0.health(now: now) > floor }
+            .min { a, b in
+                let (ha, hb) = (a.health(now: now), b.health(now: now))
+                if ha != hb { return ha > hb }
+                return (a.projection?.exhaustsAt ?? .distantFuture) < (b.projection?.exhaustsAt ?? .distantFuture)
+            }
+    }
     /// Tunable: a reading older than this says nothing about now.
     public static let staleAfter: TimeInterval = 15 * 60
 
@@ -50,7 +77,8 @@ public struct Tile: Identifiable, Equatable, Sendable {
         let numbered = tiles.map { t -> Tile in
             guard counts[t.label, default: 0] > 1 else { return t }
             seen[t.label, default: 0] += 1
-            return Tile(id: t.id, label: t.label + String(seen[t.label]!), value: t.value, dimmed: t.dimmed)
+            return Tile(id: t.id, label: t.label + String(seen[t.label]!), value: t.value, dimmed: t.dimmed,
+                        health: t.health, alternate: t.alternate)
         }
         return numbered.isEmpty ? [.waiting] : numbered
     }
@@ -69,7 +97,13 @@ public struct Tile: Identifiable, Equatable, Sendable {
             value = .noWeekly
         }
         let id = "\(r.vendor)/\(r.account ?? "")"
-        return (r.vendor, Tile(id: id, label: label(r), value: value, dimmed: throttled || value == .unread || value == .stale))
+        let usable = r.status == "ok" && !(stale && !throttled)
+        let alt = usable ? override(r.limits, weekly: r.weekly, now: now).map {
+            Alternate(role: $0.role ?? "", value: $0.usedAtLeast.map { .percent(Int(($0 * 100).rounded())) } ?? .unknown,
+                      health: $0.health(now: now))
+        } : nil
+        return (r.vendor, Tile(id: id, label: label(r), value: value, dimmed: throttled || !usable,
+                               health: usable ? r.weekly?.health(now: now) ?? .normal : .normal, alternate: alt))
     }
 
     /// The vendor's code plus the number in its first identity name: `account2` → CL2,
