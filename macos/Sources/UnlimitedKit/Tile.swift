@@ -39,6 +39,8 @@ public struct Tile: Identifiable, Equatable, Sendable {
     public var best = false
     /// The high end of the weekly forecast, for choosing the best pick.
     var heading: Double?
+    /// How much of the weekly window has passed, 0 to 1.
+    public var elapsed: Double?
 
     public init(id: String, label: String, value: Value, dimmed: Bool, health: Health = .normal,
                 alternate: Alternate? = nil, best: Bool = false) {
@@ -50,6 +52,7 @@ public struct Tile: Identifiable, Equatable, Sendable {
     public func labelled(_ label: String) -> Tile {
         var t = Tile(id: id, label: label, value: value, dimmed: dimmed, health: health, alternate: alternate, best: best)
         t.heading = heading
+        t.elapsed = elapsed
         return t
     }
 
@@ -153,6 +156,7 @@ public struct Tile: Identifiable, Equatable, Sendable {
         tile.heading = r.weekly.flatMap { w in
             w.projection.flatMap { w.trusted($0, now: now) ? $0.atReset.last : nil } ?? w.usedAtLeast
         }
+        tile.elapsed = r.weekly?.elapsed(now: now)
         return (r.vendor, tile)
     }
 

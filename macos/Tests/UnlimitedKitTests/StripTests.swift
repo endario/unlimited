@@ -58,3 +58,10 @@ func strip() throws -> [String: Tile] {
         try Reading.decode(Data(#"[{"schema": 2, "vendor": "openai", "status": "ok"}]"#.utf8))
     }
 }
+
+@Test func aTileCarriesHowMuchOfItsWeekHasPassed() throws {
+    let cl2 = try #require(try strip()["CL2"])
+    let weekly = try #require(try fixture()[0].weekly)
+    #expect(cl2.elapsed == weekly.elapsed(now: now), "the weekly window's, not another's")
+    #expect(cl2.labelled("CL9").elapsed == cl2.elapsed, "kept when accounts are numbered apart")
+}

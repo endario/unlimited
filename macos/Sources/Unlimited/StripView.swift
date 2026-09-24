@@ -67,6 +67,16 @@ struct TileView: View {
         }
         .opacity(tile.dimmed ? 0.45 : 1)
         .frame(width: Self.width, height: 22)
+        // The week's time so far, filling upward to the reset.
+        .overlay(alignment: .trailing) {
+            if let e = tile.elapsed {
+                ZStack(alignment: .bottom) {
+                    Capsule().fill(Color.primary.opacity(0.15))
+                    Capsule().fill(Color.primary.opacity(0.5)).frame(height: 16 * min(max(e, 0), 1))
+                }
+                .frame(width: 1.5, height: 16)
+            }
+        }
         .background(focused ? Color.primary.opacity(0.18) : .clear, in: .rect(cornerRadius: 4))
     }
 }
