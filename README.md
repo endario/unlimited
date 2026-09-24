@@ -3,7 +3,7 @@
 How much of each AI subscription you have used, per window, and where each window is heading:
 Claude, Codex, Z.ai GLM, Kimi Code, OpenCode Go and Grok, across every account on the machine.
 
-![The menu bar strip: one tile per account, its weekly use coloured by where it is heading](docs/img/strip.png)
+![The menu bar strip: one tile per account, its weekly use coloured by where it is heading](https://raw.githubusercontent.com/endario/unlimited/main/docs/img/strip.png)
 
 It comes three ways, all from the same readings:
 
@@ -29,7 +29,7 @@ picks an account or draws a threshold. Choosing what to do with a reading is up 
 
 ## In the menu bar
 
-<img src="docs/img/popover.png" width="346" align="right" alt="The popover for one account: a card per window, with its bar, pace and forecast">
+<img src="https://raw.githubusercontent.com/endario/unlimited/main/docs/img/popover.png" width="346" align="right" alt="The popover for one account: a card per window, with its bar, pace and forecast">
 
 Each tile shows an account's weekly use. When another of its windows is in worse shape, the tile
 cross-fades to it now and then. The thin bar beside each figure is how much of the week has
@@ -60,7 +60,7 @@ cd macos && make app && open .build/Unlimited.app
 
 ## In the terminal
 
-![unlimited status: one block per account, a bar per usage window, and a forecast line under each](docs/status.svg)
+![unlimited status: one block per account, a bar per usage window, and a forecast line under each](https://raw.githubusercontent.com/endario/unlimited/main/docs/status.svg)
 
 ## For agents
 
