@@ -17,6 +17,8 @@ public enum Health: Int, Comparable, Sendable {
     /// `trustPastWindows`, a projection is not drawn.
     public static let trustAfter = 0.1
     public static let trustPastWindows = 3
+    /// Tunable: past this much used, even an early window has enough use to read a pace from.
+    public static let trustUsedAbove = 0.1
 }
 
 public struct Projection: Decodable, Sendable {
@@ -53,6 +55,7 @@ extension Limit {
 
     func trusted(_ p: Projection, now: Date) -> Bool {
         if (p.pastWindows ?? 0) >= Health.trustPastWindows { return true }
+        if (usedAtLeast ?? 0) > Health.trustUsedAbove { return true }
         return (elapsed(now: now) ?? 0) >= Health.trustAfter
     }
 }
