@@ -86,6 +86,33 @@ class Statusline(Base):
             self.assertEqual(got["names"], ["account2"], label)
         self.assertNotIn("account2", (self.tmp / "cache" / "unlimited" / "anthropic.json").read_text())
 
+    def test_a_limit_an_older_unlimited_cached_gets_its_role_on_the_way_out(self):
+        # Every install on a machine shares one cache, and an older one writes limits with no role.
+        old = [{k: v for k, v in l.items() if k not in ("role", "scope")}
+               for l in anthropic.statusline_limits(RL, NOW)]
+        cache.default_dir().mkdir(parents=True)
+        (cache.default_dir() / "anthropic.json").write_text(json.dumps({"readings": [
+            {"schema": 1, "vendor": "anthropic", "account": UUID, "taken_at": NOW.isoformat(), "source": "api",
+             "status": "ok", "limits": old}], "history": {}}))
+        got = cache.through(self.claude(), max_age=300, clock=lambda: NOW + timedelta(seconds=60),
+                            get=self.up(Answer(None, 429, "http-429")))[0]
+        self.assertEqual([(l["role"], l["scope"]) for l in got["limits"]], [("session", None), ("weekly", None)])
+
+    def test_an_old_cached_codex_limit_is_named_by_codex_not_by_the_shared_names(self):
+        old = [{k: v for k, v in l.items() if k not in ("role", "scope")} for l in openai.limits(
+            {"rate_limit": {"primary_window": {"used_percent": 9, "limit_window_seconds": 18000,
+                                               "reset_at": int((NOW + timedelta(hours=1)).timestamp())},
+                            "secondary_window": {"used_percent": 9, "limit_window_seconds": 604800,
+                                                 "reset_at": int((NOW + timedelta(days=1)).timestamp())}}}, NOW)]
+        cache.default_dir().mkdir(parents=True)
+        (cache.default_dir() / "openai.json").write_text(json.dumps({"readings": [
+            {"schema": 1, "vendor": "openai", "account": "a", "taken_at": NOW.isoformat(), "source": "api",
+             "status": "ok", "limits": old}], "history": {}}))
+        codex = SimpleNamespace(VENDOR="openai", read=None, role=openai.role,
+                                discover=lambda: [Credential("a", {})])
+        got = cache.through(codex, max_age=300, clock=lambda: NOW + timedelta(seconds=60), get=None)[0]
+        self.assertEqual([l["role"] for l in got["limits"]], ["session", "weekly"])
+
     def test_capture_without_rate_limits_writes_nothing_and_the_cli_stays_silent(self):
         d = self.signed_in(".claude-account2")
         out = io.StringIO()

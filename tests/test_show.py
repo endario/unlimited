@@ -41,11 +41,6 @@ class Render(unittest.TestCase):
         r["names"] = ["claude-glm", "claude-glm-2"]
         self.assertIn("Z.ai GLM Max · claude-glm, claude-glm-2\n", show.render([r], NOW))
 
-    def test_a_cached_limit_from_before_roles_still_shows(self):
-        l = limit("seven_day", window_minutes=10080, used_at_least=0.4, resets_at=NOW + timedelta(days=1), held=None)
-        del l["role"], l["scope"]
-        self.assertIn("weekly", show.render([reading("kimi", "k", NOW, "ok", limits=[l])], NOW))
-
 
     def credits(self, **kw):
         return credits(NOW, **{"enabled": True, "used": 0.0, "limit": 200.0, "balance": None,

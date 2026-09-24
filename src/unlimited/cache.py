@@ -11,7 +11,7 @@ from datetime import datetime, timedelta
 from pathlib import Path
 
 from . import projection
-from .schema import iso, moment, settled
+from .schema import iso, moment, role_of, settled
 
 
 def default_dir() -> Path:
@@ -54,6 +54,16 @@ MIN_BACKOFF = timedelta(minutes=5)
 def _throttled(r: dict) -> bool:
     why = r.get("why") or ""
     return why == "http-429" or why.startswith("http-5")
+
+
+def _roled(adapter, l: dict) -> dict:
+    """Every install on a machine shares this cache, and one older than roles writes limits
+    without them: such a limit gets the role its vendor, or else its name and length, give it."""
+    if "role" in l:
+        return l
+    name, minutes = str(l.get("name", "")), l.get("window_minutes")
+    got = getattr(adapter, "role", None)
+    return dict(l, **(got(name, minutes) if got else {"role": role_of(name, minutes), "scope": None}))
 
 
 def through(adapter, *, max_age: float, clock, get, directory: Path | None = None) -> list[dict]:
@@ -110,5 +120,6 @@ def through(adapter, *, max_age: float, clock, get, directory: Path | None = Non
         _write(path, out, history)
         # Names describe this machine's directories now, not the vendor's answer: never cached.
         names = getattr(adapter, "names", dict)()
-        return [dict(projection.attach(settled(r, now), history), names=names.get(r.get("account"), []))
-                for r in out]
+        done = [projection.attach(settled(r, now), history) for r in out]
+        return [dict(r, names=names.get(r.get("account"), []), limits=[_roled(adapter, l) for l in r.get("limits", [])])
+                for r in done]

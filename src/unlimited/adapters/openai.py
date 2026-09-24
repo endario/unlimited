@@ -103,6 +103,11 @@ def _role(name: str, minutes: int | None) -> dict:
     return {"role": role or ("extra" if minutes else None), "scope": None if role or not minutes else name}
 
 
+def role(name: str, minutes: int | None) -> dict:
+    """A cached limit's role, from the name `limits()` gave it."""
+    return _role(name.removesuffix(" (secondary)"), minutes)
+
+
 def _session_limits(snap: dict, now: datetime) -> list[dict]:
     """One `rate_limits` snapshot from a Codex session log, in the same shape `limits()` gives
     `/wham/usage`."""

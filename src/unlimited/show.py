@@ -5,7 +5,7 @@ from __future__ import annotations
 from datetime import datetime
 
 from .projection import MIN_PAST
-from .schema import moment, role_of
+from .schema import moment
 
 VENDOR_NAMES = {"anthropic": "Claude", "openai": "Codex", "zai": "Z.ai GLM", "opencode": "OpenCode", "xai": "Grok",
                 "kimi": "Kimi Code"}
@@ -99,9 +99,8 @@ def render(readings: list[dict], now: datetime, *, color: bool = False, all_limi
                                 None, None, color))
             lines.append("")
             continue
-        # A limit cached before roles existed has none; it gets the one it would have now.
         shown = [l for l in r.get("limits", []) if all_limits or
-                 (l.get("role", role_of(str(l.get("name", "")), l.get("window_minutes"))) is not None
+                 (l.get("role") is not None
                   and l.get("used_at_least") is not None or l.get("held"))]
         for l in shown:
             used, held = l.get("used_at_least"), l.get("held")
