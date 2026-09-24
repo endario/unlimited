@@ -83,7 +83,7 @@ struct Box<Content: View>: View {
 
 struct CardView: View {
     let card: Card
-    static let barHeight: CGFloat = 3
+    static let barHeight: CGFloat = 3.5
 
     var body: some View {
         Box {
@@ -97,7 +97,7 @@ struct CardView: View {
                         if let m = card.momentum { figure(m, "bolt.fill").help("At today's pace, by reset") }
                         if let p = card.projected { figure(p, "chart.line.uptrend.xyaxis").help("Forecast at reset") }
                     }
-                    .font(.caption).monospacedDigit()
+                    .font(.callout.weight(.semibold)).monospacedDigit()
                     // Italic: a guess from this window's paces alone, before past windows back it.
                     .italic(!card.fromHistory)
                     .foregroundStyle(tint)
@@ -117,7 +117,7 @@ struct CardView: View {
                     .italic(!card.fromHistory)
                     .foregroundStyle(tint)
                 }
-                .font(.caption).monospacedDigit()
+                .font(.callout).monospacedDigit()
                 }
             }
         }
