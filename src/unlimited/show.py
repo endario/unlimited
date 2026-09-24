@@ -40,8 +40,12 @@ def _paint(text: str, used: float | None, held: bool | None, color: bool) -> str
     return f"\033[{code}m{text}\033[0m"
 
 
+ITALIC = "\033[3m"
+
+
 def _forecast(p: dict, now: datetime, color: bool) -> str:
-    """One line under a window: where it is heading, when it runs out, and what that rests on."""
+    """One line under a window: where it is heading and when it runs out. In italics while no
+    past windows back it: this window's paces alone are a guess."""
     lo, hi = (round(x * 100) for x in p["at_reset"])
     text = "→ " + _paint(f"{lo}%" if lo == hi else f"{lo}–{hi}%", hi / 100, None, color) + " at reset"
     ends = moment(p.get("exhausts_at"))
@@ -50,10 +54,9 @@ def _forecast(p: dict, now: datetime, color: bool) -> str:
                  else " · runs out now")
     if p.get("run_out") is not None:
         text += f" · {round(p['run_out'] * 100)}% chance of running out"
-    n = p.get("past_windows") or 0
-    if n >= MIN_PAST:
-        text += f" · from {n} past windows"
-    return text
+    guess = (p.get("past_windows") or 0) < MIN_PAST
+    # _paint ends in a reset, so italics are reapplied after each painted run.
+    return ITALIC + text.replace("\033[0m", "\033[0m" + ITALIC) + "\033[0m" if color and guess else text
 
 
 def _credits(c: dict, taken: datetime | None, now: datetime, color: bool) -> str:

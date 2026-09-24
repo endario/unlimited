@@ -189,13 +189,20 @@ class Shown(unittest.TestCase):
         out = show.render([r], NOW)
         self.assertRegex(out, r"\n {18}→ \d+–\d+% at reset · runs out in \d+d \d+h\n")
 
-    def test_a_full_window_has_no_forecast_and_past_windows_are_named(self):
+    def test_a_full_window_has_no_forecast(self):
         full = projection.attach(at(NOW, 1.0), history((NOW, 1.0)))
+        self.assertNotIn("→", show.render([full], NOW))
+
+    def test_only_a_forecast_without_past_windows_is_marked_as_a_guess(self):
+        # Past windows back it: printed plainly, with no footnote. Without them: italic.
         e = {"a\tseven_day": {"samples": [[NOW.isoformat(), 0.4, RESET.isoformat()]],
                               "past": past(*[lambda x: x * 0.7] * 4)}}
-        known = projection.attach(at(NOW, 0.4), e)
-        self.assertNotIn("→", show.render([full], NOW))
-        self.assertRegex(show.render([known], NOW), r"% chance of running out · from 4 past windows")
+        known = show.render([projection.attach(at(NOW, 0.4), e)], NOW, color=True)
+        guess = show.render([projection.attach(at(NOW, 0.45), history((NOW - timedelta(days=1), 0.2), (NOW, 0.45)))],
+                            NOW, color=True)
+        self.assertNotIn("past windows", known)
+        self.assertNotIn(show.ITALIC, known)
+        self.assertIn(show.ITALIC + "→", guess)
 
     def test_a_held_row_says_held_not_where_it_is_heading(self):
         r = projection.attach(at(NOW, 0.45), history((NOW, 0.45)))
