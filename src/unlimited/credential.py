@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+from collections.abc import Mapping
 from dataclasses import dataclass, field
 
 
@@ -8,7 +9,7 @@ from dataclasses import dataclass, field
 class Credential:
     account: str | None
     # Secret material. `repr=False` keeps it out of any traceback or debug print.
-    secret: dict = field(repr=False)
+    secret: Mapping = field(repr=False)
 
 
 def account_of(key: str) -> str:

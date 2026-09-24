@@ -14,6 +14,7 @@ import json
 import os
 import subprocess
 import sys
+from collections.abc import Mapping
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -85,19 +86,40 @@ def _expiry(rec: dict) -> datetime | None:
         return None
 
 
+class _Token(Mapping):
+    """An account's token, read from the keychain on first use. `discover()` runs on every
+    `cache.through`, including cache hits that send no token."""
+
+    def __init__(self, dirs: list[Path]):
+        self._dirs, self._got = dirs, None
+
+    def _secret(self) -> dict:
+        if self._got is None:
+            now = datetime.now(timezone.utc)
+            recs = [r for d in self._dirs for r in _oauth(d)]
+            rec = next((r for r in recs if (_expiry(r) or now) > now), recs[0] if recs else {})
+            self._got = {"token": rec.get("accessToken"), "expires": rec.get("expiresAt")}
+        return self._got
+
+    def __getitem__(self, key):
+        return self._secret()[key]
+
+    def __iter__(self):
+        return iter(self._secret())
+
+    def __len__(self):
+        return len(self._secret())
+
+
 def discover() -> list[Credential]:
     """One credential per account. An account signed in under several directories is read once,
     on whichever token is unexpired (or, failing that, any)."""
-    now = datetime.now(timezone.utc)
-    found: dict[str, list[dict]] = {}
+    found: dict[str, list[Path]] = {}
     for d in config_dirs():
         who = account_of(d)
         if who is not None:
-            found.setdefault(who, []).extend(_oauth(d))
-    best = {who: next((r for r in recs if (_expiry(r) or now) > now), recs[0] if recs else {})
-            for who, recs in found.items()}
-    return [Credential(who, {"token": rec.get("accessToken"), "expires": rec.get("expiresAt")})
-            for who, rec in sorted(best.items())]
+            found.setdefault(who, []).append(d)
+    return [Credential(who, _Token(dirs)) for who, dirs in sorted(found.items())]
 
 
 # Anthropic's `limits` list names each limit by kind and group, not by window.

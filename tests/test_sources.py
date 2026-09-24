@@ -98,7 +98,21 @@ class Discovery(Base):
                 ".claude-glm": [{"accessToken": "glm", "expiresAt": live}]}
         with mock.patch.object(anthropic, "_oauth", lambda d: recs.get(d.name, [])):
             creds = anthropic.discover()
-        self.assertEqual([(c.account, c.secret["token"]) for c in creds], [(UUID, "new")])
+            self.assertEqual([(c.account, c.secret["token"]) for c in creds], [(UUID, "new")])
+
+    def test_the_keychain_is_read_only_when_a_read_is_due(self):
+        # `security` runs once per keychain item; on every cache hit it was pure cost.
+        self.signed_in(".claude-a")
+        seen = []
+        live = int((datetime.now(timezone.utc) + timedelta(hours=1)).timestamp() * 1000)
+        body = {"five_hour": {"utilization": 30, "resets_at": (NOW + timedelta(hours=2)).isoformat()}}
+        with mock.patch.object(anthropic, "_oauth", lambda d: seen.append(d.name) or
+                               [{"accessToken": "t", "expiresAt": live}]):
+            cache.through(anthropic, max_age=300, clock=lambda: NOW, get=self.up(Answer(body, 200, None)))
+            self.assertEqual(len(seen), 1, "the first read needs the token")
+            cache.through(anthropic, max_age=300, clock=lambda: NOW + timedelta(seconds=60),
+                          get=self.up(Answer(body, 200, None)))
+        self.assertEqual(len(seen), 1, "a cache hit must not read the keychain")
 
     def test_session_window_usage_reset_and_lock_are_read(self):
         body = {"five_hour": {"utilization": 43.0, "resets_at": (NOW + timedelta(hours=2)).isoformat(),
@@ -223,7 +237,7 @@ class Discovery(Base):
         self.signed_in(".claude-a")
         with mock.patch.object(anthropic, "_oauth", lambda d: []):
             [cred] = anthropic.discover()
-        got = anthropic.read(cred, NOW, self.up(Answer({}, 200, None)))
+            got = anthropic.read(cred, NOW, self.up(Answer({}, 200, None)))
         self.assertEqual((got["status"], got["why"], self.calls), ("unread", "no-credential", []))
 
     def test_a_tombstoned_account_reads_as_signed_out_not_as_no_credential(self):
@@ -231,7 +245,7 @@ class Discovery(Base):
         tombstone = [{"accessToken": "", "refreshToken": "", "expiresAt": 0}]
         with mock.patch.object(anthropic, "_oauth", lambda d: tombstone):
             [cred] = anthropic.discover()
-        got = anthropic.read(cred, NOW, self.up(Answer({}, 200, None)))
+            got = anthropic.read(cred, NOW, self.up(Answer({}, 200, None)))
         self.assertEqual((got["status"], got["why"], self.calls), ("unread", "signed-out", []))
 
 
