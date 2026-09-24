@@ -31,7 +31,6 @@ struct PopoverView: View {
     /// Which account this is: the strip above is the tabs, so the popover only names it.
     private func header(_ t: Tile, _ r: Reading) -> some View {
         HStack(alignment: .center, spacing: 6) {
-            Text(t.label).font(.headline.monospaced())
             Text(([Tile.vendorName(t.vendor)] + r.names).joined(separator: " · "))
                 .font(.callout).foregroundStyle(.secondary)
             Spacer()
@@ -83,11 +82,12 @@ struct Box<Content: View>: View {
 
 struct CardView: View {
     let card: Card
-    static let barHeight: CGFloat = 4
+    static let barHeight: CGFloat = 3
 
     var body: some View {
         Box {
-            VStack(alignment: .leading, spacing: 6) {
+            // No stack spacing: the bar's own padding sets equal room above and below it.
+            VStack(alignment: .leading, spacing: 0) {
                 // Centred, not on one baseline: the owner's call for rows that mix sizes.
                 HStack(alignment: .center, spacing: 10) {
                     Text(card.title).font(.callout.weight(.semibold))
@@ -137,19 +137,21 @@ struct CardView: View {
         GeometryReader { g in
             let w = g.size.width
             ZStack(alignment: .leading) {
-                RoundedRectangle(cornerRadius: 1.5).fill(Color.primary.opacity(0.12))
+                RoundedRectangle(cornerRadius: 1.5).fill(Color.primary.opacity(0.12)).frame(height: Self.barHeight)
                 // Neutral is grey: the accent colour is often blue, which here means a sprint.
                 RoundedRectangle(cornerRadius: 1.5)
                     .fill(card.health == .normal ? Color.primary.opacity(0.45) : card.health.color)
-                    .frame(width: w * min(card.used ?? 0, 1))
-                Rectangle().fill(Color.primary.opacity(0.6)).frame(width: 1, height: Self.barHeight + 4)
+                    .frame(width: w * min(card.used ?? 0, 1), height: Self.barHeight)
+                Rectangle().fill(Color.primary.opacity(0.6)).frame(width: 1, height: (Self.barHeight + 4) * 2)
                     .offset(x: w * card.elapsed - 0.5)
                 if let m = card.momentum { arrow(down: true).offset(x: Card.marker(m, width: w) - 3, y: -(Self.barHeight + 3)) }
                 if let p = card.projected { arrow(down: false).offset(x: Card.marker(p, width: w) - 3, y: Self.barHeight + 3) }
             }
+            // Sized to the bar, so the taller stripe and the marks overhang it evenly.
+            .frame(width: w, height: Self.barHeight)
         }
         .frame(height: Self.barHeight)
-        .padding(.vertical, 5)
+        .padding(.vertical, 12)
     }
 
     private func arrow(down: Bool) -> some View {
