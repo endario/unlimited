@@ -28,9 +28,13 @@ public struct Card: Identifiable, Sendable {
     /// this much at each end of its card, so the mark lands in that space.
     public static let bleed: Double = 10
 
+    /// How far past the bar's end a marker past 100% sits: clear of a mark at 100%, not out at the card's edge.
+    public static let over: Double = 5
+
     /// A marker's position on a bar `width` wide: to scale up to the limit, then only just past it.
+    /// Judged on the whole percent the card prints, so a mark labelled 100% sits at the bar's end.
     public static func marker(_ value: Double, width: Double) -> Double {
-        value > 1 ? width + bleed : max(value, 0) * width
+        (value * 100).rounded() > 100 ? width + over : min(max(value, 0), 1) * width
     }
 
     static let order = ["session", "weekly", "weekly_model", "month", "extra"]
