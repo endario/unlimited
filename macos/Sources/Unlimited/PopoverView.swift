@@ -89,45 +89,52 @@ struct CardView: View {
         Box {
             // No stack spacing: the bar's own padding sets equal room above and below it.
             VStack(alignment: .leading, spacing: 0) {
-                // One baseline: every text here is one font, so it also centres them exactly;
-                // centring their boxes instead rounds each to a different half-pixel.
-                HStack(alignment: .firstTextBaseline, spacing: 10) {
+                // Three columns on one baseline. The side columns take equal widths, so the
+                // middle is centred on the card. Above the bar: today's pace, whose mark is above
+                // it; below: the forecast, whose mark is below it.
+                row {
                     Text(card.title).font(.callout.weight(.semibold))
-                    Spacer()
-                    Group {
-                        if let m = card.momentum { figure(m, "bolt.fill").help("At today's pace, by reset") }
-                        if let p = card.projected { figure(p, "chart.line.uptrend.xyaxis").help("Forecast at reset") }
-                    }
-                    .font(.callout).monospacedDigit()
-                    // Thinner than regular: a guess from this window's paces alone, before past windows back it.
-                    .fontWeight(card.fromHistory ? .regular : .light)
-                    .foregroundStyle(tint)
+                } middle: {
                     Text(card.used.map(percent) ?? "?")
-                        .font(.callout.weight(.semibold)).monospacedDigit()
-                        .foregroundStyle(card.health.color)
+                        .font(.callout.weight(.semibold)).foregroundStyle(card.health.color)
+                } right: {
+                    if let m = card.momentum { guess(figure(m, "bolt.fill")).help("At today's pace, by reset") }
                 }
                 bar
-                if card.resets != nil || card.odds != nil || card.runsOut != nil {
-                HStack(alignment: .firstTextBaseline) {
+                row {
+                    HStack(spacing: 8) {
+                        if let r = card.runsOut { guess(figure(r, "flame")).help("Runs out in \(r)") }
+                        if let o = card.odds { guess(figure("\(o)%", "dice")).help("Chance of running out, from past windows") }
+                    }
+                } middle: {
                     if let resets = card.resets {
                         figure(resets, "arrow.counterclockwise").foregroundStyle(.secondary).help(card.resetsAt ?? "")
                     }
-                    Spacer()
-                    Group {
-                        if let o = card.odds { figure("\(o)%", "dice").help("Chance of running out, from past windows") }
-                        if let r = card.runsOut { figure(r, "flame").help("Runs out in \(r)") }
-                    }
-                    .fontWeight(card.fromHistory ? .regular : .light)
-                    .foregroundStyle(tint)
-                }
-                .font(.callout).monospacedDigit()
+                } right: {
+                    if let p = card.projected { guess(figure(p, "chart.line.uptrend.xyaxis")).help("Forecast at reset") }
                 }
             }
         }
     }
 
+    private func row<L: View, M: View, R: View>(@ViewBuilder _ left: () -> L, @ViewBuilder middle: () -> M,
+                                                @ViewBuilder right: () -> R) -> some View {
+        HStack(alignment: .firstTextBaseline, spacing: 0) {
+            left().frame(maxWidth: .infinity, alignment: .leading)
+            middle()
+            right().frame(maxWidth: .infinity, alignment: .trailing)
+        }
+        .font(.callout).monospacedDigit()
+    }
+
+    /// A forecast figure: its colour, and thinner than regular while it is a guess from this
+    /// window's paces alone, before past windows back it.
+    private func guess(_ t: Text) -> some View {
+        t.fontWeight(card.fromHistory ? .regular : .light).foregroundStyle(tint)
+    }
+
     /// An icon and its figure, closer than `Label` sets them.
-    private func figure(_ v: Double, _ icon: String) -> some View { figure(percent(v), icon) }
+    private func figure(_ v: Double, _ icon: String) -> Text { figure(percent(v), icon) }
 
     /// The symbol set inside the text run, not beside it: the typesetter places it on the
     /// digits' own baseline, so it cannot drift half a pixel from them as separate boxes did.
