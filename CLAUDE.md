@@ -11,3 +11,5 @@ merging to `main`:
    does not).
 4. Confirm PyPI serves it, then `uv tool install --force unlimited==X.Y.Z` on each machine that
    uses it.
+
+A merge that changes only `macos/**` ships no Python, so it needs no version bump or release.
