@@ -89,8 +89,9 @@ struct CardView: View {
         Box {
             // No stack spacing: the bar's own padding sets equal room above and below it.
             VStack(alignment: .leading, spacing: 0) {
-                // Centred, not on one baseline: the owner's call for rows that mix sizes.
-                HStack(alignment: .center, spacing: 10) {
+                // One baseline: every text here is one font, so it also centres them exactly;
+                // centring their boxes instead rounds each to a different half-pixel.
+                HStack(alignment: .firstTextBaseline, spacing: 10) {
                     Text(card.title).font(.callout.weight(.semibold))
                     Spacer()
                     Group {
@@ -107,7 +108,7 @@ struct CardView: View {
                 }
                 bar
                 if card.resets != nil || card.odds != nil || card.runsOut != nil {
-                HStack(alignment: .center) {
+                HStack(alignment: .firstTextBaseline) {
                     if let resets = card.resets {
                         figure(resets, "arrow.counterclockwise").foregroundStyle(.secondary).help(card.resetsAt ?? "")
                     }
@@ -128,8 +129,10 @@ struct CardView: View {
     /// An icon and its figure, closer than `Label` sets them.
     private func figure(_ v: Double, _ icon: String) -> some View { figure(percent(v), icon) }
 
-    private func figure(_ text: String, _ icon: String) -> some View {
-        HStack(spacing: 2) { Image(systemName: icon); Text(text) }
+    /// The symbol set inside the text run, not beside it: the typesetter places it on the
+    /// digits' own baseline, so it cannot drift half a pixel from them as separate boxes did.
+    private func figure(_ text: String, _ icon: String) -> Text {
+        Text("\(Image(systemName: icon))\u{2009}\(text)")
     }
 
     private var tint: Color { card.health == .normal ? .secondary : card.health.color }
