@@ -11,7 +11,8 @@ extension Health {
         case .underUsed: Color(red: 0.56, green: 0.9, blue: 0.62)
         case .normal: .primary
         case .amber: Color(red: 1, green: 0.78, blue: 0.47)
-        case .red: Color(red: 1, green: 0.68, blue: 0.66)
+        // Rose, not coral: coral sat too close to the amber. Same brightness, so the same contrast.
+        case .red: Color(red: 1, green: 0.62, blue: 0.72)
         }
     }
 }
