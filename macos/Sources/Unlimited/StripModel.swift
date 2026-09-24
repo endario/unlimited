@@ -6,6 +6,8 @@ import UnlimitedKit
 final class StripModel: ObservableObject {
     @Published private(set) var tiles: [Tile] = [.waiting]
     @Published private(set) var readings: [String: Reading] = [:]
+    /// How to open each account's Claude Code, by tile id; absent where it has no wrapper.
+    @Published private(set) var launches: [String: Launch] = [:]
     /// The account the popover shows, by tile id.
     @Published var selected: String?
     /// Whether the popover is showing, so the strip can mark the selected tile.
@@ -101,6 +103,7 @@ final class StripModel: ObservableObject {
                     self.redraw()
                     self.readings = Dictionary(readings.map { ("\($0.vendor)/\($0.account ?? "")", $0) },
                                                uniquingKeysWith: { a, _ in a })
+                    self.launches = self.readings.compactMapValues { Launch.resolve(names: $0.names) }
                 case .failure(let e as Reading.SchemaError):
                     self.fail("unlimited speaks schema \(e.schema); this app reads schema 1")
                 case .failure(Problem.tooOld):
