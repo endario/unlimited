@@ -5,7 +5,7 @@ from __future__ import annotations
 from datetime import datetime
 
 from .projection import MIN_PAST
-from .schema import moment
+from .schema import moment, role_of
 
 VENDOR_NAMES = {"anthropic": "Claude", "openai": "Codex", "zai": "Z.ai GLM", "opencode": "OpenCode", "xai": "Grok",
                 "kimi": "Kimi Code"}
@@ -21,55 +21,6 @@ PLANS = {"default_claude_max_20x": "Max 20x", "default_claude_max_5x": "Max 5x",
 def _plan(r: dict) -> str | None:
     p = r.get("plan")
     return PLANS.get(p, p) if p else ("Go" if r.get("vendor") == "opencode" and r.get("status") == "ok" else None)
-
-
-def _claude_dirs() -> dict[str, str]:
-    """Claude account id → the config directories signed in to it, by their short name."""
-    from .adapters import anthropic
-    out: dict[str, list[str]] = {}
-    for d in anthropic.config_dirs():
-        who = anthropic.account_of(d)
-        if who:
-            # "account1", not "default": sorts with its account2/account3 siblings, not after them.
-            name = d.name.removeprefix(".claude").lstrip("-") or "account1"
-            out.setdefault(who, []).append(name)
-    return {k: ", ".join(v) for k, v in out.items()}
-
-
-def _glm_wrappers() -> dict[str, str]:
-    """Z.ai account id → the claude-glm wrappers holding its key, by their command name."""
-    from .adapters import zai
-    out: dict[str, list[str]] = {}
-    for f in zai.env_files():
-        key = zai.key_in(f)
-        if key:
-            out.setdefault(zai.account_of(key), []).append(f.stem)
-    return {k: ", ".join(dict.fromkeys(v)) for k, v in out.items()}
-
-
-def _opencode_identities() -> dict[str, str]:
-    """OpenCode Go account id → every isolated data directory holding its key, by a short name."""
-    from .adapters import opencode
-    out: dict[str, list[str]] = {}
-    for i, d in enumerate(opencode.data_homes()):
-        key = opencode.key_in(d)
-        if key:
-            # Named as the identity is: the default is bare `opencode`, the Nth `opencode-N`, the way
-            # claude-glm wrappers are.
-            name = "opencode" if i == 0 else d.name.removeprefix(".")
-            out.setdefault(opencode.account_of(key), []).append(name)
-    return {k: ", ".join(dict.fromkeys(v)) for k, v in out.items()}
-
-
-def _kimi_wrappers() -> dict[str, str]:
-    """Kimi account id → the claude-kimi wrappers holding its key, by their command name."""
-    from .adapters import kimi
-    out: dict[str, list[str]] = {}
-    for f in kimi.env_files():
-        key = kimi.key_in(f)
-        if key:
-            out.setdefault(kimi.account_of(key), []).append(f.stem)
-    return {k: ", ".join(dict.fromkeys(v)) for k, v in out.items()}
 
 
 def _until(t: datetime, now: datetime) -> str:
@@ -127,15 +78,11 @@ def _credits(c: dict, taken: datetime | None, now: datetime, color: bool) -> str
 
 
 def render(readings: list[dict], now: datetime, *, color: bool = False, all_limits: bool = False) -> str:
-    labels = {**(_claude_dirs() if any(r.get("vendor") == "anthropic" for r in readings) else {}),
-              **(_glm_wrappers() if any(r.get("vendor") == "zai" for r in readings) else {}),
-              **(_kimi_wrappers() if any(r.get("vendor") == "kimi" for r in readings) else {}),
-              **(_opencode_identities() if any(r.get("vendor") == "opencode" for r in readings) else {})}
+    label = lambda r: ", ".join(r.get("names") or [])
     lines = []
-    for r in sorted(readings, key=lambda r: (VENDOR_NAMES.get(r.get("vendor"), r.get("vendor") or ""),
-                                             labels.get(r.get("account"), ""))):
+    for r in sorted(readings, key=lambda r: (VENDOR_NAMES.get(r.get("vendor"), r.get("vendor") or ""), label(r))):
         vendor = VENDOR_NAMES.get(r.get("vendor"), r.get("vendor"))
-        who = labels.get(r.get("account")) or (r.get("account") or "?")[:8]
+        who = label(r) or (r.get("account") or "?")[:8]
         taken = moment(r.get("taken_at"))
         notes = [f"read {_until(now, taken)} ago"] if taken and (now - taken).total_seconds() >= 60 else []
         if r.get("source") not in (None, "api"):
@@ -152,12 +99,14 @@ def render(readings: list[dict], now: datetime, *, color: bool = False, all_limi
                                 None, None, color))
             lines.append("")
             continue
+        # A limit cached before roles existed has none; it gets the one it would have now.
         shown = [l for l in r.get("limits", []) if all_limits or
-                 (l.get("window_minutes") and not str(l.get("name", "")).startswith("limits:")
+                 (l.get("role", role_of(str(l.get("name", "")), l.get("window_minutes"))) is not None
                   and l.get("used_at_least") is not None or l.get("held"))]
         for l in shown:
             used, held = l.get("used_at_least"), l.get("held")
-            name = WINDOW_NAMES.get(l.get("name"), l.get("name"))
+            name = (f"weekly {l['scope']}" if l.get("role") == "weekly_model" and l.get("scope")
+                    else WINDOW_NAMES.get(l.get("name"), l.get("name")))
             filled = round((used or 0) * BAR) if used is not None else 0
             bar = "█" * min(filled, BAR) + "░" * (BAR - min(filled, BAR))
             pct = f"{used * 100:5.1f}%" if used is not None else "    ?"

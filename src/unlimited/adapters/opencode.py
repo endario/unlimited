@@ -55,6 +55,18 @@ def key_in(data_home: Path) -> str | None:
     return None
 
 
+def names() -> dict[str, list[str]]:
+    """Account id → every isolated data directory holding its key: the default is bare
+    `opencode`, the Nth `opencode-N`, the way claude-glm wrappers are named."""
+    out: dict[str, list[str]] = {}
+    for i, d in enumerate(data_homes()):
+        key = key_in(d)
+        name = "opencode" if i == 0 else d.name.removeprefix(".")
+        if key and name not in out.setdefault(account_of(key), []):
+            out[account_of(key)].append(name)
+    return out
+
+
 def discover() -> list[Credential]:
     return dedupe([key_in(d) for d in data_homes()])
 

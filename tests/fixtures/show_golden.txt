@@ -1,0 +1,25 @@
+Claude Max 20x · aaaaaaaa
+  5-hour          ██░░░░░░░░░░░░░░░░░░   9.0%  resets in  2h 00m  (Sat 14:00)
+  weekly          ████████░░░░░░░░░░░░  40.0%  resets in   3d 0h  (Tue 12:00)
+  weekly Opus     ██░░░░░░░░░░░░░░░░░░  12.0%  resets in   3d 0h  (Tue 12:00)
+  weekly Fable    █░░░░░░░░░░░░░░░░░░░   3.0%  resets in   3d 0h  (Tue 12:00)
+
+Codex Pro · oooooooo
+  weekly          ██████████████████░░  91.0%  resets in   1d 0h  (Sun 12:00)
+  weekly reserve  ░░░░░░░░░░░░░░░░░░░░   0.0%  resets in   1d 0h  (Sun 12:00)
+
+Grok SuperGrok · xxxxxxxx
+  weekly          ███████░░░░░░░░░░░░░  33.0%  resets in   5d 0h  (Thu 12:00)
+
+Kimi Code · kkkkkkkk
+  5-hour          ██░░░░░░░░░░░░░░░░░░  10.0%  resets in  1h 00m  (Sat 13:00)
+  weekly          ████████████████░░░░  81.0%  resets in   4d 0h  (Wed 12:00)
+
+OpenCode Go · gggggggg
+  5-hour          ░░░░░░░░░░░░░░░░░░░░   2.0%  resets in  1h 00m  (Sat 13:00)
+  weekly          ████████████████░░░░  78.0%  resets in   3d 0h  (Tue 12:00)
+  monthly         ████████░░░░░░░░░░░░  40.0%  resets in  20d 0h  (Fri 12:00)
+
+Z.ai GLM Max · zzzzzzzz
+  5-hour          █████░░░░░░░░░░░░░░░  26.0%  resets in  3h 00m  (Sat 15:00)
+  weekly          █░░░░░░░░░░░░░░░░░░░   5.0%  resets in   5d 0h  (Thu 12:00)

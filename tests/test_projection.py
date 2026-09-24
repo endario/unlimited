@@ -173,8 +173,7 @@ class ThroughCache(unittest.TestCase):
 class Shown(unittest.TestCase):
     def test_the_status_row_shows_the_projected_range(self):
         r = projection.attach(at(NOW, 0.45), history((NOW - timedelta(days=1), 0.2), (NOW, 0.45)))
-        with mock.patch.object(show, "_claude_dirs", lambda: {}):
-            out = show.render([r], NOW)
+        out = show.render([r], NOW)
         self.assertRegex(out, r"\n {18}→ \d+–\d+% at reset · runs out \w{3} \d\d:\d\d \(in \d+d \d+h\)\n")
 
     def test_a_full_window_has_no_forecast_and_past_windows_are_named(self):
@@ -182,15 +181,13 @@ class Shown(unittest.TestCase):
         e = {"a\tseven_day": {"samples": [[NOW.isoformat(), 0.4, RESET.isoformat()]],
                               "past": past(*[lambda x: x * 0.7] * 4)}}
         known = projection.attach(at(NOW, 0.4), e)
-        with mock.patch.object(show, "_claude_dirs", lambda: {}):
-            self.assertNotIn("→", show.render([full], NOW))
-            self.assertRegex(show.render([known], NOW), r"% chance of running out · from 4 past windows")
+        self.assertNotIn("→", show.render([full], NOW))
+        self.assertRegex(show.render([known], NOW), r"% chance of running out · from 4 past windows")
 
     def test_a_held_row_says_held_not_where_it_is_heading(self):
         r = projection.attach(at(NOW, 0.45), history((NOW, 0.45)))
         r["limits"][0]["held"] = True
-        with mock.patch.object(show, "_claude_dirs", lambda: {}):
-            self.assertNotIn("→", show.render([r], NOW))
+        self.assertNotIn("→", show.render([r], NOW))
 
 
 if __name__ == "__main__":

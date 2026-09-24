@@ -50,6 +50,7 @@ work across subscriptions (one limit shown):
       "disabled_reason": null,
       "can_purchase": false
     },
+    "names": ["work"],
     "limits": [
       {
         "name": "seven_day",
@@ -61,6 +62,8 @@ work across subscriptions (one limit shown):
         "severity": null,
         "active": null,
         "kind": null,
+        "role": "weekly",
+        "scope": null,
         "projection": {
           "at_reset": [0.873, 0.9436],
           "exhausts_at": null,
@@ -77,6 +80,12 @@ work across subscriptions (one limit shown):
 
 Read `projection.at_reset` against `used_at_least` rather than either alone, and
 `past_windows`/`samples` for how much the projection rests on.
+
+`role` says what kind of window a limit is, whatever the vendor calls it: `session`, `weekly`,
+`weekly_model` (one model's weekly limit, named in `scope`), `month`, `extra` (any other window,
+named in `scope` where the vendor names it), or `null` for an entry that repeats another or is not
+a window. `names` are this machine's names for the account: the config directories or wrappers
+holding its credential.
 
 ## Credits
 

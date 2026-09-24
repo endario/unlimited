@@ -74,6 +74,18 @@ class Statusline(Base):
                             get=self.up(Answer(body, 200, None)))[0]
         self.assertEqual((self.calls, got["source"]), ([anthropic.URL, anthropic.PROFILE_URL], "api"))
 
+    def test_names_come_with_every_reading_whatever_answered_and_are_never_cached(self):
+        d = self.signed_in(".claude-account2")
+        claude = SimpleNamespace(**vars(self.claude()), names=anthropic.names)
+        with mock.patch.dict(os.environ, {"CLAUDE_CONFIG_DIR": str(d)}):
+            anthropic.capture({"rate_limits": RL}, NOW)
+        body = {"five_hour": {"utilization": 30, "resets_at": (NOW + timedelta(hours=2)).isoformat()}}
+        for label, at in (("statusline", 60), ("api", 600), ("cache hit", 660)):
+            got = cache.through(claude, max_age=300, clock=lambda: NOW + timedelta(seconds=at),
+                                get=self.up(Answer(body, 200, None)))[0]
+            self.assertEqual(got["names"], ["account2"], label)
+        self.assertNotIn("account2", (self.tmp / "cache" / "unlimited" / "anthropic.json").read_text())
+
     def test_capture_without_rate_limits_writes_nothing_and_the_cli_stays_silent(self):
         d = self.signed_in(".claude-account2")
         out = io.StringIO()

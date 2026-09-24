@@ -26,6 +26,7 @@ URL = "https://api.anthropic.com/api/oauth/usage"
 PROFILE_URL = "https://api.anthropic.com/api/oauth/profile"
 WINDOWS = {"five_hour": 300, "seven_day": 10080, "seven_day_opus": 10080, "seven_day_sonnet": 10080}
 KEYCHAIN = "Claude Code-credentials"
+MODELS = {"opus", "sonnet"}
 
 
 def _default_dir() -> Path:
@@ -122,6 +123,17 @@ def discover() -> list[Credential]:
     return [Credential(who, _Token(dirs)) for who, dirs in sorted(found.items())]
 
 
+def names() -> dict[str, list[str]]:
+    """Account id → the config directories signed in to it, by their short name."""
+    out: dict[str, list[str]] = {}
+    for d in config_dirs():
+        who = account_of(d)
+        if who:
+            # "account1", not "default": sorts with its account2/account3 siblings, not after them.
+            out.setdefault(who, []).append(d.name.removeprefix(".claude").lstrip("-") or "account1")
+    return out
+
+
 # Anthropic's `limits` list names each limit by kind and group, not by window.
 GROUP_MINUTES = {"session": 300, "weekly": 10080}
 
@@ -190,11 +202,28 @@ def _limits(body: dict, now: datetime) -> list[dict]:
         # No reset and nothing used is a window that has not started: the vendor's own zero.
         unopened = resets is None and num and u == 0
         locked = w.get("locked_reason")
-        out.append(limit(name, window_minutes=WINDOWS.get(name),
+        # `seven_day_<x>` is a weekly bucket; only a known model's is a model's weekly limit
+        # (`seven_day_oauth_apps` is not one).
+        bucket = name.removeprefix("seven_day_") if name.startswith("seven_day_") else None
+        scoped = ({"role": "weekly_model", "scope": bucket.capitalize()} if bucket in MODELS
+                  else {"role": "extra", "scope": bucket} if bucket else {})
+        out.append(limit(name, window_minutes=10080 if bucket else WINDOWS.get(name), **scoped,
                          used_at_least=0.0 if unopened else u / 100 if num
                          and resets is not None and resets > now else None,
                          resets_at=resets, held=locked is not None,
                          held_why=str(locked) if locked is not None else None))
+    return out
+
+
+def limits(body: dict, now: datetime) -> list[dict]:
+    out = _limits(body, now) + _severity_limits(body, now)
+    # Every `seven_day_<x>` bucket, model or not, already reports its window.
+    buckets = {l["name"].removeprefix("seven_day_") for l in out if l["name"].startswith("seven_day_")}
+    for i, l in enumerate(out):
+        # A model's weekly limit reported only as a severity entry (Fable) is its one report.
+        model = l["name"].removeprefix("limits:weekly_scoped:") if l["name"].startswith("limits:weekly_scoped:") else None
+        if model and model.lower() not in buckets and l["window_minutes"]:
+            out[i] = dict(l, role="weekly_model", scope=model)
     return out
 
 
@@ -230,7 +259,7 @@ def read(cred: Credential, now: datetime, get) -> dict:
     org = (prof.body or {}).get("organization") if isinstance((prof.body or {}).get("organization"), dict) else {}
     tier = org.get("rate_limit_tier") if isinstance(org.get("rate_limit_tier"), str) else None
     return reading(VENDOR, cred.account, now, OK, plan=tier,
-                   limits=_limits(ans.body, now) + _severity_limits(ans.body, now),
+                   limits=limits(ans.body, now),
                    credits=_credits(ans.body, now))
 
 
@@ -241,15 +270,7 @@ def capture_dir() -> Path:
     return default_dir() / "claude-statusline"
 
 
-def capture(payload: dict, now: datetime) -> dict | None:
-    """Save the statusline's `rate_limits` for the account this Claude Code runs as. Returns the
-    reading written, or None when the payload has none (API-key sign-in, or before the first
-    response)."""
-    rl = payload.get("rate_limits") if isinstance(payload, dict) else None
-    d = Path(os.environ.get("CLAUDE_CONFIG_DIR") or _default_dir()).expanduser()
-    who = account_of(d)
-    if not isinstance(rl, dict) or who is None:
-        return None
+def statusline_limits(rl: dict, now: datetime) -> list[dict]:
     out = []
     for name in ("five_hour", "seven_day"):
         w = rl.get(name)
@@ -265,6 +286,19 @@ def capture(payload: dict, now: datetime) -> dict | None:
                          used_at_least=pct / 100 if isinstance(pct, (int, float)) and not isinstance(pct, bool)
                          and resets is not None and resets > now else None,
                          resets_at=resets, held=None))
+    return out
+
+
+def capture(payload: dict, now: datetime) -> dict | None:
+    """Save the statusline's `rate_limits` for the account this Claude Code runs as. Returns the
+    reading written, or None when the payload has none (API-key sign-in, or before the first
+    response)."""
+    rl = payload.get("rate_limits") if isinstance(payload, dict) else None
+    d = Path(os.environ.get("CLAUDE_CONFIG_DIR") or _default_dir()).expanduser()
+    who = account_of(d)
+    if not isinstance(rl, dict) or who is None:
+        return None
+    out = statusline_limits(rl, now)
     if not out:
         return None
     r = reading(VENDOR, who, now, OK, limits=out, source="statusline")

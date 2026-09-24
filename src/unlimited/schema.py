@@ -24,9 +24,23 @@ def moment(value: object) -> datetime | None:
     return None
 
 
+ROLES = {"five_hour": "session", "seven_day": "weekly", "month": "month"}
+_DERIVED = object()
+
+
+def role_of(name: str, window_minutes: int | None) -> str | None:
+    """What kind of window a limit is, from the names every adapter shares. A window of known
+    length that no name here covers is `extra`, never None: None hides it from every consumer.
+    `limits:*` are Anthropic's severity entries, which repeat windows reported under other names."""
+    if window_minutes is None or name.startswith("limits:"):
+        return None
+    return ROLES.get(name, "extra")
+
+
 def limit(name: str, *, window_minutes: int | None, used_at_least: float | None,
           resets_at: datetime | None, held: bool | None, held_why: str | None = None,
-          severity: str | None = None, active: bool | None = None, kind: str | None = None) -> dict:
+          severity: str | None = None, active: bool | None = None, kind: str | None = None,
+          role: str | None = _DERIVED, scope: str | None = None) -> dict:
     if used_at_least is not None and not (math.isfinite(used_at_least) and 0 <= used_at_least):
         used_at_least = None
     return {"name": name, "window_minutes": window_minutes, "used_at_least": used_at_least,
@@ -36,7 +50,10 @@ def limit(name: str, *, window_minutes: int | None, used_at_least: float | None,
             # Whether the vendor says it is applying this limit now (Anthropic only).
             "active": active,
             # The vendor's own type word for the limit, verbatim, where it gives one.
-            "kind": kind}
+            "kind": kind,
+            # session | weekly | weekly_model | month | extra | None (see `role_of`), and what a
+            # weekly_model or extra limit covers, in the vendor's word.
+            "role": role_of(name, window_minutes) if role is _DERIVED else role, "scope": scope}
 
 
 def credits(taken_at: datetime, *, enabled: bool, used: float | None, limit: float | None,
@@ -58,7 +75,9 @@ def reading(vendor: str, account: str | None, taken_at: datetime, status: str, *
     return {"schema": SCHEMA, "vendor": vendor, "account": account, "taken_at": iso(taken_at),
             "source": source, "plan": plan, "status": status, "why": why, "retry_until": iso(retry_until), "limits": limits or [],
             # Spend past the windows (see `credits()`); None where the vendor has no such thing or did not say.
-            "credits": credits}
+            "credits": credits,
+            # This machine's names for the account (config dirs, wrappers); set by `cache.through`.
+            "names": []}
 
 
 def settled(r: dict, now: datetime) -> dict:

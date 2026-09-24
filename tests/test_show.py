@@ -21,8 +21,7 @@ class Render(unittest.TestCase):
             limit("codex", window_minutes=10080, used_at_least=0.5, resets_at=NOW + timedelta(days=2), held=False),
             limit("limits:session", window_minutes=300, used_at_least=0.1, resets_at=None, held=None,
                   severity="normal")])
-        with mock.patch.object(show, "_claude_dirs", lambda: {}):
-            out = show.render([r], NOW)
+        out = show.render([r], NOW)
         self.assertIn("Codex Pro · acct-123\n", out, "a fresh reading needs no note")
         self.assertIn("weekly", out)
         self.assertIn("50.0%", out)
@@ -36,61 +35,17 @@ class Render(unittest.TestCase):
         out = show.render(readings, NOW)
         self.assertLess(out.index("Codex"), out.index("Kimi Code"))
 
-    def test_the_bare_claude_directory_is_labeled_account1_not_default(self):
-        home = Path(tempfile.mkdtemp())
-        (home / ".claude").mkdir()
-        (home / ".claude" / ".claude.json").write_text('{"oauthAccount": {"accountUuid": "u"}}')
-        with mock.patch.dict(os.environ, {"HOME": str(home)}):
-            labels = show._claude_dirs()
-        self.assertEqual(labels, {"u": "account1"})
+    def test_an_account_is_labeled_by_its_names(self):
+        r = reading("zai", "z" * 16, NOW, "ok", plan="max", limits=[])
+        self.assertIn("Z.ai GLM Max · zzzzzzzz\n", show.render([r], NOW), "no names: the id, shortened")
+        r["names"] = ["claude-glm", "claude-glm-2"]
+        self.assertIn("Z.ai GLM Max · claude-glm, claude-glm-2\n", show.render([r], NOW))
 
-    def test_a_zai_account_is_named_by_the_wrapper_holding_its_key(self):
-        home = Path(tempfile.mkdtemp())
-        (home / ".config").mkdir()
-        (home / ".config" / "claude-glm-2.env").write_text("GLM_API_KEY=two\n")
-        from unlimited.adapters import zai
-        r = reading("zai", zai.account_of("two"), NOW, "ok", plan="max", limits=[])
-        with mock.patch.dict(os.environ, {"HOME": str(home), "CLAUDE_GLM_ENV": ""}):
-            self.assertIn("Z.ai GLM Max · claude-glm-2\n", show.render([r], NOW))
+    def test_a_cached_limit_from_before_roles_still_shows(self):
+        l = limit("seven_day", window_minutes=10080, used_at_least=0.4, resets_at=NOW + timedelta(days=1), held=None)
+        del l["role"], l["scope"]
+        self.assertIn("weekly", show.render([reading("kimi", "k", NOW, "ok", limits=[l])], NOW))
 
-    def test_a_kimi_account_is_named_by_the_wrapper_holding_its_key(self):
-        home = Path(tempfile.mkdtemp())
-        (home / ".config").mkdir()
-        (home / ".config" / "claude-kimi.env").write_text("KIMI_API_KEY=two\n")
-        from unlimited.adapters import kimi
-        r = reading("kimi", kimi.account_of("two"), NOW, "ok", limits=[])
-        with mock.patch.dict(os.environ, {"HOME": str(home), "CLAUDE_KIMI_ENV": ""}):
-            self.assertIn("Kimi Code · claude-kimi\n", show.render([r], NOW))
-
-    def test_the_default_opencode_identity_is_labeled_opencode(self):
-        home = Path(tempfile.mkdtemp())
-        d = home / ".local" / "share" / "opencode"
-        d.mkdir(parents=True)
-        (d / "auth.json").write_text('{"opencode-go": {"type": "api", "key": "one"}}')
-        from unlimited.adapters import opencode
-        r = reading("opencode", opencode.account_of("one"), NOW, "ok", limits=[])
-        with mock.patch.dict(os.environ, {"HOME": str(home), "XDG_DATA_HOME": ""}):
-            self.assertIn("OpenCode Go · opencode\n", show.render([r], NOW))
-
-    def test_a_second_opencode_identity_is_named_by_its_directory(self):
-        home = Path(tempfile.mkdtemp())
-        d = home / ".opencode-2" / "opencode"
-        d.mkdir(parents=True)
-        (d / "auth.json").write_text('{"opencode-go": {"type": "api", "key": "two"}}')
-        from unlimited.adapters import opencode
-        r = reading("opencode", opencode.account_of("two"), NOW, "ok", limits=[])
-        with mock.patch.dict(os.environ, {"HOME": str(home), "XDG_DATA_HOME": ""}):
-            self.assertIn("OpenCode Go · opencode-2\n", show.render([r], NOW))
-
-    def test_the_same_opencode_key_in_two_identities_shows_both_not_one(self):
-        home = Path(tempfile.mkdtemp())
-        for d in (home / ".local" / "share" / "opencode", home / ".opencode-2" / "opencode"):
-            d.mkdir(parents=True)
-            (d / "auth.json").write_text('{"opencode-go": {"type": "api", "key": "one"}}')
-        from unlimited.adapters import opencode
-        r = reading("opencode", opencode.account_of("one"), NOW, "ok", limits=[])
-        with mock.patch.dict(os.environ, {"HOME": str(home), "XDG_DATA_HOME": ""}):
-            self.assertIn("OpenCode Go · opencode, opencode-2\n", show.render([r], NOW))
 
     def credits(self, **kw):
         return credits(NOW, **{"enabled": True, "used": 0.0, "limit": 200.0, "balance": None,
@@ -98,20 +53,18 @@ class Render(unittest.TestCase):
 
     def test_credits_show_what_is_left_to_spend_past_the_windows_and_whether_it_is_on(self):
         show_ = lambda c: show.render([reading("anthropic", "a", NOW, "ok", credits=c)], NOW)
-        with mock.patch.object(show, "_claude_dirs", lambda: {}):
-            self.assertIn("SGD 12.50 of 200.00 · on", show_(self.credits(used=12.5)))
-            blocked = show_(self.credits(used=150.62, limit=150.0, enabled=False,
-                                         disabled_reason="org_level_disabled_until"))
-            self.assertIn("100.4%", blocked)
-            self.assertIn("SGD 150.62 of 150.00 · OFF: org_level_disabled_until", blocked)
-            self.assertIn("SGD 40.00 balance", show_(self.credits(balance=40.0)))
-            self.assertRegex(show_(self.credits(limit=None, used=0.0, enabled=False)), r"credits +off\n")
-            self.assertNotIn("credits", show.render([reading("openai", "a", NOW, "ok")], NOW))
+        self.assertIn("SGD 12.50 of 200.00 · on", show_(self.credits(used=12.5)))
+        blocked = show_(self.credits(used=150.62, limit=150.0, enabled=False,
+                                     disabled_reason="org_level_disabled_until"))
+        self.assertIn("100.4%", blocked)
+        self.assertIn("SGD 150.62 of 150.00 · OFF: org_level_disabled_until", blocked)
+        self.assertIn("SGD 40.00 balance", show_(self.credits(balance=40.0)))
+        self.assertRegex(show_(self.credits(limit=None, used=0.0, enabled=False)), r"credits +off\n")
+        self.assertNotIn("credits", show.render([reading("openai", "a", NOW, "ok")], NOW))
 
     def test_credits_older_than_the_reading_carrying_them_say_how_old(self):
         old = credits(NOW - timedelta(hours=2), enabled=True, used=0.0, limit=10.0, balance=None, currency="SGD")
-        with mock.patch.object(show, "_claude_dirs", lambda: {}):
-            out = show.render([reading("anthropic", "a", NOW, "ok", credits=old)], NOW)
+        out = show.render([reading("anthropic", "a", NOW, "ok", credits=old)], NOW)
         self.assertIn("(read 2h 00m ago)", out.split("credits")[1])
 
     def test_an_unread_account_says_why(self):
@@ -127,6 +80,61 @@ class Render(unittest.TestCase):
         paint = lambda used: show._paint("x", used, None, True)
         self.assertEqual([paint(u)[2:4] for u in (0.85, 0.86, 0.95, 0.96)], ["32", "38", "38", "31"])
         self.assertIn("[31m", show._paint("x", 0.1, True, True), "held is red whatever the figure")
+
+
+class Names(unittest.TestCase):
+    """Each adapter names its accounts by the directories or wrappers holding them."""
+
+    def test_the_bare_claude_directory_is_labeled_account1_not_default(self):
+        home = Path(tempfile.mkdtemp())
+        (home / ".claude").mkdir()
+        (home / ".claude" / ".claude.json").write_text('{"oauthAccount": {"accountUuid": "u"}}')
+        from unlimited.adapters import anthropic
+        with mock.patch.dict(os.environ, {"HOME": str(home)}):
+            self.assertEqual(anthropic.names(), {"u": ["account1"]})
+
+    def test_a_zai_account_is_named_by_the_wrapper_holding_its_key(self):
+        home = Path(tempfile.mkdtemp())
+        (home / ".config").mkdir()
+        (home / ".config" / "claude-glm-2.env").write_text("GLM_API_KEY=two\n")
+        from unlimited.adapters import zai
+        with mock.patch.dict(os.environ, {"HOME": str(home), "CLAUDE_GLM_ENV": ""}):
+            self.assertEqual(zai.names(), {zai.account_of("two"): ["claude-glm-2"]})
+
+    def test_a_kimi_account_is_named_by_the_wrapper_holding_its_key(self):
+        home = Path(tempfile.mkdtemp())
+        (home / ".config").mkdir()
+        (home / ".config" / "claude-kimi.env").write_text("KIMI_API_KEY=two\n")
+        from unlimited.adapters import kimi
+        with mock.patch.dict(os.environ, {"HOME": str(home), "CLAUDE_KIMI_ENV": ""}):
+            self.assertEqual(kimi.names(), {kimi.account_of("two"): ["claude-kimi"]})
+
+    def test_the_default_opencode_identity_is_labeled_opencode(self):
+        home = Path(tempfile.mkdtemp())
+        d = home / ".local" / "share" / "opencode"
+        d.mkdir(parents=True)
+        (d / "auth.json").write_text('{"opencode-go": {"type": "api", "key": "one"}}')
+        from unlimited.adapters import opencode
+        with mock.patch.dict(os.environ, {"HOME": str(home), "XDG_DATA_HOME": ""}):
+            self.assertEqual(opencode.names(), {opencode.account_of("one"): ["opencode"]})
+
+    def test_a_second_opencode_identity_is_named_by_its_directory(self):
+        home = Path(tempfile.mkdtemp())
+        d = home / ".opencode-2" / "opencode"
+        d.mkdir(parents=True)
+        (d / "auth.json").write_text('{"opencode-go": {"type": "api", "key": "two"}}')
+        from unlimited.adapters import opencode
+        with mock.patch.dict(os.environ, {"HOME": str(home), "XDG_DATA_HOME": ""}):
+            self.assertEqual(opencode.names(), {opencode.account_of("two"): ["opencode-2"]})
+
+    def test_the_same_opencode_key_in_two_identities_shows_both_not_one(self):
+        home = Path(tempfile.mkdtemp())
+        for d in (home / ".local" / "share" / "opencode", home / ".opencode-2" / "opencode"):
+            d.mkdir(parents=True)
+            (d / "auth.json").write_text('{"opencode-go": {"type": "api", "key": "one"}}')
+        from unlimited.adapters import opencode
+        with mock.patch.dict(os.environ, {"HOME": str(home), "XDG_DATA_HOME": ""}):
+            self.assertEqual(opencode.names(), {opencode.account_of("one"): ["opencode", "opencode-2"]})
 
 
 if __name__ == "__main__":

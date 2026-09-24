@@ -35,6 +35,16 @@ def key_in(path: Path) -> str | None:
     return None
 
 
+def names() -> dict[str, list[str]]:
+    """Account id → the wrappers holding its key, by their command name."""
+    out: dict[str, list[str]] = {}
+    for f in env_files():
+        key = key_in(f)
+        if key and f.stem not in out.setdefault(account_of(key), []):
+            out[account_of(key)].append(f.stem)
+    return out
+
+
 def discover() -> list[Credential]:
     keys = [os.environ.get("GLM_API_KEY")] + [key_in(f) for f in env_files()]
     return dedupe(keys)

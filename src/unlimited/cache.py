@@ -108,4 +108,7 @@ def through(adapter, *, max_age: float, clock, get, directory: Path | None = Non
                 out.append(got)
         history = projection.prune(projection.record(history, out), now)
         _write(path, out, history)
-        return [projection.attach(settled(r, now), history) for r in out]
+        # Names describe this machine's directories now, not the vendor's answer: never cached.
+        names = getattr(adapter, "names", dict)()
+        return [dict(projection.attach(settled(r, now), history), names=names.get(r.get("account"), []))
+                for r in out]
