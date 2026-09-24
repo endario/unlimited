@@ -62,7 +62,7 @@ class Render(unittest.TestCase):
         with mock.patch.dict(os.environ, {"HOME": str(home), "CLAUDE_KIMI_ENV": ""}):
             self.assertIn("Kimi Code · claude-kimi\n", show.render([r], NOW))
 
-    def test_the_default_opencode_identity_is_labeled_account1(self):
+    def test_the_default_opencode_identity_is_labeled_opencode(self):
         home = Path(tempfile.mkdtemp())
         d = home / ".local" / "share" / "opencode"
         d.mkdir(parents=True)
@@ -70,7 +70,7 @@ class Render(unittest.TestCase):
         from unlimited.adapters import opencode
         r = reading("opencode", opencode.account_of("one"), NOW, "ok", limits=[])
         with mock.patch.dict(os.environ, {"HOME": str(home), "XDG_DATA_HOME": ""}):
-            self.assertIn("OpenCode Go · account1\n", show.render([r], NOW))
+            self.assertIn("OpenCode Go · opencode\n", show.render([r], NOW))
 
     def test_a_second_opencode_identity_is_named_by_its_directory(self):
         home = Path(tempfile.mkdtemp())
@@ -80,7 +80,7 @@ class Render(unittest.TestCase):
         from unlimited.adapters import opencode
         r = reading("opencode", opencode.account_of("two"), NOW, "ok", limits=[])
         with mock.patch.dict(os.environ, {"HOME": str(home), "XDG_DATA_HOME": ""}):
-            self.assertIn("OpenCode Go · 2\n", show.render([r], NOW))
+            self.assertIn("OpenCode Go · opencode-2\n", show.render([r], NOW))
 
     def test_the_same_opencode_key_in_two_identities_shows_both_not_one(self):
         home = Path(tempfile.mkdtemp())
@@ -90,7 +90,7 @@ class Render(unittest.TestCase):
         from unlimited.adapters import opencode
         r = reading("opencode", opencode.account_of("one"), NOW, "ok", limits=[])
         with mock.patch.dict(os.environ, {"HOME": str(home), "XDG_DATA_HOME": ""}):
-            self.assertIn("OpenCode Go · account1, 2\n", show.render([r], NOW))
+            self.assertIn("OpenCode Go · opencode, opencode-2\n", show.render([r], NOW))
 
     def credits(self, **kw):
         return credits(NOW, **{"enabled": True, "used": 0.0, "limit": 200.0, "balance": None,
