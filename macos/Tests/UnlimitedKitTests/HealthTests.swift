@@ -37,7 +37,7 @@ func week(used: Double?, range: [Double]?, elapsed: Double = 3, past: Int = 0, h
     // 0.5 days into a week is under 10%: early paces are guesses.
     #expect(week(used: 0.01, range: [0.02, 0.1], elapsed: 0.5).health(now: now) == .normal)
     #expect(week(used: 0.01, range: [0.02, 0.1], elapsed: 0.5, past: 3).health(now: now) == .underUsed)
-    #expect(week(used: 0.5, range: [1.1, 1.4], elapsed: 0.5).health(now: now) == .normal)
+    #expect(week(used: 0.05, range: [1.1, 1.4], elapsed: 0.5).health(now: now) == .normal)
     #expect(week(used: 1.0, range: [1.1, 1.4], elapsed: 0.5).health(now: now) == .red, "a used-up window is a fact")
     // Early in the window, but past 10% used: enough use to read a pace from.
     #expect(week(used: 0.11, range: [1.1, 1.4], elapsed: 0.5).health(now: now) == .red)
