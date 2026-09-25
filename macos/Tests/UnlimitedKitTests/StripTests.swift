@@ -33,7 +33,7 @@ func strip() throws -> [String: Tile] {
 @Test func eachStateSaysWhatItKnows() throws {
     let tiles = try strip()
     #expect(tiles["ZAI2"]?.value == .unread)        // refused: the vendor would not say
-    #expect(tiles["ZAI"]?.value == .noWeekly)       // Z.ai answered, with no weekly window
+    #expect(tiles["ZAI"]?.value == .noWindow)       // Z.ai answered, with no weekly window
     #expect(tiles["CDX"]?.value == .unknown)        // a weekly window whose figure is not known (just reset)
     #expect(tiles["OPC2"]?.dimmed == true)          // throttled: last good reading stands
     #expect(tiles["OPC2"]?.value == .percent(0))
@@ -61,7 +61,7 @@ func strip() throws -> [String: Tile] {
 
 @Test func aTileCarriesHowMuchOfItsWeekHasPassed() throws {
     let cl2 = try #require(try strip()["CL2"])
-    let weekly = try #require(try fixture()[0].weekly)
+    let weekly = try #require(try fixture()[0].primary)
     #expect(cl2.elapsed == weekly.elapsed(now: now), "the weekly window's, not another's")
     #expect(cl2.labelled("CL9").elapsed == cl2.elapsed, "kept when accounts are numbered apart")
 }
@@ -75,5 +75,5 @@ func strip() throws -> [String: Tile] {
       "taken_at": "2026-09-24T05:59:00+00:00",
       "credits": {"enabled": true, "used": 3.62, "limit": null, "currency": "USD"}}]
     """.utf8))
-    #expect(Tile.strip(payg, now: now).map(\.value) == [.percent(17), .noWeekly])
+    #expect(Tile.strip(payg, now: now).map(\.value) == [.percent(17), .noWindow])
 }

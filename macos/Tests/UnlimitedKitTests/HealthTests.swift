@@ -55,10 +55,10 @@ func week(used: Double?, range: [Double]?, elapsed: Double = 3, past: Int = 0, h
                   week(used: 0.5, range: [0.9, 1.1], role: "session", minutes: 300, exhausts: later),
                   week(used: 0.6, range: [0.95, 1.2], role: "weekly_model", exhausts: soon),
                   week(used: 0.1, range: [0.1, 0.2], elapsed: 4, role: "month", minutes: 43200)]
-    let o = Tile.override(limits, weekly: limits[0], now: now)
+    let o = Tile.override(limits, primary: limits[0], now: now)
     #expect(o?.role == "weekly_model", "equal state: the one that runs out first")
-    #expect(Tile.override([limits[0], limits[3]], weekly: limits[0], now: now) == nil, "nothing worse than weekly")
-    #expect(Tile.override(limits.map { $0 }, weekly: week(used: 1, range: nil), now: now) == nil, "weekly is already red")
+    #expect(Tile.override([limits[0], limits[3]], primary: limits[0], now: now) == nil, "nothing worse than weekly")
+    #expect(Tile.override(limits.map { $0 }, primary: week(used: 1, range: nil), now: now) == nil, "weekly is already red")
 }
 
 @Test func aTileCarriesItsHealthAndItsOverride() throws {
@@ -127,4 +127,34 @@ func iso(_ d: Date) -> String { ISO8601DateFormatter().string(from: d) }
     let early = account("1", weekly: [0.6, 1.03], elapsed: 0.5, past: 0)
     let tiles = Tile.strip([early, account("2", weekly: [0.85, 0.94])], now: now)
     #expect(tiles.filter(\.best).map(\.label) == ["ZAI1"])
+}
+
+@Test func aPlanWithAMonthlyBucketFollowsItAndShowsAWorseWeekAsTheOverride() throws {
+    let data = Data("""
+    [{"schema": 1, "vendor": "opencode", "account": "o", "status": "ok", "taken_at": "2026-09-24T05:59:00+00:00",
+      "names": ["opencode"], "limits": [
+       {"name": "seven_day", "window_minutes": 10080, "used_at_least": 0.8, "resets_at": "2026-09-28T09:28:00+00:00",
+        "role": "weekly", "projection": {"at_reset": [1.3, 1.6], "past_windows": 5}},
+       {"name": "month", "window_minutes": 43200, "used_at_least": 0.41, "resets_at": "2026-10-19T05:34:00+00:00",
+        "role": "month", "projection": {"at_reset": [0.5, 0.6], "past_windows": 5}}]}]
+    """.utf8)
+    let r = try #require(Reading.decode(data).first)
+    #expect(r.primary?.role == "month")
+    let t = try #require(Tile.strip([r], now: now).first)
+    #expect(t.value == .percent(41))
+    #expect(t.alternate == Tile.Alternate(role: "weekly", value: .percent(80), health: .red))
+}
+
+@Test func aPlanWithAMonthlyBucketAndACalmWeekShowsNoOverride() throws {
+    let data = Data("""
+    [{"schema": 1, "vendor": "opencode", "account": "o", "status": "ok", "taken_at": "2026-09-24T05:59:00+00:00",
+      "names": ["opencode"], "limits": [
+       {"name": "seven_day", "window_minutes": 10080, "used_at_least": 0.1, "resets_at": "2026-09-28T09:28:00+00:00",
+        "role": "weekly", "projection": {"at_reset": [0.2, 0.3], "past_windows": 5}},
+       {"name": "month", "window_minutes": 43200, "used_at_least": 0.41, "resets_at": "2026-10-19T05:34:00+00:00",
+        "role": "month", "projection": {"at_reset": [0.9, 1.0], "past_windows": 5}}]}]
+    """.utf8)
+    let t = try #require(Tile.strip(Reading.decode(data), now: now).first)
+    #expect(t.value == .percent(41))
+    #expect(t.alternate == nil)
 }

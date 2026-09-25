@@ -1,27 +1,27 @@
 import Foundation
 
-/// One account in the menu bar: its label and what its weekly window says.
+/// One account in the menu bar: its label and what its longest window says.
 public struct Tile: Identifiable, Equatable, Sendable {
     public enum Value: Equatable, Sendable {
         case percent(Int)
         case unread      // the vendor refused, or could not be read
         case stale       // the last reading is older than `staleAfter`
-        case noWeekly    // the vendor reports no weekly window for this account
-        case unknown     // a weekly window whose figure is not known (the moment after a reset)
+        case noWindow    // the vendor reports no window for this account
+        case unknown     // a window whose figure is not known (the moment after a reset)
         case waiting     // nothing read yet
 
         public var text: String {
             switch self {
             case .percent(let p): "\(p)"
             case .unread, .stale: "!"
-            case .noWeekly: "—"
+            case .noWindow: "—"
             case .unknown: "?"
             case .waiting: "…"
             }
         }
     }
 
-    /// Another window more likely to stop this account than its weekly one.
+    /// Another window more likely to stop this account than its longest one.
     public struct Alternate: Equatable, Sendable {
         public let role: String
         public let value: Value
@@ -37,9 +37,9 @@ public struct Tile: Identifiable, Equatable, Sendable {
     public var alternate: Alternate?
     /// The vendor's account to use next: marked only where a vendor has more than one.
     public var best = false
-    /// The high end of the weekly forecast, for choosing the best pick.
+    /// The high end of the longest window's forecast, for choosing the best pick.
     var heading: Double?
-    /// How much of the weekly window has passed, 0 to 1.
+    /// How much of the longest window has passed, 0 to 1.
     public var elapsed: Double?
 
     public init(id: String, label: String, value: Value, dimmed: Bool, health: Health = .normal,
@@ -74,12 +74,12 @@ public struct Tile: Identifiable, Equatable, Sendable {
     /// The whole strip when `unlimited` cannot be run; the menu says why.
     public static let broken = Tile(id: "", label: "", value: .unread, dimmed: false)
 
-    /// The non-weekly window in a worse state than the weekly one; of equals, the one that runs
+    /// Another window in a worse state than the longest one; of equals, the one that runs
     /// out first.
-    static func override(_ limits: [Limit], weekly: Limit?, now: Date) -> Limit? {
-        let floor = weekly?.health(now: now) ?? .normal
+    static func override(_ limits: [Limit], primary: Limit?, now: Date) -> Limit? {
+        let floor = primary?.health(now: now) ?? .normal
         return limits
-            .filter { $0.role != nil && $0.role != "weekly" && $0.health(now: now) > floor }
+            .filter { $0.role != nil && $0.name != primary?.name && $0.health(now: now) > floor }
             .min { a, b in
                 let (ha, hb) = (a.health(now: now), b.health(now: now))
                 if ha != hb { return ha > hb }
@@ -140,27 +140,27 @@ public struct Tile: Identifiable, Equatable, Sendable {
             value = .unread
         } else if stale && !throttled {
             value = .stale
-        } else if let w = r.weekly {
+        } else if let w = r.primary {
             value = w.usedAtLeast.map { .percent(Int(($0 * 100).rounded())) } ?? .unknown
         } else if let c = r.credits, let used = c.used, let limit = c.limit, limit > 0 {
             // Pay as you go: no window, so the share of the credit spent stands in for it.
             value = .percent(Int((used / limit * 100).rounded()))
         } else {
-            value = .noWeekly
+            value = .noWindow
         }
         let id = "\(r.vendor)/\(r.account ?? "")"
         let usable = r.status == "ok" && !(stale && !throttled)
-        let alt = usable ? override(r.limits, weekly: r.weekly, now: now).map {
+        let alt = usable ? override(r.limits, primary: r.primary, now: now).map {
             Alternate(role: $0.role ?? "", value: $0.usedAtLeast.map { .percent(Int(($0 * 100).rounded())) } ?? .unknown,
                       health: $0.health(now: now))
         } : nil
         var tile = Tile(id: id, label: label(r), value: value, dimmed: throttled || !usable,
-                        health: usable ? r.weekly?.health(now: now) ?? .normal : .normal, alternate: alt)
+                        health: usable ? r.primary?.health(now: now) ?? .normal : .normal, alternate: alt)
         // Where it is heading, if the forecast is trusted yet; else how much is used so far.
-        tile.heading = r.weekly.flatMap { w in
+        tile.heading = r.primary.flatMap { w in
             w.projection.flatMap { w.trusted($0, now: now) ? $0.atReset.last : nil } ?? w.usedAtLeast
         }
-        tile.elapsed = r.weekly?.elapsed(now: now)
+        tile.elapsed = r.primary?.elapsed(now: now)
         return (r.vendor, tile)
     }
 

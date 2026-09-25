@@ -53,7 +53,9 @@ public struct Reading: Decodable, Sendable {
         credits = try c.decodeIfPresent(Credits.self, forKey: .credits)
     }
 
-    public var weekly: Limit? { limits.first { $0.role == "weekly" } }
+    /// The window the tile follows: a plan's monthly bucket where it enforces one, since that is the
+    /// budget it runs out of, else its weekly window.
+    public var primary: Limit? { limits.first { $0.role == "month" } ?? limits.first { $0.role == "weekly" } }
 }
 
 /// What an account may spend past its windows, in `currency`'s major units.
