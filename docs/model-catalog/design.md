@@ -130,8 +130,8 @@ DeepSeek-only tie rule, and a local list replaces the shipped one.
 Each provider spends its catalog `usage` vendor: deepseek and meta the Go plan (`opencode`),
 stealth Command Code (`commandcode`). The runner's `balance.py` scores a provider not known by name
 on the provider that spends the same vendor (ren-diao/claude#158), and on a plan's monthly bucket
-where it enforces one, else its week (ren-diao/claude#160). Scoring stealth on Command Code,
-which no named provider spends, is open in ren-diao/claude#162.
+where it enforces one, else its week (ren-diao/claude#160). A usage vendor no named provider
+spends, stealth's Command Code, is scored on its own (ren-diao/claude#162).
 
 Its successor is endario/unlimited#92: one spending model in unlimited that both the runner and
 2mw2lt consume, in place of each keeping its own.
