@@ -127,6 +127,15 @@ named in `scope` where the vendor names it), or `null` for an entry that repeats
 a window. `names` are this machine's names for the account: the config directories or wrappers
 holding its credential.
 
+## Models
+
+`unlimited models [--tier standard|heavy] [--json]` lists what each provider runs at a tier, with
+promotions first; `--provider P` prints one model id. The list ships in
+[`catalog.toml`](src/unlimited/catalog.toml). `~/.config/unlimited/catalog.toml` overrides it on one
+machine, with no release: provider keys one by one, `promotions` whole, and `banned` model ids added
+to the shipped ones. A local file that does not parse, or states another `schema`, is an error.
+Which model to run is still the consumer's choice.
+
 ## Credits
 
 A window at 100% is not always the end. Where the vendor reports it (Claude's `spend`), the reading's

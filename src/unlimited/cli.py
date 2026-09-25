@@ -1,5 +1,5 @@
 """`unlimited` (a table for people), `unlimited read [--vendor V]... [--max-age S] --json`,
-`unlimited capture claude-statusline`."""
+`unlimited models [--tier T] [--provider P] [--json]`, `unlimited capture claude-statusline`."""
 
 from __future__ import annotations
 
@@ -20,6 +20,29 @@ def _version() -> str:
         return "unknown"  # run from a source tree, not installed
 
 
+def _models(a) -> int:
+    from . import catalog
+    try:
+        cat = catalog.load()
+    except catalog.CatalogError as e:
+        print(f"unlimited: catalog: {e}", file=sys.stderr)
+        return 2
+    if a.provider:
+        model = cat.model(a.provider, a.tier)
+        if model is None:
+            print(f"unlimited: {a.provider} has no model at {a.tier}", file=sys.stderr)
+            return 1
+        print(model)
+        return 0
+    got = cat.candidates(a.tier, datetime.now(timezone.utc))
+    if a.json:
+        json.dump([{"provider": c.provider, "model": c.model, "promoted": c.promoted} for c in got], sys.stdout)
+    else:
+        for c in got:
+            print(f"{c.provider:<10} {c.model}" + ("  (promotion)" if c.promoted else ""))
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     p = argparse.ArgumentParser(prog="unlimited")
     p.add_argument("--version", action="store_true", help="print the installed release")
@@ -33,6 +56,10 @@ def main(argv: list[str] | None = None) -> int:
     r.add_argument("--vendor", action="append", choices=sorted(REGISTRY))
     r.add_argument("--max-age", type=float, default=300.0)
     r.add_argument("--json", action="store_true", help="JSON output (the only format for now)")
+    m = sub.add_parser("models", help="what each provider runs at a tier, promotions first")
+    m.add_argument("--tier", choices=["standard", "heavy"], default="standard")
+    m.add_argument("--provider", help="print only this provider's model at the tier")
+    m.add_argument("--json", action="store_true")
     c = sub.add_parser("capture", help="save a harness's own usage report (never prints)")
     c.add_argument("source", choices=["claude-statusline"])
     a = p.parse_args(argv)
@@ -48,6 +75,8 @@ def main(argv: list[str] | None = None) -> int:
         except Exception:
             pass
         return 0
+    if a.cmd == "models":
+        return _models(a)
     out = []
     for v in getattr(a, "vendor", None) or sorted(REGISTRY):
         out += cache.through(REGISTRY[v], max_age=a.max_age,

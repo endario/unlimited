@@ -1,0 +1,52 @@
+# What each provider runs at each tier, and the promotions tried first. A provider is a maker: a
+# reviewer never shares one with the author. Override on one machine, without a release, in
+# $XDG_CONFIG_HOME/unlimited/catalog.toml (default ~/.config/unlimited/catalog.toml).
+schema = 1
+
+# Model ids never offered, wherever they are listed. A local list adds to this one.
+banned = []
+
+[providers.codex]
+harness = "codex"
+usage = "openai"
+standard = "gpt-6-luna"
+heavy = "gpt-6-sol"
+
+[providers.claude]
+harness = "claude"
+usage = "anthropic"
+standard = "sonnet"
+heavy = "opus"
+
+[providers.glm]
+harness = "glm"
+usage = "zai"
+standard = "glm-5.3-flash"
+heavy = "glm-5.3"
+
+[providers.grok]
+harness = "grok"
+usage = "xai"
+standard = "grok-4.7"
+
+[providers.deepseek]
+harness = "opencode"
+usage = "opencode"
+standard = "opencode-go/deepseek-v4.1-flash"
+
+[providers.meta]
+harness = "opencode"
+usage = "opencode"
+standard = "opencode-go/muse-spark-1.3-contributor"
+
+# Unnamed preview models, whoever makes them.
+[providers.stealth]
+harness = "opencode"
+usage = "opencode"
+
+# Tried first at their tiers, in this order. `until` is optional: live through that day, UTC.
+[[promotions]]
+provider = "stealth"
+model = "opencode-go/space-bunny-free"
+tiers = ["standard"]
+until = 2026-09-30
