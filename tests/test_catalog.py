@@ -65,7 +65,7 @@ class Catalog(unittest.TestCase):
             catalog.load(self.local)
 
     def test_a_promoted_model_belongs_to_its_provider(self):
-        self.assertEqual(self.load().provider_of("opencode-go/space-bunny-free"), "stealth")
+        self.assertEqual(self.load().provider_of("commandcode/stealth/space-bunny-alpha"), "stealth")
         self.assertIsNone(self.load().provider_of("unknown-model"))
 
     def test_a_broken_or_unversioned_local_file_refuses_rather_than_falling_back(self):

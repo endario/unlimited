@@ -37,7 +37,7 @@ standard = "opencode-go/muse-spark-1.3-contributor"
 
 [providers.stealth]           # unnamed preview models, whoever makes them
 harness = "opencode"
-usage = "opencode"
+usage = "commandcode"
 
 [providers.codex]
 harness = "codex"
@@ -49,7 +49,7 @@ banned = []                   # model ids never offered, wherever they are liste
 
 [[promotions]]
 provider = "stealth"
-model = "opencode-go/space-bunny-free"
+model = "commandcode/stealth/space-bunny-alpha"
 tiers = ["standard"]
 until = 2026-09-30            # optional; absent means until removed
 ```
