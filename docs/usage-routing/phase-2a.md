@@ -65,8 +65,8 @@ candidate's `E` depends on the set it is in; the log records the whole set.
 
 **Choice.** Final rounds take the lowest `E`. Finding rounds sample with
 `P(c) ∝ exp(−E_c / τ)`, `τ = 2 min`, and every probability is logged, so that 2B can evaluate
-another policy on these logs. `tie_preference` breaks a tie within 1 minute of expected cost
-before sampling (an approximate tie, as today, in 2A's units).
+another policy on these logs. `tie_preference` is a term of `E`: its first provider is worth 1
+minute, the rest less in order, so it settles near-ties in both kinds of round.
 
 ## Worked example (2026-09-25 evening, standard tier, finding round)
 
@@ -74,7 +74,7 @@ before sampling (an approximate tie, as today, in 2A's units).
 |---|---|---|---|---|---|---|
 | stealth (promotion) | – | 0 | 0.45 (4 failed, 1 ok) | 4 | 30 (deadline) | 2.2 + 0.45·(30 + 3.6) = 17.3 |
 | glm flash | 0.93 | 0.70 | 0.1 | 3.6 | 5 | 3.2 + 0.1·(5 + 4) + 14 = 18.2 |
-| deepseek flash | 0.4 (month) | 0.05 | 0.1 | 3.5 | 5 | 3.2 + 0.9 + 1 = 5.1 |
+| deepseek flash | 0.4 (month) | 0.05 | 0.1 | 3.5 | 5 | 3.2 + 0.9 + 1 = 5.0 |
 | codex luna | 1.04 | 1.22 | 0.1 | 5 | 5 | 4.5 + 0.1·(5 + 3.6) + 24.4 = 29.8 |
 
 Deepseek takes it; Space Bunny would take it back once it stops hanging for a few hours.
@@ -105,10 +105,11 @@ runner's, not a contract, and the priors stand in until a day of attempts has ac
 
 ## Interface
 
-- `unlimited choose --tier T --kind finding|final --candidates P,... [--scope P=M] [--deadline S]
-  --json` → the decision (above) with its id. Models, usage vendors, promotions and
-  `tie_preference` come from the catalog; the caller names only the providers its own constraints
-  allow (host, maker independence, complement-of).
+- `unlimited choose --tier T --kind finding|final --candidates P,... --quota P=ρ,... --deadline S
+  [--mode M] --json` → the decision (above) with its id. Models, promotions and `tie_preference`
+  come from the catalog; the caller names only the providers its own constraints allow (host,
+  maker independence, complement-of) that its verdicts did not exclude, and the `ρ` of the account
+  it would launch for each, since which account runs stays the caller's.
 - `unlimited attempt start|end ...` records attempts against it.
 - `unlimited outcomes [--json]` prints the per-candidate `p`, `T_ok`, `T_fail` it would use now.
 

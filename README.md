@@ -146,7 +146,10 @@ passes; `unlimited off` lists what is off. It drops out of `models` and `--catal
 `unlimited attempt start --provider P --model M --deadline S [...]` prints an attempt id;
 `unlimited attempt end ID --outcome ok|timeout|error|unavailable` closes it. A start whose deadline
 passes with no end counts as a timeout. `unlimited outcomes` prints each model's recent failure rate
-and durations on this machine, from `~/.local/state/unlimited/decisions.jsonl`. Design:
+and durations on this machine, from `~/.local/state/unlimited/decisions.jsonl`.
+`unlimited choose --tier T --kind finding|final --candidates P,... --quota P=ρ,... --deadline S --json`
+picks which of them takes a round by expected minutes (failure rate, durations, quota price; a
+live promotion's quota is free), logs the decision with each candidate's odds, and prints it. Design:
 [docs/usage-routing/phase-2a.md](docs/usage-routing/phase-2a.md).
 
 ## Verdicts

@@ -1,7 +1,7 @@
 """`unlimited` (a table for people), `unlimited read [--vendor V]... [--max-age S] --json`,
 `unlimited models [--tier T] [--provider P] [--json]`,
 `unlimited off [TARGET [--for D] [--why W]]`, `unlimited on TARGET`,
-`unlimited attempt start|end ...`, `unlimited outcomes [--json]`, `unlimited verdict --work S [--model-scope M] --json`,
+`unlimited attempt start|end ...`, `unlimited outcomes [--json]`, `unlimited choose ... --json`, `unlimited verdict --work S [--model-scope M] --json`,
 `unlimited capture claude-statusline`."""
 
 from __future__ import annotations
@@ -127,6 +127,30 @@ def _outcomes(a) -> int:
     return 0
 
 
+def _choose(a) -> int:
+    from . import catalog, choice, outcomes
+    now = datetime.now(timezone.utc)
+    try:
+        cat = catalog.load()
+        quota = {}
+        for x in (x for x in a.quota.split(",") if x):
+            p, eq, r = x.partition("=")
+            if not eq:
+                raise ValueError(f"--quota {x!r}: expected <provider>=<projected use>")
+            quota[p] = float(r)
+    except (catalog.CatalogError, ValueError) as e:
+        print(f"unlimited: {e}", file=sys.stderr)
+        return 2
+    outcomes.compact(now)
+    got = choice.choose(cat, tier=a.tier, kind=a.kind, mode=a.mode, providers=list(dict.fromkeys(p for p in a.candidates.split(",") if p)),
+                        quota=quota, deadline=a.deadline, now=now)
+    if got is None:
+        print(f"unlimited: no candidate has a model at {a.tier}", file=sys.stderr)
+        return 1
+    json.dump(got, sys.stdout)
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     p = argparse.ArgumentParser(prog="unlimited")
     p.add_argument("--version", action="store_true", help="print the installed release")
@@ -170,6 +194,14 @@ def main(argv: list[str] | None = None) -> int:
     en.add_argument("--tokens-cache", type=int)
     oc = sub.add_parser("outcomes", help="each model's recent failure rate and durations on this machine")
     oc.add_argument("--json", action="store_true")
+    ch = sub.add_parser("choose", help="which candidate takes a round, by expected cost; logged")
+    ch.add_argument("--tier", choices=["standard", "heavy"], required=True)
+    ch.add_argument("--kind", choices=["finding", "final"], required=True)
+    ch.add_argument("--candidates", required=True, help="providers the caller allows, comma-separated")
+    ch.add_argument("--quota", default="", help="<provider>=<projected use at reset>,... for those that have one")
+    ch.add_argument("--deadline", type=float, required=True, help="the round's deadline, seconds")
+    ch.add_argument("--mode", help="review, critic, ... (logged)")
+    ch.add_argument("--json", action="store_true", help="JSON output (the only format)")
     vd = sub.add_parser("verdict", help="whether each account can take a unit of work, as JSON")
     vd.add_argument("--vendor", action="append", choices=sorted(REGISTRY))
     vd.add_argument("--model-scope", default=None, help="the model family the work runs (e.g. Opus)")
@@ -199,6 +231,8 @@ def main(argv: list[str] | None = None) -> int:
         return _attempt(a)
     if a.cmd == "outcomes":
         return _outcomes(a)
+    if a.cmd == "choose":
+        return _choose(a)
     out = []
     for v in getattr(a, "vendor", None) or sorted(REGISTRY):
         out += cache.through(REGISTRY[v], max_age=a.max_age,
