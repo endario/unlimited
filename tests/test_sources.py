@@ -14,7 +14,7 @@ from unittest import mock
 
 from unlimited import cache, cli
 from unlimited.adapters import anthropic, commandcode, kimi, neuralwatt, opencode, openai, xai, zai
-from unlimited.credential import Credential
+from unlimited.credential import Credential, EnvKeys, account_of, env_value
 from unlimited.transport import Answer
 
 NOW = datetime(2026, 9, 19, 12, 0, tzinfo=timezone.utc)
@@ -440,7 +440,7 @@ class Neuralwatt(Base):
         with mock.patch.dict(os.environ, {"NEURALWATT_API_KEY": "sk-one"}):
             got = neuralwatt.discover()
         self.assertEqual(sorted(c.secret["key"] for c in got), ["sk-one", "sk-two"])
-        self.assertEqual(neuralwatt.names()[neuralwatt.account_of("sk-two")], ["neuralwatt-2"])
+        self.assertEqual(neuralwatt.names()[account_of("sk-two")], ["neuralwatt-2"])
 
     def test_an_annual_plans_allowance_has_no_reset_at_the_years_end(self):
         body = dict(self.SUB, subscription=dict(self.SUB["subscription"], billing_interval="year"))
@@ -524,7 +524,31 @@ class CommandCode(Base):
         with mock.patch.dict(os.environ, {"COMMAND_CODE_API_KEY": "user_one"}):
             got = commandcode.discover()
         self.assertEqual(sorted(c.secret["key"] for c in got), ["user_one", "user_two"])
-        self.assertEqual(commandcode.names()[commandcode.account_of("user_two")], ["commandcode-2"])
+        self.assertEqual(commandcode.names()[account_of("user_two")], ["commandcode-2"])
+
+
+class EnvFiles(Base):
+    def env(self, text: str | bytes, name: str = "x.env") -> Path:
+        f = self.tmp / name
+        f.write_bytes(text) if isinstance(text, bytes) else f.write_text(text)
+        return f
+
+    def test_a_value_reads_as_a_shell_sourcing_the_file_would_leave_it(self):
+        cases = {'K=plain\n': "plain", 'export K="quoted # kept"\n': "quoted # kept",
+                 "K='single'  # note\n": "single", "K=bare # note\n": "bare", "K=tab\t# note\n": "tab",
+                 "K=first\nK=second\n": "second", "K=\n": None, "OTHER=x\n": None}
+        for text, want in cases.items():
+            self.assertEqual(env_value(self.env(text), "K"), want, text)
+
+    def test_an_unreadable_or_missing_file_has_no_key(self):
+        self.assertIsNone(env_value(self.env(b"K=\xff\xfe\n"), "K"))
+        self.assertIsNone(env_value(self.tmp / "absent.env", "K"))
+
+    def test_a_named_session_file_outside_config_is_found(self):
+        f = self.env("K=inside\n", "session.env")
+        with mock.patch.dict(os.environ, {"NAMED": str(f)}):
+            got = EnvKeys("K", "none*.env", named="NAMED").discover()
+        self.assertEqual([c.secret["key"] for c in got], ["inside"])
 
 
 class Zai(Base):
@@ -541,7 +565,7 @@ class Zai(Base):
         with mock.patch.dict(os.environ, {"CLAUDE_GLM_ENV": str(second), "GLM_API_KEY": "key-two"}):
             got = zai.discover()
         self.assertEqual(sorted(c.secret["key"] for c in got), ["key-one", "key-two"])
-        self.assertEqual({c.account for c in got}, {zai.account_of("key-one"), zai.account_of("key-two")})
+        self.assertEqual({c.account for c in got}, {account_of("key-one"), account_of("key-two")})
 
     def test_a_token_limit_answered_as_a_percentage_is_a_usage_window(self):
         at = int((NOW + timedelta(days=3)).timestamp() * 1000)
@@ -569,7 +593,7 @@ class Kimi(Base):
         with mock.patch.dict(os.environ, {"CLAUDE_KIMI_ENV": str(second), "KIMI_API_KEY": "key-two"}):
             got = kimi.discover()
         self.assertEqual(sorted(c.secret["key"] for c in got), ["key-one", "key-two"])
-        self.assertEqual({c.account for c in got}, {kimi.account_of("key-one"), kimi.account_of("key-two")})
+        self.assertEqual({c.account for c in got}, {account_of("key-one"), account_of("key-two")})
 
     def test_the_real_counts_are_read_ahead_of_the_vendors_broken_ratio(self):
         # The real /usages shape: `usage`/`limits` give real, non-zero counts (as strings) for the

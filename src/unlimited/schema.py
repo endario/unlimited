@@ -14,6 +14,13 @@ def iso(t: datetime | None) -> str | None:
     return t.astimezone(timezone.utc).isoformat() if t is not None else None
 
 
+def number(x: object) -> float | None:
+    """A finite JSON number as a float; None for anything else, a bool included."""
+    if isinstance(x, (int, float)) and not isinstance(x, bool) and math.isfinite(x):
+        return float(x)
+    return None
+
+
 def moment(value: object) -> datetime | None:
     if isinstance(value, str):
         try:

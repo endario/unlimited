@@ -2,11 +2,9 @@
 
 from __future__ import annotations
 
-import os
 from datetime import datetime, timezone
-from pathlib import Path
 
-from ..credential import Credential, account_of, dedupe
+from ..credential import Credential, EnvKeys
 from ..schema import OK, REFUSED, UNREAD, failed, limit, reading
 
 VENDOR = "zai"
@@ -16,38 +14,9 @@ UNIT_MINUTES = {3: 60, 6: 10080}
 NAMES = {300: "five_hour", 10080: "seven_day"}
 
 
-def env_files() -> list[Path]:
-    """Every wrapper's env file (claude-glm, claude-glm-2, ...), and $CLAUDE_GLM_ENV. A GLM
-    session exports its own file and key, so neither may narrow discovery to that one account."""
-    files = sorted((Path.home() / ".config").glob("claude-glm*.env"))
-    named = os.environ.get("CLAUDE_GLM_ENV")
-    return files + ([Path(named)] if named else [])
-
-
-def key_in(path: Path) -> str | None:
-    try:
-        for line in path.read_text().splitlines():
-            k, _, v = line.partition("=")
-            if k.strip().removeprefix("export ").strip() == "GLM_API_KEY":
-                return v.strip().strip("'\"") or None
-    except OSError:
-        pass
-    return None
-
-
-def names() -> dict[str, list[str]]:
-    """Account id → the wrappers holding its key, by their command name."""
-    out: dict[str, list[str]] = {}
-    for f in env_files():
-        key = key_in(f)
-        if key and f.stem not in out.setdefault(account_of(key), []):
-            out[account_of(key)].append(f.stem)
-    return out
-
-
-def discover() -> list[Credential]:
-    keys = [os.environ.get("GLM_API_KEY")] + [key_in(f) for f in env_files()]
-    return dedupe(keys)
+# A GLM session exports its own file and key; neither may narrow discovery to that one account.
+KEYS = EnvKeys("GLM_API_KEY", "claude-glm*.env", named="CLAUDE_GLM_ENV")
+names, discover = KEYS.names, KEYS.discover
 
 
 def _millis(value: object) -> datetime | None:

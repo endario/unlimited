@@ -6,13 +6,10 @@ allowance anchored to the subscription. Purchased and free credits sit outside a
 
 from __future__ import annotations
 
-import math
-import os
 from datetime import datetime, timezone
-from pathlib import Path
 
-from ..credential import Credential, account_of, dedupe
-from ..schema import OK, UNREAD, credits, failed, limit, moment, reading
+from ..credential import Credential, EnvKeys
+from ..schema import OK, UNREAD, credits, failed, limit, moment, number, reading
 
 VENDOR = "commandcode"
 BASE = "https://api.commandcode.ai"
@@ -26,43 +23,13 @@ ALLOWANCE = {"individual-go": 10, "individual-goat": 70, "individual-pro": 30, "
 LIVE = {"active", "trialing", "past_due"}
 
 
-def env_files() -> list[Path]:
-    return sorted((Path.home() / ".config").glob("commandcode*.env"))
-
-
-def key_in(path: Path) -> str | None:
-    try:
-        for line in path.read_text().splitlines():
-            k, _, v = line.partition("=")
-            if k.strip().removeprefix("export ").strip() == "COMMAND_CODE_API_KEY":
-                return v.strip().strip("'\"") or None
-    except (OSError, UnicodeDecodeError):
-        pass
-    return None
-
-
-def names() -> dict[str, list[str]]:
-    out: dict[str, list[str]] = {}
-    for f in env_files():
-        key = key_in(f)
-        if key and f.stem not in out.setdefault(account_of(key), []):
-            out[account_of(key)].append(f.stem)
-    return out
-
-
-def discover() -> list[Credential]:
-    return dedupe([os.environ.get("COMMAND_CODE_API_KEY")] + [key_in(f) for f in env_files()])
-
-
-def _num(x: object) -> float | None:
-    if isinstance(x, (int, float)) and not isinstance(x, bool) and math.isfinite(x):
-        return float(x)
-    return None
+KEYS = EnvKeys("COMMAND_CODE_API_KEY", "commandcode*.env")
+names, discover = KEYS.names, KEYS.discover
 
 
 def _ms(v: object) -> datetime | None:
     # 0 is a window not yet opened by a first request.
-    n = _num(v)
+    n = number(v)
     return datetime.fromtimestamp(n / 1000, timezone.utc) if n else None
 
 
@@ -78,7 +45,7 @@ def windows(body: dict, now: datetime) -> list[dict]:
     out = []
     for key, (name, minutes) in WINDOWS.items():
         w = _dict(wl, key)
-        used, cap = _num(w.get("used")), _num(w.get("cap"))
+        used, cap = number(w.get("used")), number(w.get("cap"))
         if not cap:
             continue
         resets = _ms(w.get("resetAt"))
@@ -92,7 +59,7 @@ def windows(body: dict, now: datetime) -> list[dict]:
 def month(credit: dict, sub: dict) -> dict | None:
     """The plan's allowance, from what is left of it. The CLI takes the larger of the plan's figure
     and what is left, since a grant can lift the balance above the plan."""
-    left, plan = _num(credit.get("monthlyCredits")), sub.get("planId")
+    left, plan = number(credit.get("monthlyCredits")), sub.get("planId")
     if left is None or sub.get("status") not in LIVE or plan not in ALLOWANCE:
         return None
     allowance = max(ALLOWANCE[plan], left)
@@ -102,7 +69,7 @@ def month(credit: dict, sub: dict) -> dict | None:
 
 
 def _credits(credit: dict, now: datetime) -> dict | None:
-    bought, free = _num(credit.get("purchasedCredits")), _num(credit.get("freeCredits"))
+    bought, free = number(credit.get("purchasedCredits")), number(credit.get("freeCredits"))
     if bought is None and free is None:
         return None
     balance = (bought or 0) + (free or 0)

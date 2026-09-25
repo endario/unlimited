@@ -4,51 +4,18 @@ spending allowance is another; the prepaid balance is credits."""
 
 from __future__ import annotations
 
-import math
-import os
 from datetime import datetime
-from pathlib import Path
 
-from ..credential import Credential, account_of, dedupe
-from ..schema import OK, UNREAD, credits, failed, limit, moment, reading
+from ..credential import Credential, EnvKeys
+from ..schema import OK, UNREAD, credits, failed, limit, moment, number, reading
 
 VENDOR = "neuralwatt"
 URL = "https://api.neuralwatt.com/v1/quota"
 PERIOD_MINUTES = {"daily": 1440, "weekly": 10080, "monthly": 43200}
 
 
-def env_files() -> list[Path]:
-    return sorted((Path.home() / ".config").glob("neuralwatt*.env"))
-
-
-def key_in(path: Path) -> str | None:
-    try:
-        for line in path.read_text().splitlines():
-            k, _, v = line.partition("=")
-            if k.strip().removeprefix("export ").strip() == "NEURALWATT_API_KEY":
-                return v.strip().strip("'\"") or None
-    except (OSError, UnicodeDecodeError):
-        pass
-    return None
-
-
-def names() -> dict[str, list[str]]:
-    out: dict[str, list[str]] = {}
-    for f in env_files():
-        key = key_in(f)
-        if key and f.stem not in out.setdefault(account_of(key), []):
-            out[account_of(key)].append(f.stem)
-    return out
-
-
-def discover() -> list[Credential]:
-    return dedupe([os.environ.get("NEURALWATT_API_KEY")] + [key_in(f) for f in env_files()])
-
-
-def _num(x: object) -> float | None:
-    if isinstance(x, (int, float)) and not isinstance(x, bool) and math.isfinite(x):
-        return float(x)
-    return None
+KEYS = EnvKeys("NEURALWATT_API_KEY", "neuralwatt*.env")
+names, discover = KEYS.names, KEYS.discover
 
 
 def _utc(v: object) -> datetime | None:
@@ -58,7 +25,7 @@ def _utc(v: object) -> datetime | None:
 def limits(body: dict) -> list[dict]:
     out = []
     sub = body.get("subscription") if isinstance(body.get("subscription"), dict) else {}
-    included, used = _num(sub.get("kwh_included")), _num(sub.get("kwh_used"))
+    included, used = number(sub.get("kwh_included")), number(sub.get("kwh_used"))
     if included:
         annual = sub.get("billing_interval") == "year"
         out.append(limit("month", window_minutes=43200,
@@ -68,7 +35,7 @@ def limits(body: dict) -> list[dict]:
                          held_why="overage" if sub.get("in_overage") is True else None))
     key = body.get("key") if isinstance(body.get("key"), dict) else {}
     allow = key.get("allowance") if isinstance(key.get("allowance"), dict) else {}
-    cap, spent = _num(allow.get("limit_usd")), _num(allow.get("spent_usd"))
+    cap, spent = number(allow.get("limit_usd")), number(allow.get("spent_usd"))
     if cap:
         blocked = allow.get("blocked") is True
         out.append(limit("key allowance", window_minutes=PERIOD_MINUTES.get(allow.get("period")),
@@ -79,11 +46,11 @@ def limits(body: dict) -> list[dict]:
 
 def _credits(body: dict, now: datetime) -> dict | None:
     bal = body.get("balance") if isinstance(body.get("balance"), dict) else {}
-    remaining = _num(bal.get("credits_remaining_usd"))
+    remaining = number(bal.get("credits_remaining_usd"))
     if remaining is None:
         return None
     return credits(_utc(body.get("snapshot_at")) or now, enabled=remaining > 0,
-                   used=_num(bal.get("credits_used_usd")), limit=_num(bal.get("total_credits_usd")),
+                   used=number(bal.get("credits_used_usd")), limit=number(bal.get("total_credits_usd")),
                    balance=remaining, currency="USD")
 
 

@@ -3,11 +3,9 @@
 from __future__ import annotations
 
 import math
-import os
 from datetime import datetime, timedelta, timezone
-from pathlib import Path
 
-from ..credential import Credential, account_of, dedupe
+from ..credential import Credential, EnvKeys
 from ..schema import OK, UNREAD, failed, limit, reading
 
 VENDOR = "kimi"
@@ -24,38 +22,9 @@ NAMES = {300: "five_hour", 10080: "seven_day"}
 RATIO_WINDOWS = {"limit_5h": 300, "limit_7d": 10080}
 
 
-def env_files() -> list[Path]:
-    """Every wrapper's env file (claude-kimi, claude-kimi-2, ...), and $CLAUDE_KIMI_ENV. A Kimi
-    session exports its own file and key, so neither may narrow discovery to that one account."""
-    files = sorted((Path.home() / ".config").glob("claude-kimi*.env"))
-    named = os.environ.get("CLAUDE_KIMI_ENV")
-    return files + ([Path(named)] if named else [])
-
-
-def key_in(path: Path) -> str | None:
-    try:
-        for line in path.read_text().splitlines():
-            k, _, v = line.partition("=")
-            if k.strip().removeprefix("export ").strip() == "KIMI_API_KEY":
-                return v.strip().strip("'\"") or None
-    except (OSError, UnicodeDecodeError):
-        pass
-    return None
-
-
-def names() -> dict[str, list[str]]:
-    """Account id → the wrappers holding its key, by their command name."""
-    out: dict[str, list[str]] = {}
-    for f in env_files():
-        key = key_in(f)
-        if key and f.stem not in out.setdefault(account_of(key), []):
-            out[account_of(key)].append(f.stem)
-    return out
-
-
-def discover() -> list[Credential]:
-    keys = [os.environ.get("KIMI_API_KEY")] + [key_in(f) for f in env_files()]
-    return dedupe(keys)
+# A Kimi session exports its own file and key; neither may narrow discovery to that one account.
+KEYS = EnvKeys("KIMI_API_KEY", "claude-kimi*.env", named="CLAUDE_KIMI_ENV")
+names, discover = KEYS.names, KEYS.discover
 
 
 def _num(x: object) -> bool:

@@ -10,6 +10,7 @@ from pathlib import Path
 from unittest import mock
 
 from unlimited import show
+from unlimited.credential import account_of
 from unlimited.schema import credits, limit, reading
 
 NOW = datetime(2026, 9, 19, 12, 0, tzinfo=timezone.utc)
@@ -95,7 +96,7 @@ class Names(unittest.TestCase):
         (home / ".config" / "claude-glm-2.env").write_text("GLM_API_KEY=two\n")
         from unlimited.adapters import zai
         with mock.patch.dict(os.environ, {"HOME": str(home), "CLAUDE_GLM_ENV": ""}):
-            self.assertEqual(zai.names(), {zai.account_of("two"): ["claude-glm-2"]})
+            self.assertEqual(zai.names(), {account_of("two"): ["claude-glm-2"]})
 
     def test_a_kimi_account_is_named_by_the_wrapper_holding_its_key(self):
         home = Path(tempfile.mkdtemp())
@@ -103,7 +104,7 @@ class Names(unittest.TestCase):
         (home / ".config" / "claude-kimi.env").write_text("KIMI_API_KEY=two\n")
         from unlimited.adapters import kimi
         with mock.patch.dict(os.environ, {"HOME": str(home), "CLAUDE_KIMI_ENV": ""}):
-            self.assertEqual(kimi.names(), {kimi.account_of("two"): ["claude-kimi"]})
+            self.assertEqual(kimi.names(), {account_of("two"): ["claude-kimi"]})
 
     def test_the_default_opencode_identity_is_labeled_opencode(self):
         home = Path(tempfile.mkdtemp())
