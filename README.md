@@ -151,8 +151,9 @@ not projected: the vendor reports no reset for it.
 | xAI Grok (SuperGrok, Grok CLI sign-in) | — | the Grok CLI's billing proxy on its own token |
 
 The network endpoints are not officially documented and may change without notice. unlimited
-reads each harness's credential where the harness keeps it. It never refreshes a token or
-writes a credential, and no token appears in its output, cache or errors.
+reads each harness's credential where the harness keeps it and never writes it back. The one token
+it refreshes is Grok's, whose sign-in lasts hours: the renewed token is kept, owner-only, in
+`~/.cache/unlimited/credentials/`. No token appears in its output, readings or errors.
 
 ## Projection
 
