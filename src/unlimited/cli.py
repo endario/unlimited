@@ -27,6 +27,9 @@ def _models(a) -> int:
     except catalog.CatalogError as e:
         print(f"unlimited: catalog: {e}", file=sys.stderr)
         return 2
+    if a.catalog:
+        json.dump(cat.to_json(datetime.now(timezone.utc)), sys.stdout)
+        return 0
     if a.provider:
         model = cat.model(a.provider, a.tier)
         if model is None:
@@ -60,6 +63,7 @@ def main(argv: list[str] | None = None) -> int:
     m.add_argument("--tier", choices=["standard", "heavy"], default="standard")
     m.add_argument("--provider", help="print only this provider's model at the tier")
     m.add_argument("--json", action="store_true")
+    m.add_argument("--catalog", action="store_true", help="the whole merged catalog, as JSON")
     c = sub.add_parser("capture", help="save a harness's own usage report (never prints)")
     c.add_argument("source", choices=["claude-statusline"])
     a = p.parse_args(argv)

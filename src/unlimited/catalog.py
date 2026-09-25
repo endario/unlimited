@@ -104,6 +104,12 @@ class Catalog:
                 if tier in p and p[tier] not in self.banned]
         return out
 
+    def to_json(self, now: datetime) -> dict:
+        """The merged catalog as it stands at `now`: live promotions only, their dates as ISO text."""
+        return {"schema": SCHEMA, "providers": self.providers, "banned": sorted(self.banned),
+                "promotions": [dict(p, until=p["until"].isoformat()) if "until" in p else dict(p)
+                               for p in self.promotions if self._live(p, now)]}
+
     def model(self, provider: str, tier: str) -> str | None:
         m = self.providers.get(provider, {}).get(tier)
         return m if m not in self.banned else None

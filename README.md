@@ -130,7 +130,7 @@ holding its credential.
 ## Models
 
 `unlimited models [--tier standard|heavy] [--json]` lists what each provider runs at a tier, with
-promotions first; `--provider P` prints one model id. The list ships in
+promotions first; `--provider P` prints one model id; `--catalog` prints the whole merged catalog as JSON. The list ships in
 [`catalog.toml`](src/unlimited/catalog.toml). `~/.config/unlimited/catalog.toml` overrides it on one
 machine, with no release: provider keys one by one, `promotions` whole, and `banned` model ids added
 to the shipped ones. A local file that does not parse, or states another `schema`, is an error.

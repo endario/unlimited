@@ -101,6 +101,15 @@ class Cli(unittest.TestCase):
         self.assertEqual(self.run_models("--provider", "codex", "--tier", "heavy")[:2], (0, "gpt-6-sol\n"))
         self.assertEqual(self.run_models("--provider", "grok", "--tier", "heavy")[:2], (1, ""))
 
+    def test_the_whole_catalog_carries_providers_and_only_live_promotions(self):
+        import json
+        local = ('schema = 1\n[[promotions]]\nprovider = "stealth"\nmodel = "gone"\ntiers = ["standard"]\nuntil = 2020-01-01\n'
+                 '[[promotions]]\nprovider = "stealth"\nmodel = "open"\ntiers = ["standard"]\n')
+        code, out, _ = self.run_models("--catalog", local=local)
+        got = json.loads(out)
+        self.assertEqual((code, got["providers"]["deepseek"]["harness"]), (0, "opencode"))
+        self.assertEqual([p["model"] for p in got["promotions"]], ["open"])
+
     def test_json_lists_candidates_and_a_broken_catalog_exits_2(self):
         import json
         code, out, _ = self.run_models("--tier", "heavy", "--json")
