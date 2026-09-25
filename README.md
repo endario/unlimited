@@ -136,6 +136,13 @@ machine, with no release: provider keys one by one, `promotions` and `tie_prefer
 to the shipped ones. A local file that does not parse, or states another `schema`, is an error.
 Which model to run is still the consumer's choice.
 
+## Verdicts
+
+`unlimited verdict --work SECONDS [--model-scope M] [--max-age S] [--vendor V]... --json` says, for
+each account, whether it can take a unit of work of that length on that model family: `unread`,
+`excluded` (with the window that binds and when it lifts), or `ranked` (with a tier and a score). Advisory: it reserves nothing. Design:
+[docs/usage-routing](docs/usage-routing/design.md).
+
 ## Credits
 
 A window at 100% is not always the end. Where the vendor reports it (Claude's `spend`), the reading's

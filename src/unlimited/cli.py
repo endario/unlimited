@@ -1,5 +1,6 @@
 """`unlimited` (a table for people), `unlimited read [--vendor V]... [--max-age S] --json`,
-`unlimited models [--tier T] [--provider P] [--json]`, `unlimited capture claude-statusline`."""
+`unlimited models [--tier T] [--provider P] [--json]`, `unlimited verdict --work S [--model-scope M] --json`,
+`unlimited capture claude-statusline`."""
 
 from __future__ import annotations
 
@@ -64,6 +65,12 @@ def main(argv: list[str] | None = None) -> int:
     m.add_argument("--provider", help="print only this provider's model at the tier")
     m.add_argument("--json", action="store_true")
     m.add_argument("--catalog", action="store_true", help="the whole merged catalog, as JSON")
+    vd = sub.add_parser("verdict", help="whether each account can take a unit of work, as JSON")
+    vd.add_argument("--vendor", action="append", choices=sorted(REGISTRY))
+    vd.add_argument("--model-scope", default=None, help="the model family the work runs (e.g. Opus)")
+    vd.add_argument("--work", type=float, required=True, help="expected duration, seconds")
+    vd.add_argument("--max-age", type=float, default=300.0)
+    vd.add_argument("--json", action="store_true", help="JSON output (the only format for now)")
     c = sub.add_parser("capture", help="save a harness's own usage report (never prints)")
     c.add_argument("source", choices=["claude-statusline"])
     a = p.parse_args(argv)
@@ -85,6 +92,14 @@ def main(argv: list[str] | None = None) -> int:
     for v in getattr(a, "vendor", None) or sorted(REGISTRY):
         out += cache.through(REGISTRY[v], max_age=a.max_age,
                              clock=lambda: datetime.now(timezone.utc), get=transport.get)
+    if a.cmd == "verdict":
+        from datetime import timedelta
+        from .verdict import verdict
+        now = datetime.now(timezone.utc)
+        json.dump([{"vendor": r.get("vendor"), "account": r.get("account"), "names": r.get("names", []),
+                    "verdict": verdict(r, model_scope=a.model_scope, now=now, work=timedelta(seconds=a.work),
+                                       max_age=timedelta(seconds=a.max_age))} for r in out], sys.stdout)
+        return 0
     if a.cmd in (None, "status"):
         from .show import render
         sys.stdout.write(render(out, datetime.now(timezone.utc), color=sys.stdout.isatty(),
