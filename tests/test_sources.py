@@ -371,6 +371,40 @@ class Grok(Base):
                        NOW, self.up(Answer(self.BODY, 200, None)))
         self.assertEqual((got["why"], self.calls), ("credential-expired", []))
 
+    EXPIRED = {"key": "old", "expires": (NOW - timedelta(minutes=1)).isoformat(), "refresh": "r", "client": "c"}
+
+    def grok(self, token: Answer):
+        def get(url, headers, now, data=None):
+            self.calls.append((url, headers.get("Authorization"), data))
+            return token if url == xai.TOKEN_URL else Answer(self.BODY, 200, None)
+        return get
+
+    def test_an_expired_token_is_renewed_and_the_renewal_reused_until_it_expires(self):
+        get = self.grok(Answer({"access_token": "new", "expires_in": 21600}, 200, None))
+        got = xai.read(Credential("u", self.EXPIRED), NOW, get)
+        self.assertEqual(got["status"], "ok")
+        self.assertEqual(self.calls[0][0], xai.TOKEN_URL)
+        self.assertIn(b"refresh_token=r", self.calls[0][2])
+        self.assertEqual(self.calls[1][1], "Bearer new")
+        # Held for the next process, readable by the owner only; auth.json is the Grok CLI's.
+        self.assertEqual(xai._token_file().stat().st_mode & 0o777, 0o600)
+        self.calls.clear()
+        xai.read(Credential("u", self.EXPIRED), NOW + timedelta(hours=5), get)
+        self.assertNotIn(xai.TOKEN_URL, [c[0] for c in self.calls])
+        self.calls.clear()
+        xai.read(Credential("u", self.EXPIRED), NOW + timedelta(hours=6), get)
+        self.assertEqual(self.calls[0][0], xai.TOKEN_URL)
+
+    def test_a_refused_refresh_token_reads_as_expired(self):
+        got = xai.read(Credential("u", self.EXPIRED), NOW, self.grok(Answer(None, 400, "http-400")))
+        self.assertEqual((got["status"], got["why"]), ("unread", "credential-expired"))
+        self.assertEqual(len(self.calls), 1)
+
+    def test_an_unreachable_token_endpoint_is_a_transient_failure(self):
+        got = xai.read(Credential("u", self.EXPIRED), NOW, self.grok(Answer(None, None, "unreachable")))
+        self.assertEqual(got["why"], "unreachable")
+        self.assertFalse(xai._token_file().exists())
+
 
 class Zai(Base):
     def env(self, name: str, key: str) -> Path:

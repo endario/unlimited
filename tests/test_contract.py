@@ -204,7 +204,7 @@ class Contract(unittest.TestCase):
         for vendor in (openai, zai):
             self.read(vendor, max_age=0)
         dumped = json.dumps([self.read(v, max_age=10**9) for v in (openai, zai)])
-        dumped += "".join(p.read_text() for p in (self.tmp / "cache" / "unlimited").glob("*.json"))
+        dumped += "".join(p.read_text() for p in (self.tmp / "cache" / "unlimited").rglob("*.json"))
         dumped += repr(openai.discover()) + repr(zai.discover())
         for secret in (OPENAI_SECRET, ZAI_SECRET):
             self.assertNotIn(secret, dumped)

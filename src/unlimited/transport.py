@@ -41,11 +41,12 @@ def retry_until(value: str | None, now: datetime) -> datetime | None:
     return min(t, now + MAX_BACKOFF)
 
 
-def get(url: str, headers: dict[str, str], now: datetime, timeout: float = 20) -> Answer:
+def get(url: str, headers: dict[str, str], now: datetime, timeout: float = 20, data: bytes | None = None) -> Answer:
+    """GET, or POST when `data` is given."""
     # Python-urllib's default User-Agent is refused by some vendors' edges (opencode.ai answers
     # it 403), so every request names this tool.
     req = urllib.request.Request(url, headers={"Accept": "application/json", "User-Agent": USER_AGENT,
-                                               **headers})
+                                               **headers}, data=data)
     try:
         with urllib.request.urlopen(req, timeout=timeout) as r:
             body = json.loads(r.read())
