@@ -13,7 +13,7 @@ from types import SimpleNamespace
 from unittest import mock
 
 from unlimited import cache, cli
-from unlimited.adapters import anthropic, kimi, neuralwatt, opencode, openai, xai, zai
+from unlimited.adapters import anthropic, commandcode, kimi, neuralwatt, opencode, openai, xai, zai
 from unlimited.credential import Credential
 from unlimited.transport import Answer
 
@@ -30,7 +30,7 @@ class Base(unittest.TestCase):
         self.home.mkdir()
         p = mock.patch.dict(os.environ, {"XDG_CACHE_HOME": str(self.tmp / "cache"), "HOME": str(self.home),
                                           "CLAUDE_GLM_ENV": "", "GLM_API_KEY": "",
-                                          "CLAUDE_KIMI_ENV": "", "KIMI_API_KEY": ""})
+                                          "CLAUDE_KIMI_ENV": "", "KIMI_API_KEY": "", "COMMAND_CODE_API_KEY": ""})
         p.start()
         self.addCleanup(p.stop)
         self.calls = []
@@ -450,6 +450,81 @@ class Neuralwatt(Base):
     def test_an_answer_with_nothing_recognised_is_unread(self):
         got = neuralwatt.read(Credential("a", {"key": "k"}), NOW, self.up(Answer({"snapshot_at": "x"}, 200, None)))
         self.assertEqual((got["status"], got["why"]), ("unread", "no-limits"))
+
+
+class CommandCode(Base):
+    RESET_5H = int((NOW + timedelta(hours=4)).timestamp() * 1000)
+    CREDITS = {"credits": {"belowThreshold": False, "creditThreshold": 0, "monthlyCredits": 52.5,
+                           "purchasedCredits": 5, "freeCredits": 0},
+               "windowLimits": {"limited": True, "exceeded": None,
+                                "fiveHour": {"used": 3.5, "cap": 14, "exceeded": False, "resetAt": RESET_5H},
+                                "weekly": {"used": 35, "cap": 35, "exceeded": True,
+                                           "resetAt": int((NOW + timedelta(days=3)).timestamp() * 1000)}}}
+    SUB = {"success": True, "data": {"status": "active", "planId": "individual-goat",
+                                     "currentPeriodStart": "2026-09-01T05:55:22.000Z",
+                                     "currentPeriodEnd": "2026-10-01T05:55:22.000Z"}}
+
+    def api(self, credits, sub):
+        def get(url, headers, now):
+            self.calls.append(url)
+            return credits if url == commandcode.CREDITS_URL else sub
+        return get
+
+    def ok(self, body):
+        return Answer(body, 200, None)
+
+    def test_both_windows_and_the_month_are_read_with_their_resets(self):
+        got = commandcode.read(Credential("a", {"key": "k"}), NOW, self.api(self.ok(self.CREDITS), self.ok(self.SUB)))
+        five, week, month = got["limits"]
+        self.assertEqual((five["role"], five["used_at_least"], five["held"]), ("session", 0.25, False))
+        self.assertEqual(five["resets_at"], (NOW + timedelta(hours=4)).isoformat())
+        self.assertEqual((week["role"], week["used_at_least"], week["held"], week["held_why"]),
+                         ("weekly", 1.0, True, "exceeded"))
+        # 52.50 of GOAT's 70 left is a quarter spent; the month ends with the subscription period.
+        self.assertEqual((month["role"], month["used_at_least"], month["resets_at"]),
+                         ("month", 0.25, "2026-10-01T05:55:22+00:00"))
+        self.assertEqual((got["status"], got["plan"]), ("ok", "individual-goat"))
+        self.assertEqual((got["credits"]["balance"], got["credits"]["enabled"]), (5.0, True))
+
+    def test_a_window_not_yet_opened_has_no_reset_and_is_not_forgotten(self):
+        body = json.loads(json.dumps(self.CREDITS))
+        body["windowLimits"]["fiveHour"] = {"used": 0, "cap": 14, "exceeded": False, "resetAt": 0}
+        (five, *_) = commandcode.windows(body, NOW)
+        self.assertEqual((five["resets_at"], five["used_at_least"]), (None, 0.0))
+
+    def test_windows_the_vendor_says_it_does_not_enforce_are_not_reported(self):
+        body = dict(self.CREDITS, windowLimits=dict(self.CREDITS["windowLimits"], limited=False))
+        self.assertEqual(commandcode.windows(body, NOW), [])
+
+    def test_a_grant_above_the_plan_counts_as_the_allowance_not_negative_use(self):
+        credit = dict(self.CREDITS["credits"], monthlyCredits=90)
+        self.assertEqual(commandcode.month(credit, self.SUB["data"])["used_at_least"], 0.0)
+
+    def test_an_unknown_plan_or_lapsed_subscription_has_no_month(self):
+        credit = self.CREDITS["credits"]
+        self.assertIsNone(commandcode.month(credit, dict(self.SUB["data"], planId="individual-new")))
+        self.assertIsNone(commandcode.month(credit, dict(self.SUB["data"], status="canceled")))
+
+    def test_the_windows_stand_when_the_subscription_cannot_be_read(self):
+        got = commandcode.read(Credential("a", {"key": "k"}), NOW,
+                               self.api(self.ok(self.CREDITS), Answer(None, 500, "http-500")))
+        self.assertEqual([l["name"] for l in got["limits"]], ["five_hour", "seven_day"])
+        self.assertIsNone(got["plan"])
+
+    def test_a_refused_key_is_refused_without_asking_for_the_subscription(self):
+        got = commandcode.read(Credential("a", {"key": "k"}), NOW,
+                               self.api(Answer(None, 401, "http-401"), self.ok(self.SUB)))
+        self.assertEqual((got["status"], got["why"]), ("refused", "http-401"))
+        self.assertEqual(self.calls, [commandcode.CREDITS_URL])
+
+    def test_every_env_file_and_the_environment_is_an_account_once(self):
+        (self.home / ".config").mkdir()
+        (self.home / ".config" / "commandcode.env").write_text('export COMMAND_CODE_API_KEY="user_one"\n')
+        (self.home / ".config" / "commandcode-2.env").write_text("COMMAND_CODE_API_KEY=user_two\n")
+        with mock.patch.dict(os.environ, {"COMMAND_CODE_API_KEY": "user_one"}):
+            got = commandcode.discover()
+        self.assertEqual(sorted(c.secret["key"] for c in got), ["user_one", "user_two"])
+        self.assertEqual(commandcode.names()[commandcode.account_of("user_two")], ["commandcode-2"])
 
 
 class Zai(Base):

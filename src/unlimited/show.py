@@ -8,14 +8,16 @@ from .projection import MIN_PAST
 from .schema import moment
 
 VENDOR_NAMES = {"anthropic": "Claude", "openai": "Codex", "zai": "Z.ai GLM", "opencode": "OpenCode", "xai": "Grok",
-                "kimi": "Kimi Code", "neuralwatt": "Neuralwatt"}
+                "kimi": "Kimi Code", "neuralwatt": "Neuralwatt", "commandcode": "Command Code"}
 WINDOW_NAMES = {"five_hour": "5-hour", "seven_day": "weekly", "month": "monthly", "codex": "weekly",
                 "gpt-reserve": "weekly reserve", "seven_day_opus": "weekly Opus",
                 "seven_day_sonnet": "weekly Sonnet", "period": "billing period"}
 BAR = 20
 # Vendor plan words a person would not recognise, in the words they would.
 PLANS = {"default_claude_max_20x": "Max 20x", "default_claude_max_5x": "Max 5x", "default_claude_ai": "Pro",
-         "pro": "Pro", "plus": "Plus", "prolite": "Pro Lite", "max": "Max", "lite": "Lite"}
+         "pro": "Pro", "plus": "Plus", "prolite": "Pro Lite", "max": "Max", "lite": "Lite",
+         "individual-goat": "GOAT", "individual-go": "Go", "individual-pro": "Pro", "individual-pro-v1": "Pro",
+         "individual-provider": "Provider", "individual-max": "Max", "individual-ultra": "Ultra", "teams-pro": "Teams Pro"}
 
 
 def _plan(r: dict) -> str | None:
