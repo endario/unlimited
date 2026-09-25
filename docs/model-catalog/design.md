@@ -117,6 +117,13 @@ Banning is by model id, in `banned`: a banned model is never a candidate, as a t
 promotion's. There is no per-repo or per-data-policy rule: a model the owner will not
 send work to is banned outright. A model id is listed under one provider only.
 
+## Tie preference
+
+`tie_preference` lists the low-cost providers, cheapest first (owner, 2026-09-25: Meta's Muse Spark
+Contributor is cheaper than DeepSeek Flash; Command Code's models price alike). When usage leaves
+candidates near-tied, the first of these among them takes the round. It replaces the runner's
+DeepSeek-only tie rule, and a local list replaces the shipped one.
+
 ## Usage balancing
 
 deepseek, meta and stealth all spend the same Go plan. The runner's `balance.py` picks the limit it

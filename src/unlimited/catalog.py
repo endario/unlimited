@@ -39,8 +39,8 @@ def _parse(text: str, where: str) -> dict:
     providers = got.get("providers", {})
     if not isinstance(providers, dict) or not all(isinstance(p, dict) for p in providers.values()):
         raise CatalogError(f"{where}: providers must be tables")
-    if not isinstance(got.get("promotions", []), list) or not isinstance(got.get("banned", []), list):
-        raise CatalogError(f"{where}: promotions and banned must be lists")
+    if not all(isinstance(got.get(k, []), list) for k in ("promotions", "banned", "tie_preference")):
+        raise CatalogError(f"{where}: promotions, banned and tie_preference must be lists")
     return got
 
 
@@ -50,8 +50,9 @@ def _merge(shipped: dict, local: dict) -> dict:
     for k, v in local.get("providers", {}).items():
         providers.setdefault(k, {}).update(v)
     out["providers"] = providers
-    if "promotions" in local:
-        out["promotions"] = local["promotions"]
+    for whole in ("promotions", "tie_preference"):
+        if whole in local:
+            out[whole] = local[whole]
     out["banned"] = list(shipped.get("banned", [])) + list(local.get("banned", []))
     return out
 
@@ -75,6 +76,8 @@ def _check(c: dict) -> None:
             raise CatalogError(f"promotion {i + 1}: needs a known provider, a model, tiers and an optional date")
     if not all(isinstance(m, str) for m in c.get("banned", [])):
         raise CatalogError("banned: model ids only")
+    if not all(p in providers for p in c.get("tie_preference", [])):
+        raise CatalogError("tie_preference: known providers only")
     owners: dict[str, set] = {}
     for name, p in providers.items():
         for t in TIERS:
@@ -92,6 +95,7 @@ class Catalog:
         self.providers: dict[str, dict] = data["providers"]
         self.promotions: list[dict] = data.get("promotions", [])
         self.banned: frozenset[str] = frozenset(data.get("banned", []))
+        self.tie_preference: list[str] = data.get("tie_preference", [])
 
     def _live(self, promo: dict, now: datetime) -> bool:
         return promo["model"] not in self.banned and now.astimezone(timezone.utc).date() <= promo.get("until", date.max)
@@ -107,6 +111,7 @@ class Catalog:
     def to_json(self, now: datetime) -> dict:
         """The merged catalog as it stands at `now`: live promotions only, their dates as ISO text."""
         return {"schema": SCHEMA, "providers": self.providers, "banned": sorted(self.banned),
+                "tie_preference": self.tie_preference,
                 "promotions": [dict(p, until=p["until"].isoformat()) if "until" in p else dict(p)
                                for p in self.promotions if self._live(p, now)]}
 

@@ -6,6 +6,10 @@ schema = 1
 # Model ids never offered, wherever they are listed. A local list adds to this one.
 banned = []
 
+# The low-cost providers, cheapest first. When usage leaves candidates near-tied, the first of these
+# among them takes the round. A local list replaces this one.
+tie_preference = ["meta", "deepseek", "stealth"]
+
 [providers.codex]
 harness = "codex"
 usage = "openai"

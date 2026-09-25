@@ -64,6 +64,12 @@ class Catalog(unittest.TestCase):
         with self.assertRaises(catalog.CatalogError):
             catalog.load(self.local)
 
+    def test_tie_preference_ships_cheapest_first_and_a_local_list_replaces_it(self):
+        self.assertEqual(self.load().tie_preference, ["meta", "deepseek", "stealth"])
+        self.assertEqual(self.load('schema = 1\ntie_preference = ["deepseek"]\n').tie_preference, ["deepseek"])
+        with self.assertRaises(catalog.CatalogError):
+            self.load('schema = 1\ntie_preference = ["nobody"]\n')
+
     def test_a_promoted_model_belongs_to_its_provider(self):
         self.assertEqual(self.load().provider_of("commandcode/stealth/space-bunny-alpha"), "stealth")
         self.assertIsNone(self.load().provider_of("unknown-model"))
