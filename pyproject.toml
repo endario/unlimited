@@ -1,6 +1,6 @@
 [project]
 name = "unlimited"
-version = "0.0.37"
+version = "0.0.38"
 description = "Read AI-subscription quota usage, per window, as facts — and where each window is heading."
 requires-python = ">=3.11"
 license = "MIT"

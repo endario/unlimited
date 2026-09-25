@@ -30,6 +30,7 @@ verdict as their input anyway.
 Phase 1 shares the **per-window evaluation**, not the ordering. Each consumer keeps its own
 ordering, tie rule, fallback and account-level display: the runner's tie is an absolute score gap
 and 2mw2lt's a relative one, and choosing one for both is a separate decision.
+Phase 2A ([phase-2a.md](phase-2a.md)) moves the runner's ordering into unlimited.
 
 The unit judged is a **candidate: a model on an account for a duration**. A pure module,
 `unlimited.verdict`, over schema-1 readings:

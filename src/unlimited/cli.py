@@ -1,6 +1,7 @@
 """`unlimited` (a table for people), `unlimited read [--vendor V]... [--max-age S] --json`,
 `unlimited models [--tier T] [--provider P] [--json]`,
-`unlimited off [TARGET [--for D] [--why W]]`, `unlimited on TARGET`, `unlimited verdict --work S [--model-scope M] --json`,
+`unlimited off [TARGET [--for D] [--why W]]`, `unlimited on TARGET`,
+`unlimited attempt start|end ...`, `unlimited outcomes [--json]`, `unlimited verdict --work S [--model-scope M] --json`,
 `unlimited capture claude-statusline`."""
 
 from __future__ import annotations
@@ -95,6 +96,37 @@ def _switch(a) -> int:
     return 0
 
 
+def _attempt(a) -> int:
+    from . import outcomes
+    now = datetime.now(timezone.utc)
+    if a.phase == "start":
+        outcomes.compact(now)
+        print(outcomes.start(provider=a.provider, model=a.model, effort=a.effort, kind=a.kind,
+                             account=a.account, decision=a.decision, deadline=a.deadline, now=now))
+    else:
+        tokens = {k: v for k, v in (("in", a.tokens_in), ("out", a.tokens_out), ("cache", a.tokens_cache))
+                  if v is not None}
+        outcomes.end(a.id, outcome=a.outcome, now=now, tokens=tokens)
+    return 0
+
+
+def _outcomes(a) -> int:
+    from . import outcomes
+    now = datetime.now(timezone.utc)
+    records, bad = outcomes.read()
+    got = outcomes.stats(outcomes.attempts(records, now), now)
+    if a.json:
+        json.dump([{"provider": p, "model": m, **s} for (p, m), s in sorted(got.items())], sys.stdout)
+    else:
+        for (p, m), s in sorted(got.items()):
+            fail = f"{s['t_fail'] / 60:5.1f}m" if s["t_fail"] is not None else "    -"
+            print(f"{p:<9} {m:<42} fail {s['p']:4.0%}  ok {s['t_ok'] / 60:5.1f}m  failed {fail}"
+                  f"  (ok {s['ok']:.1f}, fail {s['fail']:.1f})")
+    if bad:
+        print(f"unlimited: skipped {bad} unreadable line(s) in {outcomes.path()}", file=sys.stderr)
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     p = argparse.ArgumentParser(prog="unlimited")
     p.add_argument("--version", action="store_true", help="print the installed release")
@@ -120,6 +152,24 @@ def main(argv: list[str] | None = None) -> int:
     of.add_argument("--why", help="a note, shown by `unlimited off`")
     on = sub.add_parser("on", help="undo `unlimited off TARGET`")
     on.add_argument("target")
+    at = sub.add_parser("attempt", help="record one model run's start or end on this machine")
+    ats = at.add_subparsers(dest="phase", required=True)
+    st_ = ats.add_parser("start", help="prints the attempt id")
+    st_.add_argument("--provider", required=True)
+    st_.add_argument("--model", required=True)
+    st_.add_argument("--effort")
+    st_.add_argument("--kind", help="review, critic, ...")
+    st_.add_argument("--account")
+    st_.add_argument("--decision")
+    st_.add_argument("--deadline", type=float, required=True, help="seconds; past it with no end is a timeout")
+    en = ats.add_parser("end")
+    en.add_argument("id")
+    en.add_argument("--outcome", required=True, choices=["ok", "timeout", "error", "unavailable"])
+    en.add_argument("--tokens-in", type=int)
+    en.add_argument("--tokens-out", type=int)
+    en.add_argument("--tokens-cache", type=int)
+    oc = sub.add_parser("outcomes", help="each model's recent failure rate and durations on this machine")
+    oc.add_argument("--json", action="store_true")
     vd = sub.add_parser("verdict", help="whether each account can take a unit of work, as JSON")
     vd.add_argument("--vendor", action="append", choices=sorted(REGISTRY))
     vd.add_argument("--model-scope", default=None, help="the model family the work runs (e.g. Opus)")
@@ -145,6 +195,10 @@ def main(argv: list[str] | None = None) -> int:
         return _models(a)
     if a.cmd in ("off", "on"):
         return _switch(a)
+    if a.cmd == "attempt":
+        return _attempt(a)
+    if a.cmd == "outcomes":
+        return _outcomes(a)
     out = []
     for v in getattr(a, "vendor", None) or sorted(REGISTRY):
         out += cache.through(REGISTRY[v], max_age=a.max_age,

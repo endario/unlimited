@@ -141,6 +141,14 @@ or a `provider:model` pair off on this machine, until `unlimited on TARGET` or t
 passes; `unlimited off` lists what is off. It drops out of `models` and `--catalog` like a ban. The switches live in
 `~/.config/unlimited/switches.json`.
 
+## Outcomes
+
+`unlimited attempt start --provider P --model M --deadline S [...]` prints an attempt id;
+`unlimited attempt end ID --outcome ok|timeout|error|unavailable` closes it. A start whose deadline
+passes with no end counts as a timeout. `unlimited outcomes` prints each model's recent failure rate
+and durations on this machine, from `~/.local/state/unlimited/decisions.jsonl`. Design:
+[docs/usage-routing/phase-2a.md](docs/usage-routing/phase-2a.md).
+
 ## Verdicts
 
 `unlimited verdict --work SECONDS [--model-scope M] [--max-age S] [--vendor V]... --json` says, for
