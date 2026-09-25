@@ -92,6 +92,7 @@ public struct Tile: Identifiable, Equatable, Sendable {
     static let vendors: [(id: String, code: String, name: String)] = [
         ("anthropic", "CL", "Claude"), ("openai", "CDX", "Codex"), ("zai", "ZAI", "Z.ai"), ("kimi", "KMI", "Kimi"),
         ("opencode", "OPC", "OpenCode"), ("xai", "GRK", "Grok"), ("neuralwatt", "NW", "Neuralwatt"),
+        ("commandcode", "CMD", "Command Code"),
     ]
 
     /// The vendor's name for a person; an unknown vendor shows its id.
