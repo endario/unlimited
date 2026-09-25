@@ -13,7 +13,7 @@ from types import SimpleNamespace
 from unittest import mock
 
 from unlimited import cache, cli
-from unlimited.adapters import anthropic, kimi, opencode, openai, xai, zai
+from unlimited.adapters import anthropic, kimi, neuralwatt, opencode, openai, xai, zai
 from unlimited.credential import Credential
 from unlimited.transport import Answer
 
@@ -404,6 +404,52 @@ class Grok(Base):
         got = xai.read(Credential("u", self.EXPIRED), NOW, self.grok(Answer(None, None, "unreachable")))
         self.assertEqual(got["why"], "unreachable")
         self.assertFalse(xai._token_file().exists())
+
+
+class Neuralwatt(Base):
+    PAYG = {"snapshot_at": "2026-09-19T11:59:00Z",
+            "balance": {"credits_remaining_usd": 17.38, "total_credits_usd": 21.0, "credits_used_usd": 3.62},
+            "limits": {"overage_limit_usd": None, "rate_limit_tier": "basic"},
+            "subscription": None, "key": {"name": "k", "allowance": None}}
+    SUB = dict(PAYG, subscription={"plan": "standard", "status": "active",
+                                   "current_period_start": "2026-09-11T05:00:00Z",
+                                   "current_period_end": "2026-10-11T05:00:00Z",
+                                   "kwh_included": 20.0, "kwh_used": 5.0, "in_overage": False},
+               key={"allowance": {"limit_usd": 10.0, "period": "weekly", "spent_usd": 10.0, "blocked": True}})
+
+    def test_a_pay_as_you_go_account_reads_as_its_balance_alone(self):
+        got = neuralwatt.read(Credential("a", {"key": "k"}), NOW, self.up(Answer(self.PAYG, 200, None)))
+        self.assertEqual((got["status"], got["limits"], got["plan"]), ("ok", [], None))
+        c = got["credits"]
+        self.assertEqual((c["balance"], c["used"], c["limit"], c["currency"], c["enabled"]),
+                         (17.38, 3.62, 21.0, "USD", True))
+
+    def test_the_energy_allowance_is_the_month_and_a_blocked_key_is_held(self):
+        got = neuralwatt.read(Credential("a", {"key": "k"}), NOW, self.up(Answer(self.SUB, 200, None)))
+        month, key = got["limits"]
+        self.assertEqual((month["role"], month["used_at_least"], month["resets_at"], month["held"]),
+                         ("month", 0.25, "2026-10-11T05:00:00+00:00", False))
+        self.assertEqual((key["role"], key["window_minutes"], key["used_at_least"], key["held"]),
+                         ("extra", 10080, 1.0, True))
+        self.assertEqual(got["plan"], "standard")
+
+    def test_every_env_file_and_the_environment_is_an_account_once(self):
+        (self.home / ".config").mkdir()
+        (self.home / ".config" / "neuralwatt.env").write_text('export NEURALWATT_API_KEY="sk-one"\n')
+        (self.home / ".config" / "neuralwatt-2.env").write_text("NEURALWATT_API_KEY=sk-two\n")
+        with mock.patch.dict(os.environ, {"NEURALWATT_API_KEY": "sk-one"}):
+            got = neuralwatt.discover()
+        self.assertEqual(sorted(c.secret["key"] for c in got), ["sk-one", "sk-two"])
+        self.assertEqual(neuralwatt.names()[neuralwatt.account_of("sk-two")], ["neuralwatt-2"])
+
+    def test_an_annual_plans_allowance_has_no_reset_at_the_years_end(self):
+        body = dict(self.SUB, subscription=dict(self.SUB["subscription"], billing_interval="year"))
+        (month, _) = neuralwatt.limits(body)
+        self.assertEqual((month["resets_at"], month["used_at_least"]), (None, 0.25))
+
+    def test_an_answer_with_nothing_recognised_is_unread(self):
+        got = neuralwatt.read(Credential("a", {"key": "k"}), NOW, self.up(Answer({"snapshot_at": "x"}, 200, None)))
+        self.assertEqual((got["status"], got["why"]), ("unread", "no-limits"))
 
 
 class Zai(Base):

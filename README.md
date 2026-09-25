@@ -1,7 +1,7 @@
 # unlimited
 
 How much of each AI subscription you have used, per window, and where each window is heading:
-Claude, Codex, Z.ai GLM, Kimi Code, OpenCode Go and Grok, across every account on the machine.
+Claude, Codex, Z.ai GLM, Kimi Code, OpenCode Go, Grok and Neuralwatt, across every account on the machine.
 
 ![The menu bar strip: one tile per account, its weekly use coloured by where it is heading](https://raw.githubusercontent.com/endario/unlimited/main/docs/img/strip.png)
 
@@ -149,6 +149,7 @@ not projected: the vendor reports no reset for it.
 | Moonshot Kimi (Kimi Code coding plan) | — | `coding/v1/usages` on each claude-kimi wrapper's API key |
 | OpenCode Go | — | `zen/go/v1/usage` on the Go key in each opencode identity's auth.json: the default and every `~/.opencode-N` ([add another](scripts/add-opencode-go-account.sh)) |
 | xAI Grok (SuperGrok, Grok CLI sign-in) | — | the Grok CLI's billing proxy on its own token |
+| Neuralwatt Cloud | — | `v1/quota` on `$NEURALWATT_API_KEY` and each `~/.config/neuralwatt*.env` |
 
 The network endpoints are not officially documented and may change without notice. unlimited
 reads each harness's credential where the harness keeps it and never writes it back. The one token

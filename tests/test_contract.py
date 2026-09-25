@@ -15,12 +15,13 @@ from pathlib import Path
 from unittest import mock
 
 from unlimited import cache, cli, transport
-from unlimited.adapters import openai, zai
+from unlimited.adapters import neuralwatt, openai, zai
 from unlimited.transport import Answer
 
 NOW = datetime(2026, 9, 19, 12, 0, tzinfo=timezone.utc)
 OPENAI_SECRET = "fixture-secret-openai-token"
 ZAI_SECRET = "fixture-secret-zai-key"
+NEURALWATT_SECRET = "fixture-secret-neuralwatt-key"
 
 # Shapes as answered on 2026-09-18 (2mw2lt accounts_test.py), identities removed.
 WHAM = {"plan_type": "prolite",
@@ -61,7 +62,7 @@ class Contract(unittest.TestCase):
         (self.tmp / "codex").mkdir()
         (self.tmp / "codex" / "auth.json").write_text(json.dumps(
             {"tokens": {"access_token": OPENAI_SECRET, "account_id": "acct-fixture"}}))
-        env = {"CODEX_HOME": str(self.tmp / "codex"), "GLM_API_KEY": ZAI_SECRET, "CLAUDE_GLM_ENV": "",
+        env = {"CODEX_HOME": str(self.tmp / "codex"), "GLM_API_KEY": ZAI_SECRET, "CLAUDE_GLM_ENV": "", "NEURALWATT_API_KEY": NEURALWATT_SECRET,
                "HOME": str(self.tmp / "home"), "XDG_CACHE_HOME": str(self.tmp / "cache")}
         self.env = mock.patch.dict(os.environ, env)
         self.env.start()
@@ -198,15 +199,15 @@ class Contract(unittest.TestCase):
         self.assertEqual(asked, ["b"], "the stale sibling is re-asked; the refused one waits")
 
     def test_no_secret_reaches_output_or_cache(self):
-        for vendor in (openai, zai):
+        for vendor in (openai, zai, neuralwatt):
             self.read(vendor)
         self.up.refuse = 401
-        for vendor in (openai, zai):
+        for vendor in (openai, zai, neuralwatt):
             self.read(vendor, max_age=0)
-        dumped = json.dumps([self.read(v, max_age=10**9) for v in (openai, zai)])
+        dumped = json.dumps([self.read(v, max_age=10**9) for v in (openai, zai, neuralwatt)])
         dumped += "".join(p.read_text() for p in (self.tmp / "cache" / "unlimited").rglob("*.json"))
-        dumped += repr(openai.discover()) + repr(zai.discover())
-        for secret in (OPENAI_SECRET, ZAI_SECRET):
+        dumped += repr(openai.discover()) + repr(zai.discover()) + repr(neuralwatt.discover())
+        for secret in (OPENAI_SECRET, ZAI_SECRET, NEURALWATT_SECRET):
             self.assertNotIn(secret, dumped)
 
     def test_cache_files_are_private(self):

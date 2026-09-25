@@ -8,7 +8,7 @@ from .projection import MIN_PAST
 from .schema import moment
 
 VENDOR_NAMES = {"anthropic": "Claude", "openai": "Codex", "zai": "Z.ai GLM", "opencode": "OpenCode", "xai": "Grok",
-                "kimi": "Kimi Code"}
+                "kimi": "Kimi Code", "neuralwatt": "Neuralwatt"}
 WINDOW_NAMES = {"five_hour": "5-hour", "seven_day": "weekly", "month": "monthly", "codex": "weekly",
                 "gpt-reserve": "weekly reserve", "seven_day_opus": "weekly Opus",
                 "seven_day_sonnet": "weekly Sonnet", "period": "billing period"}
