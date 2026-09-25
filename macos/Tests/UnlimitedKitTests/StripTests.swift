@@ -65,3 +65,15 @@ func strip() throws -> [String: Tile] {
     #expect(cl2.elapsed == weekly.elapsed(now: now), "the weekly window's, not another's")
     #expect(cl2.labelled("CL9").elapsed == cl2.elapsed, "kept when accounts are numbered apart")
 }
+
+@Test func withNoWeeklyWindowTheShareOfCreditSpentIsTheFigure() throws {
+    let payg = try Reading.decode(Data("""
+    [{"schema": 1, "vendor": "neuralwatt", "account": "a", "status": "ok", "limits": [],
+      "taken_at": "2026-09-24T05:59:00+00:00",
+      "credits": {"enabled": true, "used": 3.62, "limit": 21.0, "currency": "USD"}},
+     {"schema": 1, "vendor": "neuralwatt", "account": "b", "status": "ok", "limits": [],
+      "taken_at": "2026-09-24T05:59:00+00:00",
+      "credits": {"enabled": true, "used": 3.62, "limit": null, "currency": "USD"}}]
+    """.utf8))
+    #expect(Tile.strip(payg, now: now).map(\.value) == [.percent(17), .noWeekly])
+}

@@ -141,6 +141,9 @@ public struct Tile: Identifiable, Equatable, Sendable {
             value = .stale
         } else if let w = r.weekly {
             value = w.usedAtLeast.map { .percent(Int(($0 * 100).rounded())) } ?? .unknown
+        } else if let c = r.credits, let used = c.used, let limit = c.limit, limit > 0 {
+            // Pay as you go: no window, so the share of the credit spent stands in for it.
+            value = .percent(Int((used / limit * 100).rounded()))
         } else {
             value = .noWeekly
         }
