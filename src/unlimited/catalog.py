@@ -3,6 +3,7 @@ The shipped `catalog.toml` is overridden by $XDG_CONFIG_HOME/unlimited/catalog.t
 
 from __future__ import annotations
 
+import json
 import os
 import tomllib
 from dataclasses import dataclass
@@ -27,6 +28,39 @@ class Candidate:
 
 def local_path() -> Path:
     return Path(os.environ.get("XDG_CONFIG_HOME") or Path.home() / ".config") / "unlimited" / "catalog.toml"
+
+
+def switches_path(local: Path | None = None) -> Path:
+    """Beside the local catalog: the machine's own state, never shipped."""
+    return (local or local_path()).with_name("switches.json")
+
+
+def read_switches(path: Path | None = None) -> list[dict]:
+    """This machine's switched-off targets: `{"target", "until", "why"}`, `until` an ISO time or
+    None. Written by `unlimited models off/on`; a file that does not parse is an error, as the
+    catalog's is, since a switch that silently stops applying is the failure it exists to prevent."""
+    path = path or switches_path()
+    try:
+        got = json.loads(path.read_text())
+    except FileNotFoundError:
+        return []
+    except (OSError, ValueError) as e:
+        raise CatalogError(f"{path}: {e}") from None
+    off = got.get("off") if isinstance(got, dict) else None
+    if not isinstance(off, list) or not all(isinstance(x, dict) and isinstance(x.get("target"), str) for x in off):
+        raise CatalogError(f"{path}: expected {{\"off\": [{{\"target\": ...}}]}}")
+    for x in off:
+        if x.get("until") is not None and moment_utc(x["until"]) is None:
+            raise CatalogError(f"{path}: {x['target']}: until {x['until']!r} is not an ISO time")
+    return off
+
+
+def write_switches(off: list[dict], path: Path | None = None) -> None:
+    path = path or switches_path()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_suffix(".tmp")
+    tmp.write_text(json.dumps({"off": off}, indent=1) + "\n")
+    os.replace(tmp, path)
 
 
 def _parse(text: str, where: str) -> dict:
@@ -91,33 +125,51 @@ def _check(c: dict) -> None:
 
 
 class Catalog:
-    def __init__(self, data: dict):
+    def __init__(self, data: dict, off: list[dict] | None = None):
         self.providers: dict[str, dict] = data["providers"]
         self.promotions: list[dict] = data.get("promotions", [])
         self.banned: frozenset[str] = frozenset(data.get("banned", []))
         self.tie_preference: list[str] = data.get("tie_preference", [])
+        # Switched off on this machine: a provider, a model id, or `provider:model`.
+        self.off: list[dict] = off or []
+
+    def blocked(self, provider: str, model: str, now: datetime) -> bool:
+        """Banned, or switched off here until a time not yet reached (or with no end)."""
+        if model in self.banned:
+            return True
+        for x in self.off:
+            until = moment_utc(x.get("until"))
+            if until is not None and until <= now:
+                continue
+            if x["target"] in (provider, model, f"{provider}:{model}"):
+                return True
+        return False
 
     def _live(self, promo: dict, now: datetime) -> bool:
-        return promo["model"] not in self.banned and now.astimezone(timezone.utc).date() <= promo.get("until", date.max)
+        return (not self.blocked(promo["provider"], promo["model"], now)
+                and now.astimezone(timezone.utc).date() <= promo.get("until", date.max))
 
     def candidates(self, tier: str, now: datetime) -> list[Candidate]:
         """Live promotions at `tier` first, in file order, then each provider's model at it."""
         out = [Candidate(p["provider"], p["model"], True) for p in self.promotions
                if tier in p["tiers"] and self._live(p, now)]
         out += [Candidate(name, p[tier], False) for name, p in self.providers.items()
-                if tier in p and p[tier] not in self.banned]
+                if tier in p and not self.blocked(name, p[tier], now)]
         return out
 
     def to_json(self, now: datetime) -> dict:
-        """The merged catalog as it stands at `now`: live promotions only, their dates as ISO text."""
-        return {"schema": SCHEMA, "providers": self.providers, "banned": sorted(self.banned),
+        """The merged catalog as it stands at `now`: live promotions only, their dates as ISO text,
+        and a switched-off model dropped from its provider's tiers."""
+        providers = {name: {k: v for k, v in p.items() if not (k in TIERS and self.blocked(name, v, now))}
+                     for name, p in self.providers.items()}
+        return {"schema": SCHEMA, "providers": providers, "banned": sorted(self.banned),
                 "tie_preference": self.tie_preference,
                 "promotions": [dict(p, until=p["until"].isoformat()) if "until" in p else dict(p)
                                for p in self.promotions if self._live(p, now)]}
 
-    def model(self, provider: str, tier: str) -> str | None:
+    def model(self, provider: str, tier: str, now: datetime | None = None) -> str | None:
         m = self.providers.get(provider, {}).get(tier)
-        return m if m not in self.banned else None
+        return m if m is not None and not self.blocked(provider, m, now or datetime.now(timezone.utc)) else None
 
     def provider_of(self, model: str) -> str | None:
         """The provider that lists `model`, at a tier or in a promotion, or None."""
@@ -127,7 +179,17 @@ class Catalog:
         return next((p["provider"] for p in self.promotions if p["model"] == model), None)
 
 
-def load(path: Path | None = None) -> Catalog:
+def moment_utc(v: object) -> datetime | None:
+    if not isinstance(v, str):
+        return None
+    try:
+        t = datetime.fromisoformat(v)
+    except ValueError:
+        return None
+    return t if t.tzinfo else t.replace(tzinfo=timezone.utc)
+
+
+def load(path: Path | None = None, switches: Path | None = None) -> Catalog:
     shipped = _parse(resources.files(__package__).joinpath("catalog.toml").read_text(), "shipped catalog")
     path = path or local_path()
     try:
@@ -139,4 +201,4 @@ def load(path: Path | None = None) -> Catalog:
     else:
         data = _merge(shipped, _parse(text, str(path)))
     _check(data)
-    return Catalog(data)
+    return Catalog(data, read_switches(switches or switches_path(path)))

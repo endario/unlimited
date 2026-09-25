@@ -118,6 +118,9 @@ Banning is by model id, in `banned`: a banned model is never a candidate, as a t
 promotion's. There is no per-repo or per-data-policy rule: a model the owner will not
 send work to is banned outright. A model id is listed under one provider only.
 
+A ban is permanent until the file changes. To take a model, a provider or a `provider:model` pair
+out for a while on one machine, `unlimited off TARGET --for 1d` (README, Models).
+
 ## Tie preference
 
 `tie_preference` lists the low-cost providers, cheapest first (owner, 2026-09-25: Meta's Muse Spark

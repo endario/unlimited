@@ -2,12 +2,16 @@
 
 from __future__ import annotations
 
+import io
+import os
 import tempfile
 import unittest
+from contextlib import redirect_stderr, redirect_stdout
 from datetime import datetime, timezone
 from pathlib import Path
+from unittest import mock
 
-from unlimited import catalog
+from unlimited import catalog, cli
 
 NOW = datetime(2026, 9, 25, 12, 0, tzinfo=timezone.utc)
 
@@ -86,14 +90,54 @@ class Catalog(unittest.TestCase):
                 self.load(text)
 
 
+class Switches(unittest.TestCase):
+    """What `unlimited off` writes: the shipped catalog stays the default, the switch only subtracts."""
+    SPACE_BUNNY = "commandcode/stealth/space-bunny-alpha"
+
+    def load(self, *off: dict) -> catalog.Catalog:
+        local = Path(tempfile.mkdtemp()) / "catalog.toml"
+        catalog.write_switches(list(off), catalog.switches_path(local))
+        return catalog.load(local)
+
+    def models(self, c: catalog.Catalog, tier: str, now=NOW) -> list[tuple[str, str]]:
+        return [(x.provider, x.model) for x in c.candidates(tier, now)]
+
+    def test_a_provider_switched_off_drops_its_promotions_and_tier_models(self):
+        c = self.load({"target": "stealth"}, {"target": "codex"})
+        got = self.models(c, "standard")
+        self.assertFalse([p for p, _ in got if p in ("stealth", "codex")], got)
+        self.assertIsNone(c.model("codex", "heavy", NOW))
+        self.assertIn(("claude", "sonnet"), got)
+        j = c.to_json(NOW)
+        self.assertEqual((j["promotions"], "heavy" in j["providers"]["codex"]), ([], False))
+        # The provider stays defined: the runner still needs its harness and usage vendor.
+        self.assertEqual(j["providers"]["codex"]["usage"], "openai")
+
+    def test_a_model_or_a_pair_switched_off_leaves_the_rest_of_its_provider(self):
+        for target in (self.SPACE_BUNNY, f"stealth:{self.SPACE_BUNNY}"):
+            got = self.models(self.load({"target": target}), "standard")
+            self.assertNotIn(("stealth", self.SPACE_BUNNY), got, target)
+            self.assertIn(("meta", "opencode-go/muse-spark-1.3-contributor"), got, target)
+        wrong_pair = self.load({"target": f"meta:{self.SPACE_BUNNY}"})
+        self.assertIn(("stealth", self.SPACE_BUNNY), self.models(wrong_pair, "standard"))
+
+    def test_a_switch_lapses_at_its_time_and_one_without_a_time_holds(self):
+        c = self.load({"target": "stealth", "until": "2026-09-25T13:00:00+00:00"}, {"target": "glm"})
+        self.assertNotIn("stealth", [p for p, _ in self.models(c, "standard", NOW)])
+        later = datetime(2026, 9, 25, 13, 0, tzinfo=timezone.utc)
+        self.assertIn("stealth", [p for p, _ in self.models(c, "standard", later)])
+        self.assertNotIn("glm", [p for p, _ in self.models(c, "standard", later)])
+
+    def test_a_switches_file_that_does_not_parse_stops_the_load(self):
+        local = Path(tempfile.mkdtemp()) / "catalog.toml"
+        for text in ('{"off": "stealth"}', '{"off": [{"target": "stealth", "until": "tomorrow"}]}'):
+            catalog.switches_path(local).write_text(text)
+            with self.assertRaises(catalog.CatalogError, msg=text):
+                catalog.load(local)
+
+
 class Cli(unittest.TestCase):
     def run_models(self, *args: str, local: str | None = None) -> tuple[int, str, str]:
-        import io
-        import os
-        from contextlib import redirect_stderr, redirect_stdout
-        from unittest import mock
-
-        from unlimited import cli
         home = Path(tempfile.mkdtemp())
         if local is not None:
             (home / "unlimited").mkdir()
@@ -102,6 +146,26 @@ class Cli(unittest.TestCase):
         with mock.patch.dict(os.environ, {"XDG_CONFIG_HOME": str(home)}), redirect_stdout(out), redirect_stderr(err):
             code = cli.main(["models", *args])
         return code, out.getvalue(), err.getvalue()
+
+    def test_off_on_round_trip_and_a_typo_is_refused(self):
+        import json
+        home = Path(tempfile.mkdtemp())
+        def run(*args):
+            out, err = io.StringIO(), io.StringIO()
+            with mock.patch.dict(os.environ, {"XDG_CONFIG_HOME": str(home)}), redirect_stdout(out), redirect_stderr(err):
+                return cli.main(list(args)), out.getvalue()
+        def candidates():
+            return [x["provider"] for x in json.loads(run("models", "--json")[1])]
+        self.assertIn("stealth", candidates())
+        self.assertEqual(run("off", "stealth", "--for", "1d", "--why", "slow")[0], 0)
+        self.assertNotIn("stealth", candidates())
+        code, out = run("off")
+        self.assertEqual((code, out.split()[0], out.split()[-1]), (0, "stealth", "(slow)"))
+        self.assertEqual(run("off", "stealht")[0], 1)
+        self.assertEqual(run("off", "meta:commandcode/stealth/space-bunny-alpha")[0], 1)
+        self.assertEqual(run("on", "stealth")[0], 0)
+        self.assertIn("stealth", candidates())
+        self.assertEqual(run("on", "stealth")[0], 1)
 
     def test_one_providers_model_or_exit_1_when_it_has_none_at_the_tier(self):
         self.assertEqual(self.run_models("--provider", "codex", "--tier", "heavy")[:2], (0, "gpt-6-sol\n"))

@@ -136,6 +136,11 @@ machine, with no release: provider keys one by one, `promotions` and `tie_prefer
 to the shipped ones. A local file that does not parse, or states another `schema`, is an error.
 Which model to run is still the consumer's choice.
 
+`unlimited off TARGET [--for 90m|12h|1d|1w] [--why TEXT]` switches a provider (`stealth`), a model id,
+or a `provider:model` pair off on this machine, until `unlimited on TARGET` or the `--for` time
+passes; `unlimited off` lists what is off. It drops out of `models` and `--catalog` like a ban. The switches live in
+`~/.config/unlimited/switches.json`.
+
 ## Verdicts
 
 `unlimited verdict --work SECONDS [--model-scope M] [--max-age S] [--vendor V]... --json` says, for
