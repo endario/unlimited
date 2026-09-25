@@ -13,7 +13,7 @@ public enum Health: Int, Comparable, Sendable {
     /// Tunable: a forecast at or above this is amber; below it, normal.
     public static let amberAbove = 1.05
     /// Tunable: a forecast at or above this is red instead of amber.
-    public static let redAbove = 1.25
+    public static let redAbove = 1.5
     /// Tunable: in this last part of its window, room the recent pace will not spend is a sprint.
     public static let finalStretch = 0.15
     public static let sprintBelow = 0.9

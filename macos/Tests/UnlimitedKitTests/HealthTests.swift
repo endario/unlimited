@@ -13,15 +13,15 @@ func week(used: Double?, range: [Double]?, elapsed: Double = 3, past: Int = 0, h
 @Test func heldOrUsedUpOrSureToRunOutIsRed() {
     #expect(week(used: 0.2, range: [0.3, 0.4], held: true).health(now: now) == .red)
     #expect(week(used: 1.0, range: nil).health(now: now) == .red)
-    #expect(week(used: 0.6, range: [1.0, 1.3]).health(now: now) == .red)
+    #expect(week(used: 0.6, range: [1.0, 1.6]).health(now: now) == .red)
+    #expect(week(used: 0.6, range: [0.9, 1.5]).health(now: now) == .red, "150% itself is already red")
 }
 
 @Test func mightRunOutIsAmber() {
     #expect(week(used: 0.6, range: [0.9, 1.1]).health(now: now) == .amber)
     #expect(week(used: 0.6, range: [0.9, 1.0]).health(now: now) == .normal, "under 105% is not yet a warning")
     #expect(week(used: 0.6, range: [0.9, 1.05]).health(now: now) == .amber, "105% itself is already a warning")
-    #expect(week(used: 0.6, range: [0.9, 1.3]).health(now: now) == .red, "over 125% is red, not amber")
-    #expect(week(used: 0.6, range: [0.9, 1.25]).health(now: now) == .red, "125% itself is already red")
+    #expect(week(used: 0.6, range: [0.9, 1.49]).health(now: now) == .amber, "under 150% stays amber")
 }
 
 @Test func roomLeftAtResetIsGreen() {
@@ -44,7 +44,7 @@ func week(used: Double?, range: [Double]?, elapsed: Double = 3, past: Int = 0, h
     #expect(week(used: 0.05, range: [1.1, 1.4], elapsed: 0.5).health(now: now) == .normal)
     #expect(week(used: 1.0, range: [1.1, 1.4], elapsed: 0.5).health(now: now) == .red, "a used-up window is a fact")
     // Early in the window, but past 10% used: enough use to read a pace from.
-    #expect(week(used: 0.11, range: [1.1, 1.4], elapsed: 0.5).health(now: now) == .red)
+    #expect(week(used: 0.11, range: [1.1, 1.4], elapsed: 0.5).health(now: now) == .amber)
     #expect(week(used: 0.1, range: [1.1, 1.4], elapsed: 0.5).health(now: now) == .normal, "10% itself is not past it")
     #expect(week(used: 0.2, range: nil).health(now: now) == .normal)
 }

@@ -28,7 +28,7 @@ func claude() throws -> Reading {
     let weekly = Card.cards(try claude(), now: now)[1]
     #expect(weekly.used == 0.4)
     #expect(abs(weekly.elapsed - 4.0 / 7) < 1e-9, "resets in 3 days of 7")
-    #expect(weekly.health == .red, "the high end is 134%, well past the red threshold")
+    #expect(weekly.health == .amber, "the high end is 134%, under the 150% red threshold")
 }
 
 @Test func aCardSaysTodaysPaceTheForecastAndWhenItRunsOut() throws {
