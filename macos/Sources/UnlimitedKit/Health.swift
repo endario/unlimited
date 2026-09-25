@@ -10,6 +10,10 @@ public enum Health: Int, Comparable, Sendable {
 
     /// Tunable: a window heading to reset below this is under-used.
     public static let underUsedBelow = 0.8
+    /// Tunable: a forecast at or above this is amber; below it, normal.
+    public static let amberAbove = 1.05
+    /// Tunable: a forecast at or above this is red instead of amber.
+    public static let redAbove = 1.25
     /// Tunable: in this last part of its window, room the recent pace will not spend is a sprint.
     public static let finalStretch = 0.15
     public static let sprintBelow = 0.9
@@ -39,9 +43,9 @@ extension Limit {
     public func health(now: Date) -> Health {
         if held == true || (usedAtLeast ?? 0) >= 1 { return .red }
         guard let p = projection, p.atReset.count == 2, trusted(p, now: now) else { return .normal }
-        let (lo, hi) = (p.atReset[0], p.atReset[1])
-        if lo >= 1 { return .red }
-        if hi >= 1 { return .amber }
+        let hi = p.atReset[1]
+        if hi >= Health.redAbove { return .red }
+        if hi >= Health.amberAbove { return .amber }
         if hi < Health.sprintBelow, let e = elapsed(now: now), e >= 1 - Health.finalStretch { return .sprint }
         return hi < Health.underUsedBelow ? .underUsed : .normal
     }
