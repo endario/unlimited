@@ -87,8 +87,9 @@ Library (2mw2lt): `unlimited.catalog.load() -> Catalog`, with
 `Catalog.candidates(tier, now) -> [Candidate]`: live promotions first, in file
 order, then every provider with a model at the tier, in file order; banned models omitted.
 
-CLI (runner): `unlimited models [--tier standard|heavy] --json` prints the same list, plus
-`unlimited models --provider <id> --tier <t>` printing one model id.
+CLI (runner): `unlimited models [--tier standard|heavy] --json` prints the same list,
+`unlimited models --provider <id> --tier <t>` prints one model id, and `unlimited models --catalog`
+prints the whole merged catalog as JSON.
 
 Expired promotions are dropped at read time: `until` is a date, and the promotion is live through
 the end of that day in UTC. Nothing edits the file.
@@ -126,9 +127,14 @@ DeepSeek-only tie rule, and a local list replaces the shipped one.
 
 ## Usage balancing
 
-deepseek, meta and stealth all spend the same Go plan. The runner's `balance.py` picks the limit it
-scores by provider name today (`scored_limit`, `short_limits`); it moves to keying those on the
-catalog's `usage` vendor, so any opencode-harness provider scores the Go plan's weekly limit.
+Each provider spends its catalog `usage` vendor: deepseek and meta the Go plan (`opencode`),
+stealth Command Code (`commandcode`). The runner's `balance.py` scores a provider not known by name
+on the provider that spends the same vendor (ren-diao/claude#158), and on a plan's monthly bucket
+where it enforces one, else its week (ren-diao/claude#160). Scoring stealth on Command Code,
+which no named provider spends, is open in ren-diao/claude#162.
+
+Its successor is endario/unlimited#92: one spending model in unlimited that both the runner and
+2mw2lt consume, in place of each keeping its own.
 
 ## Testing
 
@@ -138,13 +144,13 @@ catalog.
 
 ## Rollout
 
-Each step is its own PR, and each works before the next exists.
+Each step is its own PR, and each works before the next exists. All four have shipped.
 
-1. unlimited ships the catalog and `unlimited models` (release).
-2. agent-runner reads it for the named providers it has: `tier_model` goes.
+1. unlimited ships the catalog and `unlimited models` (release): #80.
+2. agent-runner reads it for the named providers it has: `tier_model` goes. ren-diao/claude#156.
 3. agent-runner generalises its per-provider branches onto `harness` (binary resolution, auth,
    preflight, `balance.py`'s `scored_limit`/`short_limits`/`ACCOUNTS` by `usage`), replaces the
    deepseek-only guard with the catalog check, and takes promotions: meta and stealth become
-   routable.
+   routable. ren-diao/claude#158, with `tie_preference` in #159.
 4. 2mw2lt reads it at call time: `PROFILE` models and `OPENCODE_MODEL` go; `meta` and `stealth`
-   join reviewers.
+   join reviewers. endario/2mw2lt#2343.
