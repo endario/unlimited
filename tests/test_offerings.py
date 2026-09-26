@@ -100,6 +100,33 @@ class Routes(unittest.TestCase):
         self.assertEqual([x["model"] for x in got["candidates"]], ["commandcode/deepseek/deepseek-v4.1-flash"])
         self.assertEqual(got["request"]["exclude"], ["opencode-go/deepseek-v4.1-flash"])
 
+    def test_a_route_that_debits_twice_as_much_is_overflow_for_its_sibling(self):
+        from unlimited import choice
+        dear = SECOND + "debit = 2\n"
+        cc, go = "commandcode/deepseek/deepseek-v4.1-flash", "opencode-go/deepseek-v4.1-flash"
+
+        def pick(quota):
+            got = choice.choose(load(dear), tier="standard", providers=["deepseek"], deadline=600, now=NOW,
+                                quota=quota, log=Path(tempfile.mkdtemp()) / "d.jsonl")
+            return got["candidates"][got["pick"]]["model"], {x["model"]: x["debit"] for x in got["candidates"]}
+
+        self.assertEqual(pick({go: 0.5, cc: 0.5}), (go, {go: 1, cc: 2}))
+        # ln 2 / 5 ≈ 0.14: the cheaper plan keeps the work until its account is that much more used.
+        self.assertEqual(pick({go: 0.6, cc: 0.5})[0], go)
+        self.assertEqual(pick({go: 0.7, cc: 0.5})[0], cc)
+        self.assertEqual(pick({})[0], go, "with no projection at all, the debit alone decides")
+
+    def test_a_promotion_costs_nothing_whatever_it_debits(self):
+        from unlimited import choice
+        got = choice.choose(load(SECOND + "free = true\ndebit = 5\n"), tier="standard", providers=["deepseek"],
+                            deadline=600, now=NOW, quota={}, log=Path(tempfile.mkdtemp()) / "d.jsonl")
+        self.assertEqual({x["model"]: x["pi"] for x in got["candidates"]}["commandcode/deepseek/deepseek-v4.1-flash"], 0)
+
+    def test_a_debit_must_be_a_positive_finite_number(self):
+        for bad in ("0", "-1", '"2"', "inf", "true"):
+            with self.assertRaises(catalog.CatalogError, msg=bad):
+                load(SECOND + f"debit = {bad}\n")
+
     def test_malformed_or_ambiguous_files_are_catalog_errors(self):
         for text in ('schema = 2\nofferings = ["x"]\n',
                      'schema = 1\n[providers.codex]\nstandard = "shared"\n[providers.meta]\nstandard = "shared"\n',

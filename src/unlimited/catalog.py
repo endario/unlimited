@@ -4,6 +4,7 @@ The shipped `catalog.toml` is overridden by $XDG_CONFIG_HOME/unlimited/catalog.t
 from __future__ import annotations
 
 import json
+import math
 import os
 import tomllib
 from dataclasses import dataclass
@@ -215,9 +216,11 @@ def _check(c: dict) -> None:
     seen: set[str] = set()
     for i, o in enumerate(c.get("offerings", [])):
         ok = (isinstance(o.get("id"), str) and o.get("model") in models and isinstance(o.get("vendor"), str)
-              and isinstance(o.get("free", False), bool) and _date(o.get("until", date.max)))
+              and isinstance(o.get("free", False), bool) and _date(o.get("until", date.max))
+              and _number(o.get("debit", 1)) and 0 < o.get("debit", 1) < math.inf)
         if not ok:
-            raise CatalogError(f"offering {i + 1}: needs an id, a known model and a vendor; free and until optional")
+            raise CatalogError(f"offering {i + 1}: needs an id, a known model and a vendor; free, until and "
+                               f"debit (a positive number) optional")
         if o["id"] in seen:
             raise CatalogError(f"offering {o['id']}: listed twice")
         seen.add(o["id"])
@@ -253,7 +256,7 @@ class Catalog:
     def _route(self, o: dict) -> dict:
         m = self.models[o["model"]]
         return {"id": o["id"], "provider": m["provider"], "model": o["model"], "vendor": o["vendor"],
-                "tiers": m["tiers"], "free": o.get("free", False)}
+                "tiers": m["tiers"], "free": o.get("free", False), "debit": o.get("debit", 1)}
 
     def _blocked_route(self, r: dict, now: datetime) -> bool:
         names = {r["provider"], r["model"], r["vendor"], r["id"], f"{r['provider']}:{r['model']}",

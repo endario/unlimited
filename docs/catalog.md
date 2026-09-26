@@ -23,6 +23,8 @@ tiers = ["standard"]                   # the tiers it serves
 id = "opencode-go/deepseek-v4.1-flash" # the vendor's name for it: unique, what a caller launches
 model = "deepseek-v4-1-flash"
 vendor = "opencode"                    # whose account a use spends
+# debit = 2                            # optional: a run uses this many times the account share a
+#                                      # plain offering's does (default 1); scales its quota price
 
 [[offerings]]
 id = "commandcode/stealth/space-bunny-alpha"

@@ -72,8 +72,9 @@ attempts with weight `w = 2^(−age / 12 h)`:
 **Quota price** of the caller's `ρ` for the candidate: `--quota ID=ρ` for a route (the projected
 use at reset of the account the caller would launch it on; give every route on one account the same
 value), or `--quota PROVIDER=ρ` for a provider's routes on its usual vendor:
-`π(ρ) = exp(5·(ρ − 1))` — 0.03 at 0.3, 1 at the limit, 2.7 at 1.2. A live promotion costs nothing;
-a candidate with no `ρ` is priced at the limit.
+`π(ρ) = debit·exp(5·(ρ − 1))` — 0.03 at 0.3, 1 at the limit, 2.7 at 1.2 for a route of the
+catalog's default `debit` of 1. A live promotion costs nothing; a candidate with no `ρ` is priced at
+the limit, so between two such routes of one model the one debiting less wins.
 
 **Expected cost**, in minutes:
 

@@ -29,7 +29,7 @@ def candidates(cat: Catalog, tier: str, providers: list[str], now: datetime) -> 
     # route on another vendor is priced as unknown (at the limit) until quota is keyed by route.
     view = cat.to_json(now)["providers"]
     return [{"provider": r["provider"], "model": r["id"], "vendor": r["vendor"], "promoted": r["free"],
-             "quota_applies": r["vendor"] == view.get(r["provider"], {}).get("usage")}
+             "debit": r["debit"], "quota_applies": r["vendor"] == view.get(r["provider"], {}).get("usage")}
             for p in providers for r in cat.routes(now, tier) if r["provider"] == p]
 
 
@@ -48,7 +48,8 @@ def score(cands: list[dict], quota: dict[str, float], stats: dict, deadline: flo
         # route on the provider's usual vendor only).
         rho = (None if c["promoted"] else quota[c["model"]] if c["model"] in quota
                else quota.get(c["provider"]) if c.get("quota_applies", True) else None)
-        pi = 0.0 if c["promoted"] else price(rho)
+        # A route that debits its account more for a run costs that much more of it.
+        pi = 0.0 if c["promoted"] else c.get("debit", 1) * price(rho)
         out.append({**c, "rho": rho, "pi": pi, "p": p, "t_ok": t_ok, "t_fail": t_fail})
     for c in out:
         others = [o["t_ok"] for o in out if o is not c]
