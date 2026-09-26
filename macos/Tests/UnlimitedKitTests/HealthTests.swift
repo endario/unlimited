@@ -58,6 +58,10 @@ func week(used: Double?, range: [Double]?, elapsed: Double = 3, past: Int = 0, h
     let o = Tile.override(limits, primary: limits[0], now: now)
     #expect(o?.role == "weekly_model", "equal state: the one that runs out first")
     #expect(Tile.override([limits[0], limits[3]], primary: limits[0], now: now) == nil, "nothing worse than weekly")
+    let fresh = week(used: 0, range: [0.4, 0.6], elapsed: 0.1, past: 5, role: "session", minutes: 300)
+    #expect(Tile.override([week(used: 0.9, range: [0.95, 1.0], elapsed: 6.7), fresh],
+                          primary: week(used: 0.9, range: [0.95, 1.0], elapsed: 6.7), now: now) == nil,
+            "a normal session does not override a blue weekly")
     #expect(Tile.override(limits.map { $0 }, primary: week(used: 1, range: nil), now: now) == nil, "weekly is already red")
 }
 

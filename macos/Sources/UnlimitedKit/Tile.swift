@@ -75,9 +75,10 @@ public struct Tile: Identifiable, Equatable, Sendable {
     public static let broken = Tile(id: "", label: "", value: .unread, dimmed: false)
 
     /// Another window in a worse state than the longest one; of equals, the one that runs
-    /// out first.
+    /// out first. Only a warning can stop an account: a normal window never overrides a blue or
+    /// green one.
     static func override(_ limits: [Limit], primary: Limit?, now: Date) -> Limit? {
-        let floor = primary?.health(now: now) ?? .normal
+        let floor = max(primary?.health(now: now) ?? .normal, .normal)
         return limits
             .filter { $0.role != nil && $0.name != primary?.name && $0.health(now: now) > floor }
             .min { a, b in
