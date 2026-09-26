@@ -116,7 +116,7 @@ def rank(cat: Catalog, *, tier: str, candidates: list[str], attempts: list[dict]
          deadline: float, now: datetime, temperature: float = 0.0, quota_weight: float = QUOTA_WEIGHT,
          task: str | None = None, meta: dict | None = None, exclude: dict[str, str] | None = None,
          vendors: Collection[str] | None = None, prefer: dict[str, float] | None = None,
-         rng: random.Random | None = None) -> dict | None:
+         seed: int | None = None) -> dict | None:
     """The decision over `attempts` (as `outcomes.attempts` gives them), reading and writing
     nothing: the whole request, every candidate scored, `order` (indices, the order to try) and
     `pick` (its first). None when no named candidate is live. `exclude` maps a route's id to the
@@ -162,13 +162,14 @@ def rank(cat: Catalog, *, tier: str, candidates: list[str], attempts: list[dict]
         if name is not None:
             lean[c["model"]] = prefer[name]
     scored = score(cands, quota, outcomes.stats(attempts, now), deadline, cat.tie_preference, quota_weight, lean)
-    seed = random.randrange(1 << 32)  # recorded: a sampled order can be replayed
-    tried = order(scored, temperature, rng or random.Random(seed))
+    if seed is None:
+        seed = random.randrange(1 << 32)
+    tried = order(scored, temperature, random.Random(seed))
     request = {"tier": tier, "candidates": candidates, "quota": quota, "deadline": deadline,
                "temperature": temperature, "quota_weight": quota_weight, "task": task, "meta": meta or {},
                "exclude": exclude, "vendors": None if vendors is None else sorted(vendors), "prefer": prefer}
     return {"v": outcomes.VERSION, "type": "decision", "decision": uuid.uuid4().hex[:16], "at": now.isoformat(),
-            "request": request, "seed": None if rng else seed, "candidates": scored, "order": tried,
+            "request": request, "seed": seed, "candidates": scored, "order": tried,
             "pick": tried[0], "prefer_unmatched": sorted(set(prefer) - used), "attempts_unknown": unknown}
 
 
@@ -176,12 +177,12 @@ def choose(cat: Catalog, *, tier: str, candidates: list[str], quota: dict[str, f
            now: datetime, temperature: float = 0.0, quota_weight: float = QUOTA_WEIGHT,
            task: str | None = None, meta: dict | None = None, exclude: dict[str, str] | None = None,
            vendors: Collection[str] | None = None, prefer: dict[str, float] | None = None,
-           rng: random.Random | None = None, log=None) -> dict | None:
+           seed: int | None = None, log=None) -> dict | None:
     """`rank` over unlimited's attempt log, the decision appended to it."""
     records, _ = outcomes.read(log)
     decision = rank(cat, tier=tier, candidates=candidates, attempts=outcomes.attempts(records, now), quota=quota,
                     deadline=deadline, now=now, temperature=temperature, quota_weight=quota_weight, task=task,
-                    meta=meta, exclude=exclude, vendors=vendors, prefer=prefer, rng=rng)
+                    meta=meta, exclude=exclude, vendors=vendors, prefer=prefer, seed=seed)
     if decision is not None:
         outcomes.append(decision, log)
     return decision

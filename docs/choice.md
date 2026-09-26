@@ -65,7 +65,7 @@ elsewhere.
 
 The same choice without files, over attempts the caller keeps itself, is
 `unlimited.choice.rank(cat, tier=, candidates=, attempts=, quota=, deadline=, now=, temperature=,
-quota_weight=, task=, meta=, exclude=, vendors=, prefer=, rng=)`: `attempts` as `outcomes.attempts` returns them (each
+quota_weight=, task=, meta=, exclude=, vendors=, prefer=, seed=)`: `attempts` as `outcomes.attempts` returns them (each
 `provider`, `model`, `offering`, `effort`, `task`, `at`, `outcome`, `secs`, `tokens`), and the
 decision back as below, to store where the caller likes. Unknown candidate names, an attempt
 outcome other than `ok`, `timeout`, `error` or `unavailable` (leave out one that should not count)
