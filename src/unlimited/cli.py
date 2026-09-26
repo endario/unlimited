@@ -377,7 +377,8 @@ examples:
     on.add_argument("target", metavar="TARGET", help="exactly as it was switched off")
     ch = add("choose", "rank the candidates for a task by expected cost; logged", f"""\
 Of the candidates the caller allows, which to use now, and in what order to fall back. A caller
-usually passes --tier, --candidates, --deadline and --quota; the rest is rarely needed. Launch candidates[pick]; if it cannot run, the next index in order; record each use with
+usually passes --tier, --candidates, --deadline and --quota; the rest is rarely needed. Launch
+candidates[pick]; if it cannot run, the next index in order; record each use with
 `attempt start --decision ID` and `attempt end`, which is what the next choice learns from.
 
 Each candidate route is scored by its expected cost in minutes, from this machine's attempt log:
