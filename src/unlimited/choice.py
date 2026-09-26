@@ -43,8 +43,10 @@ def named(cat: Catalog, tier: str, names: list[str], now: datetime) -> list[dict
 
 
 def score(cands: list[dict], quota: dict[str, float], stats: dict, deadline: float,
-          prefer: list[str], quota_weight: float = QUOTA_WEIGHT) -> list[dict]:
-    """Each candidate with its `rho`, `pi`, `p`, `t_ok`, `t_fail` (minutes) and expected cost `e`."""
+          prefer: list[str], quota_weight: float = QUOTA_WEIGHT, lean: dict[str, float] | None = None) -> list[dict]:
+    """Each candidate with its `rho`, `pi`, `p`, `t_ok`, `t_fail` (minutes), `preference` (minutes off
+    its cost: the catalog's tie preference and the caller's `lean` for its route id) and expected
+    cost `e`."""
     out = []
     for c in cands:
         s = stats.get((c["provider"], c["model"]))
@@ -63,8 +65,9 @@ def score(cands: list[dict], quota: dict[str, float], stats: dict, deadline: flo
     for c in out:
         others = [o["t_ok"] for o in out if o is not c]
         t_next = statistics.median(others) if others else c["t_ok"]
-        bonus = PREFER * (len(prefer) - prefer.index(c["provider"])) / len(prefer) if c["provider"] in prefer else 0.0
-        c["e"] = (1 - c["p"]) * c["t_ok"] + c["p"] * (c["t_fail"] + t_next) + quota_weight * c["pi"] - bonus
+        tie = PREFER * (len(prefer) - prefer.index(c["provider"])) / len(prefer) if c["provider"] in prefer else 0.0
+        c["preference"] = tie + (lean or {}).get(c["model"], 0.0)
+        c["e"] = (1 - c["p"]) * c["t_ok"] + c["p"] * (c["t_fail"] + t_next) + quota_weight * c["pi"] - c["preference"]
     return out
 
 
@@ -111,40 +114,59 @@ def vendors_here(cat: Catalog) -> set[str]:
 def rank(cat: Catalog, *, tier: str, candidates: list[str], attempts: list[dict], quota: dict[str, float],
          deadline: float, now: datetime, temperature: float = 0.0, quota_weight: float = QUOTA_WEIGHT,
          task: str | None = None, meta: dict | None = None, exclude: dict[str, str] | None = None,
-         vendors: Collection[str] | None = None, rng: random.Random | None = None) -> dict | None:
+         vendors: Collection[str] | None = None, prefer: dict[str, float] | None = None,
+         rng: random.Random | None = None) -> dict | None:
     """The decision over `attempts` (as `outcomes.attempts` gives them), reading and writing
     nothing: the whole request, every candidate scored, `order` (indices, the order to try) and
     `pick` (its first). None when no named candidate is live. `exclude` maps a route's id to the
     caller's reason for ruling it out; reasons, `task` and `meta` are recorded, never read. With
-    `vendors`, a route on any other vendor is not a candidate (`vendors_here` gives this machine's)."""
+    `vendors`, a route on any other vendor is not a candidate (`vendors_here` gives this machine's).
+    `prefer` maps a name (as in `candidates`) to minutes taken off its routes' cost, negative to add;
+    a route takes its most specific name's (offering id, then model, then provider). A name the
+    catalog does not know is refused; one naming no candidate is listed in `prefer_unmatched`."""
     if not (math.isfinite(temperature) and temperature >= 0 and math.isfinite(quota_weight) and quota_weight >= 0
             and math.isfinite(deadline) and deadline > 0):
         raise ValueError("temperature and quota weight must be finite and not negative, the deadline positive")
+    prefer = prefer or {}
+    known = ({m["provider"] for m in cat.models.values()} | set(cat.models) | {o["id"] for o in cat.offerings})
+    for name, minutes in prefer.items():
+        if name not in known:
+            raise ValueError(f"prefer {name}: not a provider, model or offering id in the catalog")
+        if not (isinstance(minutes, (int, float)) and math.isfinite(minutes)):
+            raise ValueError(f"prefer {name}: minutes must be a finite number")
     exclude = exclude or {}
     cands = [c for c in named(cat, tier, candidates, now)
              if c["model"] not in exclude and (vendors is None or c["vendor"] in vendors)]
     if not cands:
         return None
-    scored = score(cands, quota, outcomes.stats(attempts, now), deadline, cat.tie_preference, quota_weight)
+    lean, used = {}, set()
+    for c in cands:
+        names = (c["model"], cat.route(c["model"])["model"], c["provider"])  # most specific first
+        used.update(n for n in names if n in prefer)
+        name = next((n for n in names if n in prefer), None)
+        if name is not None:
+            lean[c["model"]] = prefer[name]
+    scored = score(cands, quota, outcomes.stats(attempts, now), deadline, cat.tie_preference, quota_weight, lean)
     seed = random.randrange(1 << 32)  # recorded: a sampled order can be replayed
     tried = order(scored, temperature, rng or random.Random(seed))
     request = {"tier": tier, "candidates": candidates, "quota": quota, "deadline": deadline,
                "temperature": temperature, "quota_weight": quota_weight, "task": task, "meta": meta or {},
-               "exclude": exclude, "vendors": None if vendors is None else sorted(vendors)}
+               "exclude": exclude, "vendors": None if vendors is None else sorted(vendors), "prefer": prefer}
     return {"v": outcomes.VERSION, "type": "decision", "decision": uuid.uuid4().hex[:16], "at": now.isoformat(),
             "request": request, "seed": None if rng else seed, "candidates": scored, "order": tried,
-            "pick": tried[0]}
+            "pick": tried[0], "prefer_unmatched": sorted(set(prefer) - used)}
 
 
 def choose(cat: Catalog, *, tier: str, candidates: list[str], quota: dict[str, float], deadline: float,
            now: datetime, temperature: float = 0.0, quota_weight: float = QUOTA_WEIGHT,
            task: str | None = None, meta: dict | None = None, exclude: dict[str, str] | None = None,
-           vendors: Collection[str] | None = None, rng: random.Random | None = None, log=None) -> dict | None:
+           vendors: Collection[str] | None = None, prefer: dict[str, float] | None = None,
+           rng: random.Random | None = None, log=None) -> dict | None:
     """`rank` over unlimited's attempt log, the decision appended to it."""
     records, _ = outcomes.read(log)
     decision = rank(cat, tier=tier, candidates=candidates, attempts=outcomes.attempts(records, now), quota=quota,
                     deadline=deadline, now=now, temperature=temperature, quota_weight=quota_weight, task=task,
-                    meta=meta, exclude=exclude, vendors=vendors, rng=rng)
+                    meta=meta, exclude=exclude, vendors=vendors, prefer=prefer, rng=rng)
     if decision is not None:
         outcomes.append(decision, log)
     return decision

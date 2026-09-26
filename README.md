@@ -148,7 +148,7 @@ one use of a model and prints its id; `unlimited attempt end ID --outcome ok|tim
 end counts as a timeout. The task label and metadata are the caller's own: recorded with the
 request, never read by unlimited. `unlimited outcomes` prints each model's recent failure rate
 and durations on this machine, from `~/.local/state/unlimited/decisions.jsonl`.
-`unlimited choose --tier T --candidates NAME,... --deadline S [--quota ID=ρ,...] [--exclude ID[=REASON],...]
+`unlimited choose --tier T --candidates NAME,... --deadline S [--quota ID=ρ,...] [--exclude ID[=REASON],...] [--prefer NAME=MINUTES,...]
 [--temperature M] [--quota-weight M] [--task LABEL] [--meta K=V]... --json` orders the candidates
 (providers, models or offering ids) by expected
 minutes: failure rate and durations here, and the quota price of each candidate's projected use

@@ -54,7 +54,7 @@ the file passes 1 MB.
 ## 3. Choice
 
 `unlimited choose --tier T --candidates NAME,... --deadline S [--quota ID=ρ,...]
-[--exclude ID[=REASON],...] [--vendors V,...|any] [--temperature M] [--quota-weight M] [--task LABEL] [--meta K=V]... --json`.
+[--exclude ID[=REASON],...] [--prefer NAME=MINUTES,...] [--vendors V,...|any] [--temperature M] [--quota-weight M] [--task LABEL] [--meta K=V]... --json`.
 
 A name is a provider (its live routes at the tier, promotions first), a model (each of its live
 routes) or an offering id (that route), as the catalog has them; switched-off and banned routes are
@@ -65,7 +65,7 @@ elsewhere.
 
 The same choice without files, over attempts the caller keeps itself, is
 `unlimited.choice.rank(cat, tier=, candidates=, attempts=, quota=, deadline=, now=, temperature=,
-quota_weight=, task=, meta=, exclude=, vendors=, rng=)`: `attempts` as `outcomes.attempts` returns them (each
+quota_weight=, task=, meta=, exclude=, vendors=, prefer=, rng=)`: `attempts` as `outcomes.attempts` returns them (each
 `provider`, `model`, `offering`, `effort`, `task`, `at`, `outcome`, `secs`, `tokens`), and the
 decision back as below, to store where the caller likes. `vendors` is None (every vendor) unless
 given; `unlimited.choice.vendors_here(cat)` is this machine's. `choose` is `rank` over unlimited's log,
@@ -95,7 +95,13 @@ the limit, so between two such routes of one model the one debiting less wins.
 
 `T_next` is the median `T_ok` of the other candidates (a failure costs the next attempt too), so `E`
 depends on the set; the log records the whole set. `preference` is up to 1 minute for providers in
-the catalog's `tie_preference`, the first worth most. `--quota-weight` defaults to 20 minutes.
+the catalog's `tie_preference`, the first worth most, plus the caller's `--prefer`: minutes off a
+candidate's cost (negative adds them), named as in `--candidates`, each route taking its most
+specific name's value (offering id, then model, then provider). It leans without ruling out: a
+caller wanting variety handicaps what it has already used, which still wins when the rest are
+worse by more. unlimited never learns why. A name the catalog does not know is refused; names
+matching no candidate are listed in the decision's `prefer_unmatched`. `--quota-weight` defaults to
+20 minutes.
 
 **Order.** The decision's `order` is every candidate, in the order to try; `pick` is its first. At
 `--temperature 0` (the default) by `E`, lowest first. Above it, sampled without replacement with

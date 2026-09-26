@@ -111,7 +111,7 @@ class Choose(unittest.TestCase):
         self.assertEqual(logged["request"], {"tier": "standard", "candidates": ["glm", "codex"], "quota": {"glm": 0.4},
                                              "deadline": 600, "temperature": 1.5, "quota_weight": 10,
                                              "task": "summarise", "meta": {"ticket": "42"}, "exclude": {},
-                                             "vendors": None})
+                                             "vendors": None, "prefer": {}})
         self.assertEqual(logged["seed"] is not None, True, "a sampled pick can be replayed")
         self.assertEqual(got["decision"], logged["decision"])
 
@@ -180,10 +180,12 @@ class Choose(unittest.TestCase):
         buf = io.StringIO()
         with mock.patch.dict(os.environ, {"XDG_CONFIG_HOME": home, "XDG_STATE_HOME": state}), redirect_stdout(buf):
             cli.main(["choose", "--tier", "heavy", "--candidates", "glm,codex", "--quota", "glm=0.2,codex=0.9",
-                      "--exclude", "glm-5.3=benched,other", "--deadline", "900", "--vendors", "any", "--json"])
+                      "--exclude", "glm-5.3=benched,other", "--deadline", "900", "--vendors", "any",
+                      "--prefer", "codex=-2.5", "--json"])
         got = json.loads(buf.getvalue())
         self.assertEqual([c["provider"] for c in got["candidates"]], ["codex"], "the ruled-out route is no candidate")
         self.assertEqual(got["request"]["exclude"], {"glm-5.3": "benched", "other": ""})
+        self.assertEqual((got["request"]["prefer"], got["candidates"][0]["preference"]), ({"codex": -2.5}, -2.5))
 
 
     def test_a_route_this_machine_has_no_account_for_is_never_recommended(self):

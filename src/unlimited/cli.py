@@ -198,6 +198,12 @@ def _choose(a) -> int:
             if not eq:
                 raise ValueError(f"--quota {x!r}: expected <provider>=<projected use>")
             quota[p] = float(r)
+        prefer = {}
+        for x in (x for x in a.prefer.split(",") if x):
+            name, eq, m = x.partition("=")
+            if not eq:
+                raise ValueError(f"--prefer {x!r}: expected <name>=<minutes>")
+            prefer[name] = float(m)
     except (catalog.CatalogError, ValueError) as e:
         print(f"unlimited: {e}", file=sys.stderr)
         return 2
@@ -210,6 +216,7 @@ def _choose(a) -> int:
                             quota=quota, deadline=a.deadline, now=now, temperature=a.temperature,
                             quota_weight=a.quota_weight, task=a.task, meta=dict(a.meta or []),
                             exclude=dict(x.partition("=")[::2] for x in a.exclude.split(",") if x),
+                            prefer=prefer,
                             vendors=(None if a.vendors == "any" else choice.vendors_here(cat) if a.vendors is None
                                      else {v for v in a.vendors.split(",") if v}))
     except ValueError as e:
@@ -377,13 +384,13 @@ p is its recent failure rate, T_ok and T_fail how long it takes to succeed or fa
 --deadline), T_next what a retry elsewhere costs, π(ρ) = exp(5(ρ − 1)) the price of spending an
 account projected to reach ρ of its limit by reset (1 at the limit; unknown counts as 1; a live
 promotion costs 0), debit how much of its account one run uses (catalog, default 1), and
-preference up to a minute for the catalog's tie_preference. Recent history weighs most (12 h
+preference up to a minute for the catalog's tie_preference plus the caller's --prefer. Recent history weighs most (12 h
 half-life), so a route that just failed twice is avoided and recovers on its own.
 
 Prints the decision as JSON and appends it to the log with the whole request:
   decision (id), request, seed, candidates (each with provider, model = its offering id,
-  vendor, rho, pi, debit, p, t_ok, t_fail, e and prob, its odds of coming first),
-  order (candidate indices, the order to try) and pick (the first of order).
+  vendor, rho, pi, debit, p, t_ok, t_fail, preference, e and prob, its odds of coming first),
+  order (candidate indices, the order to try), pick (the first of order) and prefer_unmatched.
 Pass the decision id to `attempt start --decision` so the log ties the use to the choice.
 Without the log (your own history): unlimited.choice.rank. Details: {DOCS}/choice.md#3-choice""", """\
 examples:
@@ -394,6 +401,10 @@ examples:
   unlimited choose --tier standard --candidates deepseek-v4-1-flash --deadline 900 \\
       --quota opencode-go/deepseek-v4.1-flash=0.6 \\
       --exclude commandcode/deepseek/deepseek-v4.1-flash="account used up" --json
+
+  # variety: providers already used this series cost 5 minutes more, but still compete
+  unlimited choose --tier standard --candidates codex,glm,deepseek --deadline 900 \\
+      --prefer codex=-5,glm=-5 --json
 
   # explore: near-equal candidates are each tried now and then
   unlimited choose --tier heavy --candidates codex,claude --deadline 1800 --temperature 2 \\
@@ -413,6 +424,12 @@ exit status: 0 decided; 1 no named candidate is live at the tier; 2 bad input.""
                          "candidate without one is priced as at the limit")
     ch.add_argument("--exclude", default="", metavar="ID[=REASON],...",
                     help="offering ids the caller rules out; a reason is recorded, never read")
+    ch.add_argument("--prefer", default="", metavar="NAME=MINUTES,...",
+                    help="lean the choice without ruling anything out: minutes taken off a candidate's "
+                         "expected cost (negative adds them), for a provider, model or offering id; a route "
+                         "takes its most specific name's value, so codex=-5,gpt-6-luna=0 handicaps every "
+                         "Codex route but Luna. The minutes applied show as each candidate's `preference`; "
+                         "names matching no candidate are listed in `prefer_unmatched`")
     ch.add_argument("--vendors", metavar="VENDOR,...|any",
                     help="the vendors a use may spend; a route on any other is not a candidate. Default: "
                          "those with an account on this machine; `any` for every vendor, when the caller "

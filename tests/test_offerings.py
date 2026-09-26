@@ -141,6 +141,35 @@ class Routes(unittest.TestCase):
             with self.assertRaises(catalog.CatalogError, msg=bad):
                 load(SECOND + f"debit = {bad}\n")
 
+    def test_a_callers_preference_leans_the_choice_most_specific_name_first(self):
+        from unlimited import choice
+        cc, go = "commandcode/deepseek/deepseek-v4.1-flash", "opencode-go/deepseek-v4.1-flash"
+
+        def rank(prefer, **kw):
+            got = choice.rank(load(SECOND), tier="standard", candidates=["deepseek", "glm"], attempts=[],
+                              quota={}, deadline=600, now=NOW, prefer=prefer, **kw)
+            return {c["model"]: c for c in got["candidates"]}, got
+
+        base, _ = rank({})
+        leaned, got = rank({"deepseek": -5, cc: 2, "glm-5-3": 1})
+        self.assertEqual(leaned[go]["preference"] - base[go]["preference"], -5, "the provider's value")
+        self.assertEqual(leaned[cc]["preference"] - base[cc]["preference"], 2, "its own id wins over its provider")
+        self.assertAlmostEqual(leaned[go]["e"] - base[go]["e"], 5)
+        self.assertEqual(got["request"]["prefer"], {"deepseek": -5, cc: 2, "glm-5-3": 1})
+        self.assertEqual(got["prefer_unmatched"], ["glm-5-3"], "a heavy model names no standard candidate")
+        # At temperature 0 a lean larger than a gap overturns it.
+        top = lambda got: got["candidates"][got["pick"]]["model"]
+        self.assertEqual(top(rank({"glm": 30})[1]), "glm-5.3-flash")
+        self.assertEqual(rank({"deepseek": -5, cc: 2, go: 1})[1]["prefer_unmatched"], [],
+                         "a name overridden on every route it names still matched them")
+
+    def test_a_preference_must_name_something_real_by_a_finite_number(self):
+        from unlimited import choice
+        for prefer in ({"deepsek": 1}, {"deepseek": float("nan")}, {"deepseek": float("inf")}):
+            with self.assertRaises(ValueError, msg=prefer):
+                choice.rank(load(SECOND), tier="standard", candidates=["deepseek"], attempts=[], quota={},
+                            deadline=600, now=NOW, prefer=prefer)
+
     def test_malformed_or_ambiguous_files_are_catalog_errors(self):
         for text in ('schema = 2\nofferings = ["x"]\n',
                      'schema = 1\n[providers.codex]\nstandard = "shared"\n[providers.meta]\nstandard = "shared"\n',
