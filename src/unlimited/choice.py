@@ -82,14 +82,14 @@ def pick(scored: list[dict], temperature: float, rng: random.Random) -> int:
 
 def choose(cat: Catalog, *, tier: str, providers: list[str], quota: dict[str, float], deadline: float,
            now: datetime, temperature: float = 0.0, quota_weight: float = QUOTA_WEIGHT,
-           task: str | None = None, meta: dict | None = None,
+           task: str | None = None, meta: dict | None = None, exclude: list[str] | None = None,
            rng: random.Random | None = None, log=None) -> dict | None:
     """The decision, logged with the whole request and the whole result, or None when no provider
     has a model at `tier`. `task` and `meta` are recorded, never read."""
     if not (math.isfinite(temperature) and temperature >= 0 and math.isfinite(quota_weight) and quota_weight >= 0
             and math.isfinite(deadline) and deadline > 0):
         raise ValueError("temperature and quota weight must be finite and not negative, the deadline positive")
-    cands = candidates(cat, tier, providers, now)
+    cands = [c for c in candidates(cat, tier, providers, now) if c["model"] not in (exclude or [])]
     if not cands:
         return None
     records, _ = outcomes.read(log)
@@ -98,7 +98,8 @@ def choose(cat: Catalog, *, tier: str, providers: list[str], quota: dict[str, fl
     seed = random.randrange(1 << 32)  # logged: a sampled pick can be replayed
     i = pick(scored, temperature, rng or random.Random(seed))
     request = {"tier": tier, "providers": providers, "quota": quota, "deadline": deadline,
-               "temperature": temperature, "quota_weight": quota_weight, "task": task, "meta": meta or {}}
+               "temperature": temperature, "quota_weight": quota_weight, "task": task, "meta": meta or {},
+               "exclude": exclude or []}
     decision = {"v": outcomes.VERSION, "type": "decision", "decision": uuid.uuid4().hex[:16],
                 "at": now.isoformat(), "request": request, "seed": None if rng else seed,
                 "candidates": scored, "pick": i}

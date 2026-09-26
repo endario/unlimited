@@ -108,7 +108,7 @@ class Choose(unittest.TestCase):
         self.assertEqual(logged["v"], 1)
         self.assertEqual(logged["request"], {"tier": "standard", "providers": ["glm", "codex"], "quota": {"glm": 0.4},
                                              "deadline": 600, "temperature": 1.5, "quota_weight": 10,
-                                             "task": "summarise", "meta": {"ticket": "42"}})
+                                             "task": "summarise", "meta": {"ticket": "42"}, "exclude": []})
         self.assertEqual(logged["seed"] is not None, True, "a sampled pick can be replayed")
         self.assertEqual(got["decision"], logged["decision"])
 
@@ -142,6 +142,12 @@ class Choose(unittest.TestCase):
                                        "--quota", "glm=0.2,codex=0.9", "--deadline", "900", "--json"]), 0)
         got = json.loads(buf.getvalue())
         self.assertEqual(got["candidates"][got["pick"]]["provider"], "glm")
+        buf = io.StringIO()
+        with mock.patch.dict(os.environ, {"XDG_CONFIG_HOME": home, "XDG_STATE_HOME": state}), redirect_stdout(buf):
+            cli.main(["choose", "--tier", "heavy", "--candidates", "glm,codex", "--quota", "glm=0.2,codex=0.9",
+                      "--exclude", "glm-5.3", "--deadline", "900", "--json"])
+        got = json.loads(buf.getvalue())
+        self.assertEqual([c["provider"] for c in got["candidates"]], ["codex"], "the ruled-out route is no candidate")
 
 
 if __name__ == "__main__":

@@ -52,8 +52,9 @@ the file passes 1 MB.
 
 ## 3. Choice
 
-`unlimited choose --tier T --candidates P,... --deadline S [--quota P=ρ,...] [--temperature M]
-[--quota-weight M] [--task LABEL] [--meta K=V]... --json`.
+`unlimited choose --tier T --candidates P,... --deadline S [--quota P=ρ,...] [--exclude ID,...]
+[--temperature M] [--quota-weight M] [--task LABEL] [--meta K=V]... --json`. `--exclude` rules out
+routes the caller cannot use (a vendor whose account is exhausted, say).
 
 The candidates are each named provider's live promotions at the tier, then its model at the tier,
 as the catalog has them (switched-off and banned models excluded). For each, over the log's

@@ -93,6 +93,13 @@ class Routes(unittest.TestCase):
         self.assertEqual({x["model"]: x["rho"] for x in got["candidates"]},
                          {"opencode-go/deepseek-v4.1-flash": 0.2, "commandcode/deepseek/deepseek-v4.1-flash": 0.5})
 
+    def test_a_route_the_caller_excludes_is_not_a_candidate(self):
+        from unlimited import choice
+        got = choice.choose(load(SECOND), tier="standard", providers=["deepseek"], deadline=600, now=NOW, quota={},
+                            exclude=["opencode-go/deepseek-v4.1-flash"], log=Path(tempfile.mkdtemp()) / "d.jsonl")
+        self.assertEqual([x["model"] for x in got["candidates"]], ["commandcode/deepseek/deepseek-v4.1-flash"])
+        self.assertEqual(got["request"]["exclude"], ["opencode-go/deepseek-v4.1-flash"])
+
     def test_malformed_or_ambiguous_files_are_catalog_errors(self):
         for text in ('schema = 2\nofferings = ["x"]\n',
                      'schema = 1\n[providers.codex]\nstandard = "shared"\n[providers.meta]\nstandard = "shared"\n',

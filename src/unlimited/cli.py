@@ -208,7 +208,8 @@ def _choose(a) -> int:
     try:
         got = choice.choose(cat, tier=a.tier, providers=list(dict.fromkeys(p for p in a.candidates.split(",") if p)),
                             quota=quota, deadline=a.deadline, now=now, temperature=a.temperature,
-                            quota_weight=a.quota_weight, task=a.task, meta=dict(a.meta or []))
+                            quota_weight=a.quota_weight, task=a.task, meta=dict(a.meta or []),
+                            exclude=[x for x in a.exclude.split(",") if x])
     except ValueError as e:
         print(f"unlimited: {e}", file=sys.stderr)
         return 2
@@ -289,6 +290,7 @@ def main(argv: list[str] | None = None) -> int:
                          "minutes worse is e times less likely to be sampled")
     ch.add_argument("--quota-weight", type=float, default=20.0,
                     help="minutes one unit of quota price is worth (default 20)")
+    ch.add_argument("--exclude", default="", help="offering ids the caller rules out, comma-separated")
     ch.add_argument("--task", help="the caller's label for the task (recorded, never read)")
     ch.add_argument("--meta", action="append", type=_meta, help=META_HELP)
     ch.add_argument("--json", action="store_true", help="JSON output (the only format)")
