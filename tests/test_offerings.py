@@ -79,7 +79,7 @@ class Routes(unittest.TestCase):
     def test_a_route_on_another_vendor_is_not_priced_by_the_providers_quota(self):
         from unlimited import choice
         c = load(SECOND)
-        got = choice.choose(c, tier="standard", providers=["deepseek"], quota={"deepseek": 0.2}, deadline=600,
+        got = choice.choose(c, tier="standard", candidates=["deepseek"], quota={"deepseek": 0.2}, deadline=600,
                             now=NOW, log=Path(tempfile.mkdtemp()) / "d.jsonl")
         rho = {x["model"]: x["rho"] for x in got["candidates"]}
         self.assertEqual((rho["opencode-go/deepseek-v4.1-flash"], rho["commandcode/deepseek/deepseek-v4.1-flash"]),
@@ -87,7 +87,7 @@ class Routes(unittest.TestCase):
 
     def test_a_routes_own_projection_prices_it(self):
         from unlimited import choice
-        got = choice.choose(load(SECOND), tier="standard", providers=["deepseek"], deadline=600, now=NOW,
+        got = choice.choose(load(SECOND), tier="standard", candidates=["deepseek"], deadline=600, now=NOW,
                             quota={"deepseek": 0.2, "commandcode/deepseek/deepseek-v4.1-flash": 0.5},
                             log=Path(tempfile.mkdtemp()) / "d.jsonl")
         self.assertEqual({x["model"]: x["rho"] for x in got["candidates"]},
@@ -95,10 +95,24 @@ class Routes(unittest.TestCase):
 
     def test_a_route_the_caller_excludes_is_not_a_candidate(self):
         from unlimited import choice
-        got = choice.choose(load(SECOND), tier="standard", providers=["deepseek"], deadline=600, now=NOW, quota={},
-                            exclude=["opencode-go/deepseek-v4.1-flash"], log=Path(tempfile.mkdtemp()) / "d.jsonl")
+        got = choice.choose(load(SECOND), tier="standard", candidates=["deepseek"], deadline=600, now=NOW, quota={},
+                            exclude={"opencode-go/deepseek-v4.1-flash": "account used up"},
+                            log=Path(tempfile.mkdtemp()) / "d.jsonl")
         self.assertEqual([x["model"] for x in got["candidates"]], ["commandcode/deepseek/deepseek-v4.1-flash"])
-        self.assertEqual(got["request"]["exclude"], ["opencode-go/deepseek-v4.1-flash"])
+        self.assertEqual(got["request"]["exclude"], {"opencode-go/deepseek-v4.1-flash": "account used up"},
+                         "the caller's reason is recorded")
+
+    def test_a_route_or_a_model_can_be_named_as_well_as_a_provider(self):
+        from unlimited import choice
+        c = load(SECOND)
+        named = lambda *names: [x["model"] for x in choice.named(c, "heavy", list(names), NOW)]
+        self.assertEqual(named("commandcode/deepseek/deepseek-v4.1-flash"), ["commandcode/deepseek/deepseek-v4.1-flash"],
+                         "an offering id names that route, whatever the tier")
+        self.assertEqual(named("deepseek-v4-1-flash", "opencode-go/deepseek-v4.1-flash"),
+                         ["opencode-go/deepseek-v4.1-flash", "commandcode/deepseek/deepseek-v4.1-flash"],
+                         "a model names each of its routes, each once")
+        self.assertEqual(named("deepseek"), [], "a provider names its routes at the tier only")
+        self.assertEqual(named("no-such-thing"), [])
 
     def test_a_route_that_debits_twice_as_much_is_overflow_for_its_sibling(self):
         from unlimited import choice
@@ -106,7 +120,7 @@ class Routes(unittest.TestCase):
         cc, go = "commandcode/deepseek/deepseek-v4.1-flash", "opencode-go/deepseek-v4.1-flash"
 
         def pick(quota):
-            got = choice.choose(load(dear), tier="standard", providers=["deepseek"], deadline=600, now=NOW,
+            got = choice.choose(load(dear), tier="standard", candidates=["deepseek"], deadline=600, now=NOW,
                                 quota=quota, log=Path(tempfile.mkdtemp()) / "d.jsonl")
             return got["candidates"][got["pick"]]["model"], {x["model"]: x["debit"] for x in got["candidates"]}
 
@@ -118,7 +132,7 @@ class Routes(unittest.TestCase):
 
     def test_a_promotion_costs_nothing_whatever_it_debits(self):
         from unlimited import choice
-        got = choice.choose(load(SECOND + "free = true\ndebit = 5\n"), tier="standard", providers=["deepseek"],
+        got = choice.choose(load(SECOND + "free = true\ndebit = 5\n"), tier="standard", candidates=["deepseek"],
                             deadline=600, now=NOW, quota={}, log=Path(tempfile.mkdtemp()) / "d.jsonl")
         self.assertEqual({x["model"]: x["pi"] for x in got["candidates"]}["commandcode/deepseek/deepseek-v4.1-flash"], 0)
 

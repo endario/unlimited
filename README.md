@@ -142,17 +142,18 @@ passes; `unlimited off` lists what is off. It drops out of `models` and `--catal
 ## Outcomes
 
 `unlimited attempt start --provider P --model M --deadline S [--task LABEL] [--meta K=V]...` records
-one use of a model and prints its id; `unlimited attempt end ID --outcome ok|timeout|error|unavailable
+one use of a model and prints its id; `unlimited attempt end ID --outcome ok|timeout|error|unavailable|abandoned
 [--tokens-in N ...] [--meta K=V]...` records how it came out. A start whose deadline passes with no
 end counts as a timeout. The task label and metadata are the caller's own: recorded with the
 request, never read by unlimited. `unlimited outcomes` prints each model's recent failure rate
 and durations on this machine, from `~/.local/state/unlimited/decisions.jsonl`.
-`unlimited choose --tier T --candidates P,... --deadline S [--quota P=ρ,...] [--temperature M]
-[--quota-weight M] [--task LABEL] [--meta K=V]... --json` picks which candidate to use by expected
+`unlimited choose --tier T --candidates NAME,... --deadline S [--quota ID=ρ,...] [--exclude ID[=REASON],...]
+[--temperature M] [--quota-weight M] [--task LABEL] [--meta K=V]... --json` orders the candidates
+(providers, models or offering ids) by expected
 minutes: failure rate and durations here, and the quota price of each candidate's projected use
 `ρ` (a live promotion's is free), weighed at `--quota-weight` minutes per unit. At `--temperature
-0` (the default) it takes the lowest; above it, it samples, a candidate that many minutes worse
-being e times less likely. It logs the whole request and the decision, with each candidate's odds,
+0` (the default) lowest first; above it, it samples without replacement, a candidate that many
+minutes worse being e times less likely at each draw. It logs the whole request and the decision, with each candidate's odds,
 and prints the decision.
 
 `unlimited cards [--tier T] [--json]` shows each route's model card: what its vendor publishes

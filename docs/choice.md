@@ -38,27 +38,37 @@ per line, appended under an exclusive lock, each with a `type`:
 | type | written by | fields |
 |---|---|---|
 | `start` | `unlimited attempt start` | `attempt` (id), `at`, `provider`, `model`, `offering` (the route's id, when not `model`), `effort`, `account`, `decision` (the choice it carries out, if any), `deadline` (seconds), `task`, `meta` |
-| `end` | `unlimited attempt end ID` | `attempt`, `at`, `outcome` (`ok`, `timeout`, `error`, `unavailable`), `tokens` (`in`, `out`, `cache`), `meta` |
-| `decision` | `unlimited choose` | `decision` (id), `at`, `request` (everything asked, below), `seed`, `candidates` (each scored, with its odds), `pick` |
+| `end` | `unlimited attempt end ID` | `attempt`, `at`, `outcome` (`ok`, `timeout`, `error`, `unavailable`, `abandoned`), `tokens` (`in`, `out`, `cache`), `meta` |
+| `decision` | `unlimited choose` | `decision` (id), `at`, `request` (everything asked, below), `seed`, `candidates` (each scored, with its odds), `order`, `pick` |
 
 `task` and `meta` are the caller's: a label and string key/value pairs, recorded for later analysis,
 never read. No prompt or content is recorded unless a caller puts it in `meta`.
 
 Reading rules: a line that does not parse is skipped and counted; a second `end` for one attempt is
 ignored; a `start` with no `end` whose deadline has passed is a `timeout` (a caller killed mid-use
-still counts); statistics are per route (provider and offering id), so `unavailable` counts
+still counts); an attempt its caller ended `abandoned` (it lost the attempt, restarting say)
+counts against no route; statistics are per route (provider and offering id), so `unavailable` counts
 against the route that could not be reached and no other. Records older than 7 days are dropped once
 the file passes 1 MB.
 
 ## 3. Choice
 
-`unlimited choose --tier T --candidates P,... --deadline S [--quota P=ρ,...] [--exclude ID,...]
-[--temperature M] [--quota-weight M] [--task LABEL] [--meta K=V]... --json`. `--exclude` rules out
-routes the caller cannot use (a vendor whose account is exhausted, say).
+`unlimited choose --tier T --candidates NAME,... --deadline S [--quota ID=ρ,...]
+[--exclude ID[=REASON],...] [--temperature M] [--quota-weight M] [--task LABEL] [--meta K=V]... --json`.
 
-The candidates are each named provider's live promotions at the tier, then its model at the tier,
-as the catalog has them (switched-off and banned models excluded). For each, over the log's
-attempts with weight `w = 2^(−age / 12 h)`:
+A name is a provider (its live routes at the tier, promotions first), a model (each of its live
+routes) or an offering id (that route), as the catalog has them; switched-off and banned routes are
+never candidates. `--exclude` rules out routes the caller cannot use; a reason is the caller's,
+recorded and never read.
+
+The same choice without files, over attempts the caller keeps itself, is
+`unlimited.choice.rank(cat, tier=, candidates=, attempts=, quota=, deadline=, now=, temperature=,
+quota_weight=, task=, meta=, exclude=, rng=)`: `attempts` as `outcomes.attempts` returns them (each
+`provider`, `model`, `offering`, `effort`, `task`, `at`, `outcome`, `secs`, `tokens`), and the
+decision back as below, to store where the caller likes. `choose` is `rank` over unlimited's log,
+with the decision appended to it.
+
+For each candidate, over the attempts with weight `w = 2^(−age / 12 h)`:
 
 **Failure rate**, a Beta posterior with a prior of a 10% rate worth five attempts:
 `p = (0.5 + Σw·fail) / (5 + Σw·fail + Σw·ok)`. A model that failed twice in the last hour sits near
@@ -84,10 +94,11 @@ the limit, so between two such routes of one model the one debiting less wins.
 depends on the set; the log records the whole set. `preference` is up to 1 minute for providers in
 the catalog's `tie_preference`, the first worth most. `--quota-weight` defaults to 20 minutes.
 
-**Pick.** At `--temperature 0` (the default) the lowest `E`. Above it, a sample with
-`P ∝ exp(−E / temperature)`: a candidate that many minutes worse is e times less likely. Every
-candidate's probability is logged, with the random seed, so another policy can be evaluated on the
-same log later.
+**Order.** The decision's `order` is every candidate, in the order to try; `pick` is its first. At
+`--temperature 0` (the default) by `E`, lowest first. Above it, sampled without replacement with
+`P ∝ exp(−E / temperature)` at each draw: a candidate that many minutes worse is e times less
+likely. Each candidate's odds of coming first are logged, with the random seed, so the order
+replays and another policy can be evaluated on the same log later.
 
 A decayed average would pick much the same with less machinery; the Beta prior is kept because it
 says how far a few attempts should move a model, and because the logged `p` stays a probability.

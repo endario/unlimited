@@ -19,7 +19,8 @@ COMPACT_BYTES = 1 << 20
 A0, B0 = 0.5, 4.5
 # Log-duration prior, worth three attempts, until there is history.
 N0, MU0 = 3.0, math.log(300.0)
-OUTCOMES = ("ok", "timeout", "error", "unavailable")
+# `abandoned`: the caller lost the attempt (it restarted, say), which says nothing of the route.
+OUTCOMES = ("ok", "timeout", "error", "unavailable", "abandoned")
 VERSION = 1  # of each record this log holds
 
 
@@ -114,7 +115,7 @@ def end(aid: str, *, outcome: str, now: datetime, tokens: dict | None = None, me
 def attempts(records: list[dict], now: datetime) -> list[dict]:
     """Each attempt, its start joined to its first end. A start with no end whose deadline has
     passed is a timeout at the deadline: a caller killed mid-attempt still counts. One still inside its
-    deadline is left out."""
+    deadline is left out, as is one its caller ended as abandoned."""
     ends: dict[str, dict] = {}
     for r in records:
         if r.get("type") == "end" and isinstance(r.get("attempt"), str):
@@ -131,6 +132,8 @@ def attempts(records: list[dict], now: datetime) -> list[dict]:
         t1 = _time(e.get("at")) if e else None
         if e and (t1 is None or e.get("outcome") not in OUTCOMES):
             continue  # an end this reader does not understand: not evidence of a timeout
+        if e and e["outcome"] == "abandoned":
+            continue
         if e:
             outcome, secs = e["outcome"], max((t1 - t0).total_seconds(), 0.0)
         elif deadline is not None and now - t0 > timedelta(seconds=deadline):
@@ -150,7 +153,7 @@ def _weight(at: datetime, now: datetime) -> float:
 
 def stats(done: list[dict], now: datetime) -> dict[tuple[str, str], dict]:
     """Per (provider, route id): the decayed failure probability `p`, the expected seconds of a
-    success `t_ok` (per effort and kind where it has its own history, else the model's) and the
+    success `t_ok` and the
     decayed mean seconds of a failure `t_fail` (None without one), and the weights behind them.
     An `unavailable` attempt is its route's failure."""
     # The spread of log-durations, pooled over every model, weighted as the per-model sums are.

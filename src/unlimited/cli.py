@@ -206,10 +206,10 @@ def _choose(a) -> int:
         print(f"unlimited: {a.tier}: not a tier of the catalog ({', '.join(cat.tiers)})", file=sys.stderr)
         return 2
     try:
-        got = choice.choose(cat, tier=a.tier, providers=list(dict.fromkeys(p for p in a.candidates.split(",") if p)),
+        got = choice.choose(cat, tier=a.tier, candidates=list(dict.fromkeys(p for p in a.candidates.split(",") if p)),
                             quota=quota, deadline=a.deadline, now=now, temperature=a.temperature,
                             quota_weight=a.quota_weight, task=a.task, meta=dict(a.meta or []),
-                            exclude=[x for x in a.exclude.split(",") if x])
+                            exclude=dict(x.partition("=")[::2] for x in a.exclude.split(",") if x))
     except ValueError as e:
         print(f"unlimited: {e}", file=sys.stderr)
         return 2
@@ -269,7 +269,7 @@ def main(argv: list[str] | None = None) -> int:
     st_.add_argument("--meta", action="append", type=_meta, help=META_HELP)
     en = ats.add_parser("end")
     en.add_argument("id")
-    en.add_argument("--outcome", required=True, choices=["ok", "timeout", "error", "unavailable"])
+    en.add_argument("--outcome", required=True, choices=["ok", "timeout", "error", "unavailable", "abandoned"])
     en.add_argument("--tokens-in", type=int)
     en.add_argument("--tokens-out", type=int)
     en.add_argument("--tokens-cache", type=int)
@@ -281,7 +281,7 @@ def main(argv: list[str] | None = None) -> int:
     cd.add_argument("--json", action="store_true")
     ch = sub.add_parser("choose", help="which candidate to use for a task, by expected cost; logged")
     ch.add_argument("--tier", required=True, help="one of the catalog's tiers")
-    ch.add_argument("--candidates", required=True, help="providers the caller allows, comma-separated")
+    ch.add_argument("--candidates", required=True, help="what the caller allows, comma-separated: a provider (its routes at --tier), a model or an offering id")
     ch.add_argument("--quota", default="", help="<offering id or provider>=<projected use at reset>,...: an offering id prices that route; "
                          "a provider, its routes on its usual vendor")
     ch.add_argument("--deadline", type=float, required=True, help="seconds after which a use counts as failed")
@@ -290,7 +290,7 @@ def main(argv: list[str] | None = None) -> int:
                          "minutes worse is e times less likely to be sampled")
     ch.add_argument("--quota-weight", type=float, default=20.0,
                     help="minutes one unit of quota price is worth (default 20)")
-    ch.add_argument("--exclude", default="", help="offering ids the caller rules out, comma-separated")
+    ch.add_argument("--exclude", default="", help="offering ids the caller rules out, comma-separated, each with =REASON if it likes (recorded, never read)")
     ch.add_argument("--task", help="the caller's label for the task (recorded, never read)")
     ch.add_argument("--meta", action="append", type=_meta, help=META_HELP)
     ch.add_argument("--json", action="store_true", help="JSON output (the only format)")
