@@ -1,4 +1,4 @@
-"""What each model's attempts came to on this machine (docs/usage-routing/phase-2a.md): an
+"""What each model's attempts came to on this machine (docs/choice.md): an
 append-only log of attempts, and the decayed failure rate and durations read from it."""
 
 from __future__ import annotations
@@ -20,6 +20,7 @@ A0, B0 = 0.5, 4.5
 # Log-duration prior, worth three attempts, until there is history.
 N0, MU0 = 3.0, math.log(300.0)
 OUTCOMES = ("ok", "timeout", "error", "unavailable")
+VERSION = 1  # of each record this log holds
 
 
 def path() -> Path:
@@ -90,22 +91,28 @@ def _time(v: object) -> datetime | None:
     return t if t.tzinfo else t.replace(tzinfo=timezone.utc)
 
 
-def start(*, provider: str, model: str, effort: str | None, kind: str | None, account: str | None,
-          decision: str | None, deadline: float, now: datetime, p: Path | None = None) -> str:
+def start(*, provider: str, model: str, effort: str | None, task: str | None, account: str | None,
+          decision: str | None, deadline: float, now: datetime, meta: dict | None = None,
+          p: Path | None = None) -> str:
+    """Record an attempt as it was asked. `task` and `meta` are the caller's own: recorded, never
+    read by unlimited."""
     aid = uuid.uuid4().hex[:16]
-    append({"type": "start", "attempt": aid, "at": now.isoformat(), "provider": provider, "model": model,
-            "effort": effort, "kind": kind, "account": account, "decision": decision, "deadline": deadline}, p)
+    append({"v": VERSION, "type": "start", "attempt": aid, "at": now.isoformat(), "provider": provider,
+            "model": model, "effort": effort, "task": task, "account": account, "decision": decision,
+            "deadline": deadline, "meta": meta or {}}, p)
     return aid
 
 
-def end(aid: str, *, outcome: str, now: datetime, tokens: dict | None = None, p: Path | None = None) -> None:
-    append({"type": "end", "attempt": aid, "at": now.isoformat(), "outcome": outcome,
-            **({"tokens": tokens} if tokens else {})}, p)
+def end(aid: str, *, outcome: str, now: datetime, tokens: dict | None = None, meta: dict | None = None,
+        p: Path | None = None) -> None:
+    """Record how an attempt came out."""
+    append({"v": VERSION, "type": "end", "attempt": aid, "at": now.isoformat(), "outcome": outcome,
+            "tokens": tokens or {}, "meta": meta or {}}, p)
 
 
 def attempts(records: list[dict], now: datetime) -> list[dict]:
     """Each attempt, its start joined to its first end. A start with no end whose deadline has
-    passed is a timeout at the deadline: a runner killed mid-run still counts. One still inside its
+    passed is a timeout at the deadline: a caller killed mid-attempt still counts. One still inside its
     deadline is left out."""
     ends: dict[str, dict] = {}
     for r in records:
@@ -131,7 +138,7 @@ def attempts(records: list[dict], now: datetime) -> list[dict]:
             continue
         tokens = e.get("tokens") if e and isinstance(e.get("tokens"), dict) else {}
         out.append({"provider": r["provider"], "model": r["model"], "effort": r.get("effort"),
-                    "kind": r.get("kind"), "at": t0, "outcome": outcome, "secs": secs, "tokens": tokens})
+                    "task": r.get("task", r.get("kind")), "at": t0, "outcome": outcome, "secs": secs, "tokens": tokens})
     return out
 
 

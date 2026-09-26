@@ -1,6 +1,5 @@
-"""The account verdict (docs/usage-routing, phase 1). The doc 117 cases are replayed from 2mw2lt's
-steering/test/spending_test.py at 649f4af's era, over schema-1 readings; the model-scope, stop and
-monthly-bucket cases are this module's own."""
+"""The account verdict (docs/choice.md): the ranking and exclusion rules, the model scope, the
+vendor stop and the monthly bucket."""
 
 from __future__ import annotations
 
@@ -43,7 +42,7 @@ def rank(named: dict) -> list:
     return [k for k, x in sorted(ranked, key=lambda e: (e[1]["tier"], -e[1]["score"]))]
 
 
-class Doc117(unittest.TestCase):
+class Ranking(unittest.TestCase):
     def test_near_its_reset_unused_quota_ranks_first(self):
         late = reading(window("codex", 0.5, WEEK, WEEK * 0.1))
         early = reading(window("codex", 0.5, WEEK, WEEK * 0.3))
@@ -96,7 +95,7 @@ class Doc117(unittest.TestCase):
             self.assertEqual(v(r)["state"], "unread", r)
 
 
-class Changes(unittest.TestCase):
+class Scope(unittest.TestCase):
     def test_an_exhausted_opus_week_excludes_opus_work_and_not_sonnet_work(self):
         r = reading(window("seven_day", 0.3, WEEK, 5000, at_reset=(0.4, 0.5)), five(0.1, 200),
                     window("seven_day_opus", 1.0, WEEK, 3000, role="weekly_model", scope="Opus"),

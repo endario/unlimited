@@ -23,7 +23,7 @@ OPENAI_SECRET = "fixture-secret-openai-token"
 ZAI_SECRET = "fixture-secret-zai-key"
 NEURALWATT_SECRET = "fixture-secret-neuralwatt-key"
 
-# Shapes as answered on 2026-09-18 (2mw2lt accounts_test.py), identities removed.
+# Shapes as answered on 2026-09-18, identities removed.
 WHAM = {"plan_type": "prolite",
         "rate_limit": {"allowed": True, "limit_reached": False,
                        "primary_window": {"used_percent": 44, "limit_window_seconds": 604800,
@@ -86,7 +86,7 @@ class Contract(unittest.TestCase):
         self.assertAlmostEqual(weekly["openai"][0]["used_at_least"], 0.44)
         self.assertAlmostEqual(weekly["zai"][0]["used_at_least"], 58723 / 140000)
         # Only the selected vendors' endpoints are asked; nothing else (e.g. Anthropic's
-        # throttled usage endpoint) is touched by a runner-shaped read.
+        # throttled usage endpoint) is touched by a caller's read.
         self.assertEqual(sorted(self.up.calls), sorted([openai.URL, zai.URL]))
 
     def test_concurrent_identical_reads_make_one_upstream_request(self):

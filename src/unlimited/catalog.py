@@ -1,4 +1,4 @@
-"""What each provider runs at each tier, and the promotions tried first (docs/model-catalog).
+"""Which models each provider offers at each tier, and what else the catalog says (docs/catalog.md).
 The shipped `catalog.toml` is overridden by $XDG_CONFIG_HOME/unlimited/catalog.toml."""
 
 from __future__ import annotations
@@ -12,7 +12,6 @@ from importlib import resources
 from pathlib import Path
 
 SCHEMA = 1
-TIERS = ("standard", "heavy")
 # A card's prices, USD per million tokens.
 PRICES = ("input", "output", "cache_read", "cache_write")
 
@@ -79,8 +78,8 @@ def _parse(text: str, where: str) -> dict:
     providers = got.get("providers", {})
     if not isinstance(providers, dict) or not all(isinstance(p, dict) for p in providers.values()):
         raise CatalogError(f"{where}: providers must be tables")
-    if not all(isinstance(got.get(k, []), list) for k in ("promotions", "banned", "tie_preference", "cards")):
-        raise CatalogError(f"{where}: promotions, banned, tie_preference and cards must be lists")
+    if not all(isinstance(got.get(k, []), list) for k in ("tiers", "promotions", "banned", "tie_preference", "cards")):
+        raise CatalogError(f"{where}: tiers, promotions, banned, tie_preference and cards must be lists")
     return got
 
 
@@ -90,7 +89,7 @@ def _merge(shipped: dict, local: dict) -> dict:
     for k, v in local.get("providers", {}).items():
         providers.setdefault(k, {}).update(v)
     out["providers"] = providers
-    for whole in ("promotions", "tie_preference"):
+    for whole in ("tiers", "promotions", "tie_preference"):
         if whole in local:
             out[whole] = local[whole]
     out["banned"] = list(shipped.get("banned", [])) + list(local.get("banned", []))
@@ -109,16 +108,20 @@ def _check(c: dict) -> None:
     providers = c.get("providers")
     if not isinstance(providers, dict):
         raise CatalogError("no providers")
+    tiers = c.get("tiers")
+    if not (isinstance(tiers, list) and tiers and all(isinstance(t, str) for t in tiers)):
+        raise CatalogError("tiers: a list of names")
     for name, p in providers.items():
-        if not isinstance(p, dict) or not isinstance(p.get("harness"), str) or not isinstance(p.get("usage"), str):
-            raise CatalogError(f"provider {name}: needs harness and usage")
-        for t in TIERS:
+        # Any other key is the reader's own (a caller's launch details, say): kept, never read.
+        if not isinstance(p, dict) or not isinstance(p.get("usage"), str):
+            raise CatalogError(f"provider {name}: needs usage, the vendor whose account a run spends")
+        for t in tiers:
             if t in p and not isinstance(p[t], str):
                 raise CatalogError(f"provider {name}: {t} is not a model id")
     for i, promo in enumerate(c.get("promotions", [])):
         ok = (isinstance(promo, dict) and isinstance(promo.get("provider"), str) and promo["provider"] in providers
               and isinstance(promo.get("model"), str)
-              and isinstance(promo.get("tiers"), list) and all(t in TIERS for t in promo["tiers"])
+              and isinstance(promo.get("tiers"), list) and all(t in tiers for t in promo["tiers"])
               and isinstance(promo.get("until", date.max), date) and not isinstance(promo.get("until"), datetime))
         if not ok:
             raise CatalogError(f"promotion {i + 1}: needs a known provider, a model, tiers and an optional date")
@@ -138,7 +141,7 @@ def _check(c: dict) -> None:
         raise CatalogError("tie_preference: known providers only")
     owners: dict[str, set] = {}
     for name, p in providers.items():
-        for t in TIERS:
+        for t in tiers:
             if t in p:
                 owners.setdefault(p[t], set()).add(name)
     for promo in c.get("promotions", []):
@@ -151,6 +154,7 @@ def _check(c: dict) -> None:
 class Catalog:
     def __init__(self, data: dict, off: list[dict] | None = None):
         self.providers: dict[str, dict] = data["providers"]
+        self.tiers: list[str] = data["tiers"]
         self.promotions: list[dict] = data.get("promotions", [])
         self.banned: frozenset[str] = frozenset(data.get("banned", []))
         self.tie_preference: list[str] = data.get("tie_preference", [])
@@ -185,9 +189,9 @@ class Catalog:
     def to_json(self, now: datetime) -> dict:
         """The merged catalog as it stands at `now`: live promotions only, their dates as ISO text,
         and a switched-off model dropped from its provider's tiers."""
-        providers = {name: {k: v for k, v in p.items() if not (k in TIERS and self.blocked(name, v, now))}
+        providers = {name: {k: v for k, v in p.items() if not (k in self.tiers and self.blocked(name, v, now))}
                      for name, p in self.providers.items()}
-        return {"schema": SCHEMA, "providers": providers, "banned": sorted(self.banned),
+        return {"schema": SCHEMA, "tiers": self.tiers, "providers": providers, "banned": sorted(self.banned),
                 "tie_preference": self.tie_preference,
                 "promotions": [dict(p, until=p["until"].isoformat()) if "until" in p else dict(p)
                                for p in self.promotions if self._live(p, now)],
@@ -209,7 +213,7 @@ class Catalog:
     def provider_of(self, model: str) -> str | None:
         """The provider that lists `model`, at a tier or in a promotion, or None."""
         for name, p in self.providers.items():
-            if model in (p.get(t) for t in TIERS):
+            if model in (p.get(t) for t in self.tiers):
                 return name
         return next((p["provider"] for p in self.promotions if p["model"] == model), None)
 

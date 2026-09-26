@@ -54,7 +54,7 @@ class Observed(unittest.TestCase):
         log = Path(tempfile.mkdtemp()) / "d.jsonl"
         for i, (out, mins) in enumerate(((6000, 4), (12000, 6), (9000, 5))):
             t0 = NOW - timedelta(hours=1 + i)
-            aid = outcomes.start(provider="glm", model="glm-5.3", effort="high", kind="review", account=None,
+            aid = outcomes.start(provider="glm", model="glm-5.3", effort="high", task="example", account=None,
                                  decision=None, deadline=1800, now=t0, p=log)
             outcomes.end(aid, outcome="ok", now=t0 + timedelta(minutes=mins),
                          tokens={"in": 50000, "out": out, "cache": 400000}, p=log)
@@ -69,7 +69,7 @@ class Observed(unittest.TestCase):
         Path(home, "unlimited", "catalog.toml").write_text("schema = 1\n" + CARD.format(vendor="zai", tok_s=90))
         with mock.patch.dict(os.environ, {"XDG_CONFIG_HOME": home, "XDG_STATE_HOME": state}):
             now = datetime.now(timezone.utc)
-            aid = outcomes.start(provider="glm", model="glm-5.3", effort=None, kind="review", account=None,
+            aid = outcomes.start(provider="glm", model="glm-5.3", effort=None, task="example", account=None,
                                  decision=None, deadline=1800, now=now - timedelta(minutes=5))
             outcomes.end(aid, outcome="ok", now=now, tokens={"in": 100000, "out": 10000, "cache": 800000})
             buf = io.StringIO()

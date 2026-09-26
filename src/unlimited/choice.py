@@ -1,5 +1,5 @@
-"""Which of a tier's candidates takes a round, by expected cost in minutes (docs/usage-routing/
-phase-2a.md): how often each fails here, how long it takes, and what its quota costs."""
+"""Which of a tier's candidates to use for a task, by expected cost in minutes (docs/choice.md): how often each fails here, how long it takes, and what its quota costs. What the task
+is stays the caller's: it arrives only as generic parameters and an opaque label."""
 
 from __future__ import annotations
 
@@ -13,8 +13,7 @@ from . import outcomes
 from .catalog import Catalog
 
 KAPPA = 5.0  # quota price steepness: exp(κ(ρ − 1))
-Q = 20.0  # minutes per unit of quota price
-TAU = 2.0  # finding rounds' sampling temperature, minutes
+QUOTA_WEIGHT = 20.0  # default minutes one unit of quota price is worth
 PREFER = 1.0  # minutes the first of tie_preference is worth; the rest less, in order
 
 
@@ -32,14 +31,14 @@ def candidates(cat: Catalog, tier: str, providers: list[str], now: datetime) -> 
 
 
 def score(cands: list[dict], quota: dict[str, float], stats: dict, deadline: float,
-          prefer: list[str]) -> list[dict]:
+          prefer: list[str], quota_weight: float = QUOTA_WEIGHT) -> list[dict]:
     """Each candidate with its `rho`, `pi`, `p`, `t_ok`, `t_fail` (minutes) and expected cost `e`."""
     out = []
     for c in cands:
         s = stats.get((c["provider"], c["model"]))
         p = s["p"] if s else outcomes.A0 / (outcomes.A0 + outcomes.B0)
         t_ok = (s["t_ok"] if s else math.exp(outcomes.MU0 + 0.125)) / 60
-        # A failure costs its observed time to fail, with this round's deadline worth one attempt.
+        # A failure costs its observed time to fail, with this call's deadline worth one attempt.
         fail_w, fail_secs = (s["fail"], (s["t_fail"] or 0) * s["fail"]) if s else (0.0, 0.0)
         t_fail = (deadline + fail_secs) / (1 + fail_w) / 60
         rho = None if c["promoted"] else quota.get(c["provider"])
@@ -49,20 +48,21 @@ def score(cands: list[dict], quota: dict[str, float], stats: dict, deadline: flo
         others = [o["t_ok"] for o in out if o is not c]
         t_next = statistics.median(others) if others else c["t_ok"]
         bonus = PREFER * (len(prefer) - prefer.index(c["provider"])) / len(prefer) if c["provider"] in prefer else 0.0
-        c["e"] = (1 - c["p"]) * c["t_ok"] + c["p"] * (c["t_fail"] + t_next) + Q * c["pi"] - bonus
+        c["e"] = (1 - c["p"]) * c["t_ok"] + c["p"] * (c["t_fail"] + t_next) + quota_weight * c["pi"] - bonus
     return out
 
 
-def pick(scored: list[dict], kind: str, rng: random.Random) -> int:
-    """Final rounds take the lowest expected cost; finding rounds sample, P ∝ exp(−e/τ), and each
-    candidate's probability is set on it."""
-    if kind == "final":
+def pick(scored: list[dict], temperature: float, rng: random.Random) -> int:
+    """At temperature 0 the lowest expected cost; above it a sample, P ∝ exp(−e/τ) with τ in
+    minutes, so a candidate that much worse is e times less likely. Each candidate's probability is
+    set on it."""
+    if temperature <= 0:
         best = min(range(len(scored)), key=lambda i: scored[i]["e"])
         for i, c in enumerate(scored):
             c["prob"] = 1.0 if i == best else 0.0
         return best
     low = min(c["e"] for c in scored)
-    ws = [math.exp(-(c["e"] - low) / TAU) for c in scored]
+    ws = [math.exp(-(c["e"] - low) / temperature) for c in scored]
     total = sum(ws)
     for c, w in zip(scored, ws):
         c["prob"] = w / total
@@ -74,20 +74,27 @@ def pick(scored: list[dict], kind: str, rng: random.Random) -> int:
     return len(scored) - 1
 
 
-def choose(cat: Catalog, *, tier: str, kind: str, mode: str | None, providers: list[str],
-           quota: dict[str, float], deadline: float, now: datetime,
+def choose(cat: Catalog, *, tier: str, providers: list[str], quota: dict[str, float], deadline: float,
+           now: datetime, temperature: float = 0.0, quota_weight: float = QUOTA_WEIGHT,
+           task: str | None = None, meta: dict | None = None,
            rng: random.Random | None = None, log=None) -> dict | None:
-    """The decision, logged, or None when no provider has a model at `tier`."""
+    """The decision, logged with the whole request and the whole result, or None when no provider
+    has a model at `tier`. `task` and `meta` are recorded, never read."""
+    if not (math.isfinite(temperature) and temperature >= 0 and math.isfinite(quota_weight) and quota_weight >= 0
+            and math.isfinite(deadline) and deadline > 0):
+        raise ValueError("temperature and quota weight must be finite and not negative, the deadline positive")
     cands = candidates(cat, tier, providers, now)
     if not cands:
         return None
     records, _ = outcomes.read(log)
     scored = score(cands, quota, outcomes.stats(outcomes.attempts(records, now), now), deadline,
-                   cat.tie_preference)
+                   cat.tie_preference, quota_weight)
     seed = random.randrange(1 << 32)  # logged: a sampled pick can be replayed
-    i = pick(scored, kind, rng or random.Random(seed))
-    decision = {"type": "decision", "decision": uuid.uuid4().hex[:16], "at": now.isoformat(), "tier": tier,
-                "kind": kind, "mode": mode, "deadline": deadline, "seed": None if rng else seed,
+    i = pick(scored, temperature, rng or random.Random(seed))
+    request = {"tier": tier, "providers": providers, "quota": quota, "deadline": deadline,
+               "temperature": temperature, "quota_weight": quota_weight, "task": task, "meta": meta or {}}
+    decision = {"v": outcomes.VERSION, "type": "decision", "decision": uuid.uuid4().hex[:16],
+                "at": now.isoformat(), "request": request, "seed": None if rng else seed,
                 "candidates": scored, "pick": i}
     outcomes.append(decision, log)
     return decision

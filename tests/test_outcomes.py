@@ -1,4 +1,4 @@
-"""The attempt log and what it says about each model (docs/usage-routing/phase-2a.md)."""
+"""The attempt log and what it says about each model (docs/choice.md)."""
 
 from __future__ import annotations
 
@@ -24,7 +24,7 @@ class Log(unittest.TestCase):
 
     def run_attempt(self, provider, model, outcome, minutes, ago, deadline=1800.0):
         t0 = NOW - ago
-        aid = outcomes.start(provider=provider, model=model, effort="medium", kind="review", account=None,
+        aid = outcomes.start(provider=provider, model=model, effort="medium", task="example", account=None,
                              decision=None, deadline=deadline, now=t0, p=self.p)
         if outcome is not None:
             outcomes.end(aid, outcome=outcome, now=t0 + minutes * MIN, p=self.p)
@@ -94,9 +94,12 @@ class Cli(unittest.TestCase):
             with mock.patch.dict(os.environ, {"XDG_STATE_HOME": state}), redirect_stdout(buf):
                 self.assertEqual(cli.main(list(args)), 0)
             return buf.getvalue().strip()
-        aid = run("attempt", "start", "--provider", "glm", "--model", "g", "--kind", "review", "--deadline", "60")
-        run("attempt", "end", aid, "--outcome", "ok", "--tokens-out", "10")
+        aid = run("attempt", "start", "--provider", "glm", "--model", "g", "--task", "example", "--meta", "k=v", "--deadline", "60")
+        run("attempt", "end", aid, "--outcome", "ok", "--tokens-out", "10", "--meta", "verdict=good")
         (got,) = json.loads(run("outcomes", "--json"))
+        start, end = outcomes.read(Path(state) / "unlimited" / "decisions.jsonl")[0]
+        self.assertEqual((start["task"], start["meta"], end["meta"], end["tokens"]),
+                         ("example", {"k": "v"}, {"verdict": "good"}, {"out": 10}))
         self.assertEqual((got["provider"], got["model"], got["fail"]), ("glm", "g", 0.0))
 
 

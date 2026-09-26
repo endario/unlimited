@@ -1,10 +1,9 @@
 """Whether a model on an account can take a unit of work, from one schema-1 reading
-(docs/usage-routing, phase 1). Pure: no I/O and no clock of its own.
+(docs/choice.md). Pure: no I/O and no clock of its own.
 
-The evaluation is 2mw2lt's doc 117 (`steering/spending.verdict`), with its tested rules, over
-unlimited's own readings, with two changes: limits are filtered by the model the work runs, and the
-scored window is a plan's monthly bucket where it enforces one, else its week. Ordering, tie rules
-and fallback stay with each consumer."""
+Every live window that applies to the model constrains whether the work fits; the scored window is
+a plan's monthly bucket where it enforces one, else its longest window up to a week. Ordering, tie
+rules and fallback stay with the caller."""
 
 from __future__ import annotations
 

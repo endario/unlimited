@@ -77,7 +77,7 @@ def _switch(a) -> int:
                   + (f"  ({x['why']})" if x.get("why") else ""))
         return 0
     provider, _, model = a.target.partition(":")
-    pairs = {(n, m) for n, p in cat.providers.items() for t, m in p.items() if t in catalog.TIERS}
+    pairs = {(n, m) for n, p in cat.providers.items() for t, m in p.items() if t in cat.tiers}
     pairs |= {(p["provider"], p["model"]) for p in cat.promotions}
     known = ((provider, model) in pairs if model
              else provider in cat.providers or any(m == provider for _, m in pairs))
@@ -102,12 +102,13 @@ def _attempt(a) -> int:
     now = datetime.now(timezone.utc)
     if a.phase == "start":
         outcomes.compact(now)
-        print(outcomes.start(provider=a.provider, model=a.model, effort=a.effort, kind=a.kind,
-                             account=a.account, decision=a.decision, deadline=a.deadline, now=now))
+        print(outcomes.start(provider=a.provider, model=a.model, effort=a.effort, task=a.task,
+                             account=a.account, decision=a.decision, deadline=a.deadline, now=now,
+                             meta=dict(a.meta or [])))
     else:
         tokens = {k: v for k, v in (("in", a.tokens_in), ("out", a.tokens_out), ("cache", a.tokens_cache))
                   if v is not None}
-        outcomes.end(a.id, outcome=a.outcome, now=now, tokens=tokens)
+        outcomes.end(a.id, outcome=a.outcome, now=now, tokens=tokens, meta=dict(a.meta or []))
     return 0
 
 
@@ -141,7 +142,7 @@ def _cards(a) -> int:
     records, _ = outcomes.read()
     seen = outcomes.stats(outcomes.attempts(records, now), now)
     routes: dict[tuple[str, str], list[str]] = {}
-    for t in [a.tier] if a.tier else catalog.TIERS:
+    for t in [a.tier] if a.tier else cat.tiers:
         for c in cat.candidates(t, now):
             routes.setdefault((c.provider, c.model), []).append(t + (" promotion" if c.promoted else ""))
     out = []
@@ -200,13 +201,31 @@ def _choose(a) -> int:
         print(f"unlimited: {e}", file=sys.stderr)
         return 2
     outcomes.compact(now)
-    got = choice.choose(cat, tier=a.tier, kind=a.kind, mode=a.mode, providers=list(dict.fromkeys(p for p in a.candidates.split(",") if p)),
-                        quota=quota, deadline=a.deadline, now=now)
+    if a.tier not in cat.tiers:
+        print(f"unlimited: {a.tier}: not a tier of the catalog ({', '.join(cat.tiers)})", file=sys.stderr)
+        return 2
+    try:
+        got = choice.choose(cat, tier=a.tier, providers=list(dict.fromkeys(p for p in a.candidates.split(",") if p)),
+                            quota=quota, deadline=a.deadline, now=now, temperature=a.temperature,
+                            quota_weight=a.quota_weight, task=a.task, meta=dict(a.meta or []))
+    except ValueError as e:
+        print(f"unlimited: {e}", file=sys.stderr)
+        return 2
     if got is None:
         print(f"unlimited: no candidate has a model at {a.tier}", file=sys.stderr)
         return 1
     json.dump(got, sys.stdout)
     return 0
+
+
+def _meta(text: str) -> tuple[str, str]:
+    key, eq, value = text.partition("=")
+    if not eq or not key:
+        raise argparse.ArgumentTypeError(f"{text!r}: expected KEY=VALUE")
+    return key, value
+
+
+META_HELP = "KEY=VALUE, repeatable: the caller's own metadata, recorded and never read"
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -223,7 +242,7 @@ def main(argv: list[str] | None = None) -> int:
     r.add_argument("--max-age", type=float, default=300.0)
     r.add_argument("--json", action="store_true", help="JSON output (the only format for now)")
     m = sub.add_parser("models", help="what each provider runs at a tier, promotions first")
-    m.add_argument("--tier", choices=["standard", "heavy"], default="standard")
+    m.add_argument("--tier", default="standard", help="one of the catalog's tiers")
     m.add_argument("--provider", help="print only this provider's model at the tier")
     m.add_argument("--json", action="store_true")
     m.add_argument("--catalog", action="store_true", help="the whole merged catalog, as JSON")
@@ -234,34 +253,41 @@ def main(argv: list[str] | None = None) -> int:
     of.add_argument("--why", help="a note, shown by `unlimited off`")
     on = sub.add_parser("on", help="undo `unlimited off TARGET`")
     on.add_argument("target")
-    at = sub.add_parser("attempt", help="record one model run's start or end on this machine")
+    at = sub.add_parser("attempt", help="record the start or end of one use of a model on this machine")
     ats = at.add_subparsers(dest="phase", required=True)
     st_ = ats.add_parser("start", help="prints the attempt id")
     st_.add_argument("--provider", required=True)
     st_.add_argument("--model", required=True)
     st_.add_argument("--effort")
-    st_.add_argument("--kind", help="review, critic, ...")
+    st_.add_argument("--task", help="the caller's label for what the model is used for (recorded, never read)")
     st_.add_argument("--account")
     st_.add_argument("--decision")
     st_.add_argument("--deadline", type=float, required=True, help="seconds; past it with no end is a timeout")
+    st_.add_argument("--meta", action="append", type=_meta, help=META_HELP)
     en = ats.add_parser("end")
     en.add_argument("id")
     en.add_argument("--outcome", required=True, choices=["ok", "timeout", "error", "unavailable"])
     en.add_argument("--tokens-in", type=int)
     en.add_argument("--tokens-out", type=int)
     en.add_argument("--tokens-cache", type=int)
+    en.add_argument("--meta", action="append", type=_meta, help=META_HELP)
     oc = sub.add_parser("outcomes", help="each model's recent failure rate and durations on this machine")
     oc.add_argument("--json", action="store_true")
     cd = sub.add_parser("cards", help="each route's model card: its vendor's figures beside its runs here")
-    cd.add_argument("--tier", choices=["standard", "heavy"])
+    cd.add_argument("--tier", help="one of the catalog's tiers")
     cd.add_argument("--json", action="store_true")
-    ch = sub.add_parser("choose", help="which candidate takes a round, by expected cost; logged")
-    ch.add_argument("--tier", choices=["standard", "heavy"], required=True)
-    ch.add_argument("--kind", choices=["finding", "final"], required=True)
+    ch = sub.add_parser("choose", help="which candidate to use for a task, by expected cost; logged")
+    ch.add_argument("--tier", required=True, help="one of the catalog's tiers")
     ch.add_argument("--candidates", required=True, help="providers the caller allows, comma-separated")
     ch.add_argument("--quota", default="", help="<provider>=<projected use at reset>,... for those that have one")
-    ch.add_argument("--deadline", type=float, required=True, help="the round's deadline, seconds")
-    ch.add_argument("--mode", help="review, critic, ... (logged)")
+    ch.add_argument("--deadline", type=float, required=True, help="seconds after which a use counts as failed")
+    ch.add_argument("--temperature", type=float, default=0.0,
+                    help="minutes: 0 takes the lowest expected cost; above it, a candidate that many "
+                         "minutes worse is e times less likely to be sampled")
+    ch.add_argument("--quota-weight", type=float, default=20.0,
+                    help="minutes one unit of quota price is worth (default 20)")
+    ch.add_argument("--task", help="the caller's label for the task (recorded, never read)")
+    ch.add_argument("--meta", action="append", type=_meta, help=META_HELP)
     ch.add_argument("--json", action="store_true", help="JSON output (the only format)")
     vd = sub.add_parser("verdict", help="whether each account can take a unit of work, as JSON")
     vd.add_argument("--vendor", action="append", choices=sorted(REGISTRY))
@@ -269,7 +295,7 @@ def main(argv: list[str] | None = None) -> int:
     vd.add_argument("--work", type=float, required=True, help="expected duration, seconds")
     vd.add_argument("--max-age", type=float, default=300.0)
     vd.add_argument("--json", action="store_true", help="JSON output (the only format for now)")
-    c = sub.add_parser("capture", help="save a harness's own usage report (never prints)")
+    c = sub.add_parser("capture", help="save a tool's own usage report (never prints)")
     c.add_argument("source", choices=["claude-statusline"])
     a = p.parse_args(argv)
     if a.version:

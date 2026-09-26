@@ -110,7 +110,7 @@ class Switches(unittest.TestCase):
         self.assertIn(("claude", "sonnet"), got)
         j = c.to_json(NOW)
         self.assertEqual((j["promotions"], "heavy" in j["providers"]["codex"]), ([], False))
-        # The provider stays defined: the runner still needs its harness and usage vendor.
+        # The provider stays defined: a caller still needs its usage vendor.
         self.assertEqual(j["providers"]["codex"]["usage"], "openai")
 
     def test_a_model_or_a_pair_switched_off_leaves_the_rest_of_its_provider(self):
@@ -177,7 +177,7 @@ class Cli(unittest.TestCase):
                  '[[promotions]]\nprovider = "stealth"\nmodel = "open"\ntiers = ["standard"]\n')
         code, out, _ = self.run_models("--catalog", local=local)
         got = json.loads(out)
-        self.assertEqual((code, got["providers"]["deepseek"]["harness"]), (0, "opencode"))
+        self.assertEqual((code, got["providers"]["deepseek"]["usage"]), (0, "opencode"))
         self.assertEqual([p["model"] for p in got["promotions"]], ["open"])
 
     def test_json_lists_candidates_and_a_broken_catalog_exits_2(self):

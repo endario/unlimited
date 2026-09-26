@@ -129,12 +129,10 @@ holding its credential.
 
 ## Models
 
-`unlimited models [--tier standard|heavy] [--json]` lists what each provider runs at a tier, with
-promotions first; `--provider P` prints one model id; `--catalog` prints the whole merged catalog as JSON. The list ships in
+`unlimited models [--tier T] [--json]` lists what each provider offers at a tier, promotions
+first; `--provider P` prints one model id; `--catalog` prints the whole merged catalog as JSON. The list ships in
 [`catalog.toml`](src/unlimited/catalog.toml). `~/.config/unlimited/catalog.toml` overrides it on one
-machine, with no release: provider keys one by one, `promotions` and `tie_preference` whole, and `banned` model ids added
-to the shipped ones. A local file that does not parse, or states another `schema`, is an error.
-Which model to run is still the consumer's choice.
+machine, with no release. Format and merge rules: [docs/catalog.md](docs/catalog.md).
 
 `unlimited off TARGET [--for 90m|12h|1d|1w] [--why TEXT]` switches a provider (`stealth`), a model id,
 or a `provider:model` pair off on this machine, until `unlimited on TARGET` or the `--for` time
@@ -143,27 +141,33 @@ passes; `unlimited off` lists what is off. It drops out of `models` and `--catal
 
 ## Outcomes
 
-`unlimited attempt start --provider P --model M --deadline S [...]` prints an attempt id;
-`unlimited attempt end ID --outcome ok|timeout|error|unavailable` closes it. A start whose deadline
-passes with no end counts as a timeout. `unlimited outcomes` prints each model's recent failure rate
+`unlimited attempt start --provider P --model M --deadline S [--task LABEL] [--meta K=V]...` records
+one use of a model and prints its id; `unlimited attempt end ID --outcome ok|timeout|error|unavailable
+[--tokens-in N ...] [--meta K=V]...` records how it came out. A start whose deadline passes with no
+end counts as a timeout. The task label and metadata are the caller's own: recorded with the
+request, never read by unlimited. `unlimited outcomes` prints each model's recent failure rate
 and durations on this machine, from `~/.local/state/unlimited/decisions.jsonl`.
-`unlimited choose --tier T --kind finding|final --candidates P,... --quota P=ρ,... --deadline S --json`
-picks which of them takes a round by expected minutes (failure rate, durations, quota price; a
-live promotion's quota is free), logs the decision with each candidate's odds, and prints it.
+`unlimited choose --tier T --candidates P,... --deadline S [--quota P=ρ,...] [--temperature M]
+[--quota-weight M] [--task LABEL] [--meta K=V]... --json` picks which candidate to use by expected
+minutes: failure rate and durations here, and the quota price of each candidate's projected use
+`ρ` (a live promotion's is free), weighed at `--quota-weight` minutes per unit. At `--temperature
+0` (the default) it takes the lowest; above it, it samples, a candidate that many minutes worse
+being e times less likely. It logs the whole request and the decision, with each candidate's odds,
+and prints the decision.
 
 `unlimited cards [--tier T] [--json]` shows each route's model card: what its vendor publishes
 (intelligence, tokens per second, price per million tokens; the catalog's `[[cards]]`) beside what
 its runs here show (failure rate, durations, tokens, pace over the whole run, and the cost of a
 typical run at the card's price). Price and speed belong to the vendor, not the model: a route whose
 own vendor has no card shows another vendor's as a guideline only. Design:
-[docs/usage-routing/phase-2a.md](docs/usage-routing/phase-2a.md).
+[docs/choice.md](docs/choice.md).
 
 ## Verdicts
 
 `unlimited verdict --work SECONDS [--model-scope M] [--max-age S] [--vendor V]... --json` says, for
 each account, whether it can take a unit of work of that length on that model family: `unread`,
 `excluded` (with the window that binds and when it lifts), or `ranked` (with a tier and a score). Advisory: it reserves nothing. Design:
-[docs/usage-routing](docs/usage-routing/design.md).
+[docs/choice.md](docs/choice.md).
 
 ## Credits
 
@@ -191,7 +195,7 @@ not projected: the vendor reports no reset for it.
 | Command Code | — | `alpha/billing/credits` and `alpha/billing/subscriptions` on `$COMMAND_CODE_API_KEY` and each `~/.config/commandcode*.env` |
 
 The network endpoints are not officially documented and may change without notice. unlimited
-reads each harness's credential where the harness keeps it and never writes it back. The one token
+reads each tool's credential where the tool keeps it and never writes it back. The one token
 it refreshes is Grok's, whose sign-in lasts hours: the renewed token is kept, owner-only, in
 `~/.cache/unlimited/credentials/`. No token appears in its output, readings or errors.
 
@@ -230,7 +234,7 @@ the tag: the Publish workflow puts it on PyPI by trusted publishing, with no sto
 
 ## 2mw2lt
 
-unlimited is part of [2mw2lt](https://2mw2lt.com) — *Too Much Work, Too Little Time* — a steering
-partner that coordinates work across AI workers and trusted people. 2mw2lt reads its accounts
-through unlimited. Its sibling
+unlimited was built alongside [2mw2lt](https://2mw2lt.com) — *Too Much Work, Too Little Time* — a
+steering partner that coordinates work across AI workers and trusted people, which reads its
+accounts through unlimited. unlimited knows nothing of 2mw2lt and is meant to be useful on its own. Its sibling
 [work-tempo](https://github.com/endario/work-tempo) tracks source-code momentum across Git workspaces.
