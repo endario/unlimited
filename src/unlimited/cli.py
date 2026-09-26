@@ -1,7 +1,8 @@
 """`unlimited` (a table for people), `unlimited read [--vendor V]... [--max-age S] --json`,
 `unlimited models [--tier T] [--provider P] [--json]`,
 `unlimited off [TARGET [--for D] [--why W]]`, `unlimited on TARGET`,
-`unlimited attempt start|end ...`, `unlimited outcomes [--json]`, `unlimited choose ... --json`, `unlimited verdict --work S [--model-scope M] --json`,
+`unlimited attempt start|end ...`, `unlimited outcomes [--json]`, `unlimited choose ... --json`,
+`unlimited cards [--tier T] [--json]`, `unlimited verdict --work S [--model-scope M] --json`,
 `unlimited capture claude-statusline`."""
 
 from __future__ import annotations
@@ -127,6 +128,63 @@ def _outcomes(a) -> int:
     return 0
 
 
+def _cards(a) -> int:
+    """Each route's card: what its vendor publishes (expected) beside what its runs here show
+    (observed)."""
+    from . import catalog, outcomes
+    now = datetime.now(timezone.utc)
+    try:
+        cat = catalog.load()
+    except catalog.CatalogError as e:
+        print(f"unlimited: catalog: {e}", file=sys.stderr)
+        return 2
+    records, _ = outcomes.read()
+    seen = outcomes.stats(outcomes.attempts(records, now), now)
+    routes: dict[tuple[str, str], list[str]] = {}
+    for t in [a.tier] if a.tier else catalog.TIERS:
+        for c in cat.candidates(t, now):
+            routes.setdefault((c.provider, c.model), []).append(t + (" promotion" if c.promoted else ""))
+    out = []
+    for (p, m), tiers in routes.items():
+        card, own = cat.card(p, m)
+        s = seen.get((p, m))
+        cost = None
+        if card and s and card.get("price") and s["tokens"]["out"] is not None:
+            price, t = card["price"], s["tokens"]
+            cost = sum((t.get(x) or 0) * price.get(k, 0) for x, k in (("in", "input"), ("out", "output"),
+                                                                        ("cache", "cache_read"))) / 1e6
+        out.append({"provider": p, "model": m, "tiers": tiers,
+                    "expected": dict(card, as_of=card["as_of"].isoformat(), own=own) if card else None,
+                    "observed": dict(s, cost_per_run=cost) if s else None})
+    if a.json:
+        json.dump(out, sys.stdout)
+        return 0
+    for r in out:
+        print(f"{r['provider']} {r['model']} ({', '.join(r['tiers'])})")
+        e = r["expected"]
+        if e is None:
+            print("  expected  nothing published on file")
+        else:
+            price = e.get("price") or {}
+            figures = [f"intelligence {e['intelligence']}" if "intelligence" in e else "not scored",
+                       f"{e['tok_s']:g} tok/s" if "tok_s" in e else None,
+                       "$" + "/".join(f"{price[k]:g}" for k in ("input", "output", "cache_read") if k in price)
+                       + " per M in/out/cache" if price else None]
+            whose = f"{e['vendor']}{' ' + e['plan'] if e.get('plan') else ''}, {e['as_of']}"
+            print(f"  expected  {' · '.join(x for x in figures if x)}  ({whose}"
+                  f"{'' if e['own'] else '; another vendor, a guideline only'})")
+        o = r["observed"]
+        if o is None:
+            print("  observed  no runs here yet")
+        else:
+            fail = f", failed in {o['t_fail'] / 60:.1f}m" if o["t_fail"] is not None else ""
+            tok = (f", {o['tokens']['out'] / 1000:.1f}k out ({o['tok_s']:.0f} tok/s over the run)"
+                   if o["tokens"]["out"] is not None else "")
+            cost = f", ${o['cost_per_run']:.3f}/run at that price" if o["cost_per_run"] is not None else ""
+            print(f"  observed  {o['runs']} run(s), fail {o['p']:.0%}, ok in {o['t_ok'] / 60:.1f}m{fail}{tok}{cost}")
+    return 0
+
+
 def _choose(a) -> int:
     from . import catalog, choice, outcomes
     now = datetime.now(timezone.utc)
@@ -194,6 +252,9 @@ def main(argv: list[str] | None = None) -> int:
     en.add_argument("--tokens-cache", type=int)
     oc = sub.add_parser("outcomes", help="each model's recent failure rate and durations on this machine")
     oc.add_argument("--json", action="store_true")
+    cd = sub.add_parser("cards", help="each route's model card: its vendor's figures beside its runs here")
+    cd.add_argument("--tier", choices=["standard", "heavy"])
+    cd.add_argument("--json", action="store_true")
     ch = sub.add_parser("choose", help="which candidate takes a round, by expected cost; logged")
     ch.add_argument("--tier", choices=["standard", "heavy"], required=True)
     ch.add_argument("--kind", choices=["finding", "final"], required=True)
@@ -233,6 +294,8 @@ def main(argv: list[str] | None = None) -> int:
         return _outcomes(a)
     if a.cmd == "choose":
         return _choose(a)
+    if a.cmd == "cards":
+        return _cards(a)
     out = []
     for v in getattr(a, "vendor", None) or sorted(REGISTRY):
         out += cache.through(REGISTRY[v], max_age=a.max_age,

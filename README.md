@@ -149,7 +149,13 @@ passes with no end counts as a timeout. `unlimited outcomes` prints each model's
 and durations on this machine, from `~/.local/state/unlimited/decisions.jsonl`.
 `unlimited choose --tier T --kind finding|final --candidates P,... --quota P=ρ,... --deadline S --json`
 picks which of them takes a round by expected minutes (failure rate, durations, quota price; a
-live promotion's quota is free), logs the decision with each candidate's odds, and prints it. Design:
+live promotion's quota is free), logs the decision with each candidate's odds, and prints it.
+
+`unlimited cards [--tier T] [--json]` shows each route's model card: what its vendor publishes
+(intelligence, tokens per second, price per million tokens; the catalog's `[[cards]]`) beside what
+its runs here show (failure rate, durations, tokens, pace over the whole run, and the cost of a
+typical run at the card's price). Price and speed belong to the vendor, not the model: a route whose
+own vendor has no card shows another vendor's as a guideline only. Design:
 [docs/usage-routing/phase-2a.md](docs/usage-routing/phase-2a.md).
 
 ## Verdicts

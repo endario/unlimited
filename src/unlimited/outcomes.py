@@ -7,6 +7,7 @@ import fcntl
 import json
 import math
 import os
+import statistics
 import uuid
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -128,8 +129,9 @@ def attempts(records: list[dict], now: datetime) -> list[dict]:
             outcome, secs = "timeout", float(deadline)
         else:
             continue
+        tokens = e.get("tokens") if e and isinstance(e.get("tokens"), dict) else {}
         out.append({"provider": r["provider"], "model": r["model"], "effort": r.get("effort"),
-                    "kind": r.get("kind"), "at": t0, "outcome": outcome, "secs": secs})
+                    "kind": r.get("kind"), "at": t0, "outcome": outcome, "secs": secs, "tokens": tokens})
     return out
 
 
@@ -155,11 +157,16 @@ def stats(done: list[dict], now: datetime) -> dict[tuple[str, str], dict]:
         if a["outcome"] == "unavailable":
             continue
         k = (a["provider"], a["model"])
-        s = out.setdefault(k, {"ok": 0.0, "fail": 0.0, "log_ok": 0.0, "fail_secs": 0.0})
+        s = out.setdefault(k, {"ok": 0.0, "fail": 0.0, "log_ok": 0.0, "fail_secs": 0.0, "runs": 0,
+                               "last": a["at"], "_tokens": []})
+        s["runs"] += 1
+        s["last"] = max(s["last"], a["at"])
         w = _weight(a["at"], now)
         if a["outcome"] == "ok":
             s["ok"] += w
             s["log_ok"] += w * math.log(max(a["secs"], 1.0))
+            if all(isinstance(a["tokens"].get(x), int) for x in ("in", "out")) and a["secs"] > 0:
+                s["_tokens"].append((a["tokens"], a["secs"]))
         else:
             s["fail"] += w
             s["fail_secs"] += w * a["secs"]
@@ -168,5 +175,11 @@ def stats(done: list[dict], now: datetime) -> dict[tuple[str, str], dict]:
         mu = (N0 * MU0 + s["log_ok"]) / (N0 + s["ok"])
         s["t_ok"] = math.exp(mu + var / 2)
         s["t_fail"] = s["fail_secs"] / s["fail"] if s["fail"] > 0 else None
+        # What a successful run spent, and how fast it wrote: the observed side of a model's card.
+        runs = s.pop("_tokens")
+        med = lambda xs: statistics.median(xs) if xs else None
+        s["tokens"] = {x: med([t.get(x) for t, _ in runs if isinstance(t.get(x), int)]) for x in ("in", "out", "cache")}
+        s["tok_s"] = med([t["out"] / secs for t, secs in runs])
+        s["last"] = s["last"].isoformat()
         del s["log_ok"], s["fail_secs"]
     return out

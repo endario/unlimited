@@ -79,6 +79,15 @@ minute, the rest less in order, so it settles near-ties in both kinds of round.
 
 Deepseek takes it; Space Bunny would take it back once it stops hanging for a few hours.
 
+## Cards
+
+Each route (a provider's model, so one model sold by two vendors is two routes) has a card: the
+vendor's published figures from the catalog's `[[cards]]`, beside the observed ones above. The
+observed side is what 2A reads; a card's figures are not in `E` yet, because a vendor's tokens per
+second is generation speed and a review's wall clock is mostly tool turns. Once a day of attempts
+records tokens, the ratio between the two is measured and the card can seed `T_ok` for a route
+with no runs. Failure rates and durations are per route today, not per account or plan.
+
 ## Logging
 
 One append-only JSON-lines file per machine, `$XDG_STATE_HOME/unlimited/decisions.jsonl`, written

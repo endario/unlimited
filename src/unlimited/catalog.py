@@ -13,6 +13,12 @@ from pathlib import Path
 
 SCHEMA = 1
 TIERS = ("standard", "heavy")
+# A card's prices, USD per million tokens.
+PRICES = ("input", "output", "cache_read", "cache_write")
+
+
+def _number(v: object) -> bool:
+    return isinstance(v, (int, float)) and not isinstance(v, bool) and v >= 0
 
 
 class CatalogError(Exception):
@@ -73,8 +79,8 @@ def _parse(text: str, where: str) -> dict:
     providers = got.get("providers", {})
     if not isinstance(providers, dict) or not all(isinstance(p, dict) for p in providers.values()):
         raise CatalogError(f"{where}: providers must be tables")
-    if not all(isinstance(got.get(k, []), list) for k in ("promotions", "banned", "tie_preference")):
-        raise CatalogError(f"{where}: promotions, banned and tie_preference must be lists")
+    if not all(isinstance(got.get(k, []), list) for k in ("promotions", "banned", "tie_preference", "cards")):
+        raise CatalogError(f"{where}: promotions, banned, tie_preference and cards must be lists")
     return got
 
 
@@ -88,7 +94,15 @@ def _merge(shipped: dict, local: dict) -> dict:
         if whole in local:
             out[whole] = local[whole]
     out["banned"] = list(shipped.get("banned", [])) + list(local.get("banned", []))
+    # A local card replaces the shipped one for the same vendor, name and plan; the rest stand.
+    local_cards = local.get("cards", [])
+    keys = {_card_key(c) for c in local_cards if isinstance(c, dict)}
+    out["cards"] = [c for c in shipped.get("cards", []) if _card_key(c) not in keys] + list(local_cards)
     return out
+
+
+def _card_key(c: dict) -> tuple:
+    return c.get("vendor"), c.get("name"), c.get("plan")
 
 
 def _check(c: dict) -> None:
@@ -108,6 +122,16 @@ def _check(c: dict) -> None:
               and isinstance(promo.get("until", date.max), date) and not isinstance(promo.get("until"), datetime))
         if not ok:
             raise CatalogError(f"promotion {i + 1}: needs a known provider, a model, tiers and an optional date")
+    for i, card in enumerate(c.get("cards", [])):
+        ok = (isinstance(card, dict) and all(isinstance(card.get(k), str) for k in ("vendor", "name", "source"))
+              and isinstance(card.get("models", []), list) and all(isinstance(m, str) for m in card.get("models", []))
+              and isinstance(card.get("plan", ""), str) and isinstance(card.get("price", {}), dict)
+              and all(_number(card[k]) for k in ("intelligence", "tok_s") if k in card)
+              and all(k in PRICES and _number(v) for k, v in card.get("price", {}).items())
+              and isinstance(card.get("as_of"), date) and not isinstance(card.get("as_of"), datetime))
+        if not ok:
+            raise CatalogError(f"card {i + 1}: needs vendor, name, source, as_of; models, plan, "
+                               f"intelligence, tok_s and price ({', '.join(PRICES)}) are optional")
     if not all(isinstance(m, str) for m in c.get("banned", [])):
         raise CatalogError("banned: model ids only")
     if not all(p in providers for p in c.get("tie_preference", [])):
@@ -130,6 +154,7 @@ class Catalog:
         self.promotions: list[dict] = data.get("promotions", [])
         self.banned: frozenset[str] = frozenset(data.get("banned", []))
         self.tie_preference: list[str] = data.get("tie_preference", [])
+        self.cards: list[dict] = data.get("cards", [])
         # Switched off on this machine: a provider, a model id, or `provider:model`.
         self.off: list[dict] = off or []
 
@@ -165,11 +190,21 @@ class Catalog:
         return {"schema": SCHEMA, "providers": providers, "banned": sorted(self.banned),
                 "tie_preference": self.tie_preference,
                 "promotions": [dict(p, until=p["until"].isoformat()) if "until" in p else dict(p)
-                               for p in self.promotions if self._live(p, now)]}
+                               for p in self.promotions if self._live(p, now)],
+                "cards": [dict(c, as_of=c["as_of"].isoformat()) for c in self.cards]}
 
     def model(self, provider: str, tier: str, now: datetime | None = None) -> str | None:
         m = self.providers.get(provider, {}).get(tier)
         return m if m is not None and not self.blocked(provider, m, now or datetime.now(timezone.utc)) else None
+
+    def card(self, provider: str, model: str) -> tuple[dict | None, bool]:
+        """What is published about `model` as `provider` runs it, and whether it is that route's own
+        vendor's figures. A model another vendor also sells has only that vendor's card as a
+        guideline until its own is added: price and speed are the vendor's, not the model's."""
+        vendor = self.providers.get(provider, {}).get("usage")
+        mine = [c for c in self.cards if model in c.get("models", [])]
+        own = next((c for c in mine if c["vendor"] == vendor), None)
+        return (own, True) if own else (mine[0] if mine else None, False)
 
     def provider_of(self, model: str) -> str | None:
         """The provider that lists `model`, at a tier or in a promotion, or None."""
