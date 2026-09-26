@@ -140,6 +140,8 @@ def verdict(reading: object, *, model_scope: str | None, now: datetime, work: ti
     first = min(runs_out, key=lambda w: w["exhausts"]) if runs_out else None
     out = {"window": s["name"], "used": s["used"], "at_reset": [s["lo"], s["hi"]], "paced": s["paced"],
            "resets_at": _iso(s["resets"]), "exhausts_at": _iso(first["exhausts"]) if first else None,
+           # The window that runs out first, which need not be the scored one.
+           "exhausts_by": str(first["name"]) if first else None,
            "runway": (first["exhausts"] - now).total_seconds() if first else None,
            "binding": sorted({str(w["name"]) for w in live})}
     if skipped:

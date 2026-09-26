@@ -61,6 +61,18 @@ class Ranking(unittest.TestCase):
                         five(0.03, 227, at_reset=(0.03, 0.44)), vendor="anthropic")
         self.assertEqual(rank({"1": v(one), "2": v(two), "3": v(three)}), ["3", "2", "1"])
 
+    def test_the_run_out_time_names_the_window_it_belongs_to(self):
+        # The week is scored, but the five-hour window runs out first: a time shown beside the
+        # week's forecast without this reads as the week's.
+        r = reading(window("seven_day", 0.41, WEEK, 3 * 1440, at_reset=(0.74, 1.19),
+                           exhausts=NOW + timedelta(days=2)),
+                    five(0.8, 200, at_reset=(0.9, 1.3), exhausts=NOW + 2 * HOUR), vendor="anthropic")
+        got = v(r)
+        self.assertEqual((got["window"], got["exhausts_by"]), ("seven_day", "five_hour"), got)
+        self.assertEqual(got["exhausts_at"], (NOW + 2 * HOUR).isoformat())
+        calm = v(reading(window("codex", 0.2, WEEK, 5000, at_reset=(0.3, 0.4))))
+        self.assertIsNone(calm["exhausts_by"])
+
     def test_95_percent_resetting_in_twenty_minutes_is_not_excluded_for_shorter_work(self):
         for r in (reading(window("codex", 0.95, WEEK, 20, at_reset=(0.95, 0.96))),
                   reading(window("codex", 0.95, WEEK, 20))):
