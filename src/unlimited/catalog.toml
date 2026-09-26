@@ -105,6 +105,18 @@ model = "muse-spark-1-3-contributor"
 vendor = "opencode"
 
 [[offerings]]
+id = "commandcode/deepseek/deepseek-v4.1-flash"
+model = "deepseek-v4-1-flash"
+vendor = "commandcode"
+debit = 1.5
+
+[[offerings]]
+id = "commandcode/meta/muse-spark-1.3-contributor"
+model = "muse-spark-1-3-contributor"
+vendor = "commandcode"
+debit = 5.4
+
+[[offerings]]
 id = "commandcode/stealth/space-bunny-alpha"
 model = "space-bunny-alpha"
 vendor = "commandcode"
@@ -175,7 +187,7 @@ as_of = 2026-09-26
 vendor = "commandcode"
 plan = "goat"
 name = "DeepSeek V4.1 Flash"
-models = ["opencode-go/deepseek-v4.1-flash"]
+models = ["opencode-go/deepseek-v4.1-flash", "commandcode/deepseek/deepseek-v4.1-flash"]
 intelligence = 39.5
 tok_s = 237
 price = { input = 0.15, output = 0.60, cache_read = 0.003 }
@@ -186,7 +198,7 @@ as_of = 2026-09-26
 vendor = "commandcode"
 plan = "goat"
 name = "Muse Spark 1.3 Contributor"
-models = ["opencode-go/muse-spark-1.3-contributor"]
+models = ["opencode-go/muse-spark-1.3-contributor", "commandcode/meta/muse-spark-1.3-contributor"]
 intelligence = 48.1
 tok_s = 248
 price = { input = 0.10, output = 0.20, cache_read = 0.002 }
