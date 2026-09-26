@@ -67,7 +67,10 @@ The same choice without files, over attempts the caller keeps itself, is
 `unlimited.choice.rank(cat, tier=, candidates=, attempts=, quota=, deadline=, now=, temperature=,
 quota_weight=, task=, meta=, exclude=, vendors=, prefer=, rng=)`: `attempts` as `outcomes.attempts` returns them (each
 `provider`, `model`, `offering`, `effort`, `task`, `at`, `outcome`, `secs`, `tokens`), and the
-decision back as below, to store where the caller likes. `vendors` is None (every vendor) unless
+decision back as below, to store where the caller likes. Unknown candidate names, an attempt
+outcome other than `ok`, `timeout`, `error` or `unavailable` (leave out one that should not count)
+and a timezone-naive `at` are refused; the decision's `attempts_unknown` counts attempts naming no
+route of the catalog. `vendors` is None (every vendor) unless
 given; `unlimited.choice.vendors_here(cat)` is this machine's. `choose` is `rank` over unlimited's log,
 with the decision appended to it.
 

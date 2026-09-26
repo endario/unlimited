@@ -13,6 +13,7 @@ from datetime import datetime
 from . import outcomes
 from .catalog import Catalog
 
+SCORED = ("ok", "timeout", "error", "unavailable")  # the outcomes an attempt given to rank may have
 KAPPA = 5.0  # quota price steepness: exp(κ(ρ − 1))
 QUOTA_WEIGHT = 20.0  # default minutes one unit of quota price is worth
 PREFER = 1.0  # minutes the first of tie_preference is worth; the rest less, in order
@@ -123,12 +124,26 @@ def rank(cat: Catalog, *, tier: str, candidates: list[str], attempts: list[dict]
     `vendors`, a route on any other vendor is not a candidate (`vendors_here` gives this machine's).
     `prefer` maps a name (as in `candidates`) to minutes taken off its routes' cost, negative to add;
     a route takes its most specific name's (offering id, then model, then provider). A name the
-    catalog does not know is refused; one naming no candidate is listed in `prefer_unmatched`."""
+    catalog does not know is refused, in `candidates` as in `prefer`; one in `prefer` naming no
+    candidate is listed in `prefer_unmatched`. An attempt must have a scored outcome (`ok`,
+    `timeout`, `error`, `unavailable`) and a timezone-aware `at`; `attempts_unknown` counts those
+    naming no route of the catalog."""
     if not (math.isfinite(temperature) and temperature >= 0 and math.isfinite(quota_weight) and quota_weight >= 0
             and math.isfinite(deadline) and deadline > 0):
         raise ValueError("temperature and quota weight must be finite and not negative, the deadline positive")
     prefer = prefer or {}
     known = ({m["provider"] for m in cat.models.values()} | set(cat.models) | {o["id"] for o in cat.offerings})
+    for name in candidates:
+        if name not in known:
+            raise ValueError(f"candidate {name}: not a provider, model or offering id in the catalog")
+    for a in attempts:
+        if a.get("outcome") not in SCORED:
+            raise ValueError(f"attempt outcome {a.get('outcome')!r}: expected one of {', '.join(SCORED)}; "
+                             f"leave out an attempt that should not count")
+        if not (isinstance(a.get("at"), datetime) and a["at"].tzinfo is not None):
+            raise ValueError(f"attempt at {a.get('at')!r}: expected a timezone-aware datetime")
+    routes = {(cat.models[o["model"]]["provider"], o["id"]) for o in cat.offerings}
+    unknown = sum(1 for a in attempts if (a.get("provider"), a.get("offering") or a.get("model")) not in routes)
     for name, minutes in prefer.items():
         if name not in known:
             raise ValueError(f"prefer {name}: not a provider, model or offering id in the catalog")
@@ -154,7 +169,7 @@ def rank(cat: Catalog, *, tier: str, candidates: list[str], attempts: list[dict]
                "exclude": exclude, "vendors": None if vendors is None else sorted(vendors), "prefer": prefer}
     return {"v": outcomes.VERSION, "type": "decision", "decision": uuid.uuid4().hex[:16], "at": now.isoformat(),
             "request": request, "seed": None if rng else seed, "candidates": scored, "order": tried,
-            "pick": tried[0], "prefer_unmatched": sorted(set(prefer) - used)}
+            "pick": tried[0], "prefer_unmatched": sorted(set(prefer) - used), "attempts_unknown": unknown}
 
 
 def choose(cat: Catalog, *, tier: str, candidates: list[str], quota: dict[str, float], deadline: float,

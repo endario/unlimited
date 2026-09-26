@@ -151,6 +151,22 @@ class Choose(unittest.TestCase):
         self.assertEqual(hung["candidates"][hung["pick"]]["provider"], "codex")
         self.assertNotEqual([c["e"] for c in clean["candidates"]], [c["e"] for c in hung["candidates"]])
 
+    def test_rank_refuses_what_it_cannot_use_and_counts_history_it_cannot_place(self):
+        cat = catalog.load(Path(tempfile.mkdtemp()) / "none.toml")
+        args = dict(tier="standard", quota={}, deadline=600, now=NOW)
+        run = lambda **kw: {"provider": "codex", "model": "gpt-6-luna", "offering": None, "effort": None,
+                            "task": None, "at": NOW - timedelta(minutes=5), "outcome": "ok", "secs": 60.0,
+                            "tokens": {}, **kw}
+        for candidates, attempts in ((["nope", "codex"], []), (["codex"], [run(outcome="abandoned")]),
+                                     (["codex"], [run(outcome="okay")]),
+                                     (["codex"], [run(at=datetime(2026, 9, 26, 11, 0))])):
+            with self.subTest(candidates=candidates, attempts=attempts), self.assertRaises(ValueError):
+                choice.rank(cat, candidates=candidates, attempts=attempts, **args)
+        got = choice.rank(cat, candidates=["codex"], **args,
+                          attempts=[run(), run(provider="deepseek", model="x", offering="opencode-go/deepseek-v4.1-flash"),
+                                    run(model="gpt-5"), run(provider="nope"), run(offering="commandcode/nope")])
+        self.assertEqual(got["attempts_unknown"], 3, "a model or offering id no route carries, an unknown provider")
+
     def test_a_sampled_order_replays_from_its_seed(self):
         cat = catalog.load(Path(tempfile.mkdtemp()) / "none.toml")
         args = dict(tier="standard", candidates=["glm", "codex", "grok"], attempts=[], quota={}, deadline=600,
