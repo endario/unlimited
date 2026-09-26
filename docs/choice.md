@@ -37,7 +37,7 @@ per line, appended under an exclusive lock, each with a `type`:
 
 | type | written by | fields |
 |---|---|---|
-| `start` | `unlimited attempt start` | `attempt` (id), `at`, `provider`, `model`, `effort`, `account`, `decision` (the choice it carries out, if any), `deadline` (seconds), `task`, `meta` |
+| `start` | `unlimited attempt start` | `attempt` (id), `at`, `provider`, `model`, `offering` (the route's id, when not `model`), `effort`, `account`, `decision` (the choice it carries out, if any), `deadline` (seconds), `task`, `meta` |
 | `end` | `unlimited attempt end ID` | `attempt`, `at`, `outcome` (`ok`, `timeout`, `error`, `unavailable`), `tokens` (`in`, `out`, `cache`), `meta` |
 | `decision` | `unlimited choose` | `decision` (id), `at`, `request` (everything asked, below), `seed`, `candidates` (each scored, with its odds), `pick` |
 
@@ -46,7 +46,8 @@ never read. No prompt or content is recorded unless a caller puts it in `meta`.
 
 Reading rules: a line that does not parse is skipped and counted; a second `end` for one attempt is
 ignored; a `start` with no `end` whose deadline has passed is a `timeout` (a caller killed mid-use
-still counts); `unavailable` is not the model's failure. Records older than 7 days are dropped once
+still counts); statistics are per route (provider and offering id), so `unavailable` counts
+against the route that could not be reached and no other. Records older than 7 days are dropped once
 the file passes 1 MB.
 
 ## 3. Choice
@@ -67,7 +68,9 @@ attempts with weight `w = 2^(−age / 12 h)`:
 **Time to fail**: the decayed mean of observed failures, with the call's `--deadline` worth one
 (a hang costs the deadline).
 
-**Quota price** of the caller's `ρ` for the candidate (its account's projected use at reset):
+**Quota price** of the caller's `ρ` for the candidate: `--quota ID=ρ` for a route (the projected
+use at reset of the account the caller would launch it on; give every route on one account the same
+value), or `--quota PROVIDER=ρ` for a provider's routes on its usual vendor:
 `π(ρ) = exp(5·(ρ − 1))` — 0.03 at 0.3, 1 at the limit, 2.7 at 1.2. A live promotion costs nothing;
 a candidate with no `ρ` is priced at the limit.
 

@@ -93,12 +93,13 @@ def _time(v: object) -> datetime | None:
 
 def start(*, provider: str, model: str, effort: str | None, task: str | None, account: str | None,
           decision: str | None, deadline: float, now: datetime, meta: dict | None = None,
-          p: Path | None = None) -> str:
+          offering: str | None = None, p: Path | None = None) -> str:
     """Record an attempt as it was asked. `task` and `meta` are the caller's own: recorded, never
     read by unlimited."""
     aid = uuid.uuid4().hex[:16]
     append({"v": VERSION, "type": "start", "attempt": aid, "at": now.isoformat(), "provider": provider,
-            "model": model, "effort": effort, "task": task, "account": account, "decision": decision,
+            "model": model, "offering": offering, "effort": effort, "task": task, "account": account,
+            "decision": decision,
             "deadline": deadline, "meta": meta or {}}, p)
     return aid
 
@@ -137,7 +138,8 @@ def attempts(records: list[dict], now: datetime) -> list[dict]:
         else:
             continue
         tokens = e.get("tokens") if e and isinstance(e.get("tokens"), dict) else {}
-        out.append({"provider": r["provider"], "model": r["model"], "effort": r.get("effort"),
+        out.append({"provider": r["provider"], "model": r["model"], "offering": r.get("offering"),
+                    "effort": r.get("effort"),
                     "task": r.get("task", r.get("kind")), "at": t0, "outcome": outcome, "secs": secs, "tokens": tokens})
     return out
 
@@ -147,10 +149,10 @@ def _weight(at: datetime, now: datetime) -> float:
 
 
 def stats(done: list[dict], now: datetime) -> dict[tuple[str, str], dict]:
-    """Per (provider, model): the decayed failure probability `p`, the expected seconds of a
+    """Per (provider, route id): the decayed failure probability `p`, the expected seconds of a
     success `t_ok` (per effort and kind where it has its own history, else the model's) and the
     decayed mean seconds of a failure `t_fail` (None without one), and the weights behind them.
-    `unavailable` is not the model's failure and is not counted."""
+    An `unavailable` attempt is its route's failure."""
     # The spread of log-durations, pooled over every model, weighted as the per-model sums are.
     oks = [(_weight(a["at"], now), math.log(max(a["secs"], 1.0))) for a in done if a["outcome"] == "ok"]
     total = sum(w for w, _ in oks)
@@ -161,9 +163,10 @@ def stats(done: list[dict], now: datetime) -> dict[tuple[str, str], dict]:
         var = 0.25
     out: dict[tuple[str, str], dict] = {}
     for a in done:
-        if a["outcome"] == "unavailable":
-            continue
-        k = (a["provider"], a["model"])
+        # Keyed by route: an attempt's offering, else its model field, which has held the id
+        # launched since attempts were first recorded. `unavailable` counts against that route: a
+        # vendor that cannot be reached is its failure, not the model's on another vendor.
+        k = (a["provider"], a["offering"] or a["model"])
         s = out.setdefault(k, {"ok": 0.0, "fail": 0.0, "log_ok": 0.0, "fail_secs": 0.0, "runs": 0,
                                "last": a["at"], "_tokens": []})
         s["runs"] += 1

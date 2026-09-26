@@ -85,6 +85,14 @@ class Routes(unittest.TestCase):
         self.assertEqual((rho["opencode-go/deepseek-v4.1-flash"], rho["commandcode/deepseek/deepseek-v4.1-flash"]),
                          (0.2, None))
 
+    def test_a_routes_own_projection_prices_it(self):
+        from unlimited import choice
+        got = choice.choose(load(SECOND), tier="standard", providers=["deepseek"], deadline=600, now=NOW,
+                            quota={"deepseek": 0.2, "commandcode/deepseek/deepseek-v4.1-flash": 0.5},
+                            log=Path(tempfile.mkdtemp()) / "d.jsonl")
+        self.assertEqual({x["model"]: x["rho"] for x in got["candidates"]},
+                         {"opencode-go/deepseek-v4.1-flash": 0.2, "commandcode/deepseek/deepseek-v4.1-flash": 0.5})
+
     def test_malformed_or_ambiguous_files_are_catalog_errors(self):
         for text in ('schema = 2\nofferings = ["x"]\n',
                      'schema = 1\n[providers.codex]\nstandard = "shared"\n[providers.meta]\nstandard = "shared"\n',

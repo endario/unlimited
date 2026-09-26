@@ -104,6 +104,7 @@ def _attempt(a) -> int:
         outcomes.compact(now)
         print(outcomes.start(provider=a.provider, model=a.model, effort=a.effort, task=a.task,
                              account=a.account, decision=a.decision, deadline=a.deadline, now=now,
+                             offering=a.offering,
                              meta=dict(a.meta or [])))
     else:
         tokens = {k: v for k, v in (("in", a.tokens_in), ("out", a.tokens_out), ("cache", a.tokens_cache))
@@ -258,6 +259,7 @@ def main(argv: list[str] | None = None) -> int:
     st_ = ats.add_parser("start", help="prints the attempt id")
     st_.add_argument("--provider", required=True)
     st_.add_argument("--model", required=True)
+    st_.add_argument("--offering", help="the catalog offering id launched, when it is not --model")
     st_.add_argument("--effort")
     st_.add_argument("--task", help="the caller's label for what the model is used for (recorded, never read)")
     st_.add_argument("--account")
@@ -279,7 +281,8 @@ def main(argv: list[str] | None = None) -> int:
     ch = sub.add_parser("choose", help="which candidate to use for a task, by expected cost; logged")
     ch.add_argument("--tier", required=True, help="one of the catalog's tiers")
     ch.add_argument("--candidates", required=True, help="providers the caller allows, comma-separated")
-    ch.add_argument("--quota", default="", help="<provider>=<projected use at reset>,... for those that have one")
+    ch.add_argument("--quota", default="", help="<offering id or provider>=<projected use at reset>,...: an offering id prices that route; "
+                         "a provider, its routes on its usual vendor")
     ch.add_argument("--deadline", type=float, required=True, help="seconds after which a use counts as failed")
     ch.add_argument("--temperature", type=float, default=0.0,
                     help="minutes: 0 takes the lowest expected cost; above it, a candidate that many "

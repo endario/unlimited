@@ -44,7 +44,10 @@ def score(cands: list[dict], quota: dict[str, float], stats: dict, deadline: flo
         # A failure costs its observed time to fail, with this call's deadline worth one attempt.
         fail_w, fail_secs = (s["fail"], (s["t_fail"] or 0) * s["fail"]) if s else (0.0, 0.0)
         t_fail = (deadline + fail_secs) / (1 + fail_w) / 60
-        rho = None if c["promoted"] else quota.get(c["provider"]) if c.get("quota_applies", True) else None
+        # A caller's projection for the route itself, else for the provider (which stands for the
+        # route on the provider's usual vendor only).
+        rho = (None if c["promoted"] else quota[c["model"]] if c["model"] in quota
+               else quota.get(c["provider"]) if c.get("quota_applies", True) else None)
         pi = 0.0 if c["promoted"] else price(rho)
         out.append({**c, "rho": rho, "pi": pi, "p": p, "t_ok": t_ok, "t_fail": t_fail})
     for c in out:
