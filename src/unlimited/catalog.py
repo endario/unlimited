@@ -70,9 +70,7 @@ def write_switches(off: list[dict], path: Path | None = None) -> None:
 
 
 # What a schema-2 file may hold at its top level.
-TOP_LEVEL = frozenset({"schema", "tiers", "models", "offerings", "banned", "tie_preference", "cards", "presets"})
-# What a preset may set: how to choose, never what the task is or what the caller may use.
-PRESET_KNOBS = frozenset({"temperature", "quota_weight"})
+TOP_LEVEL = frozenset({"schema", "tiers", "models", "offerings", "banned", "tie_preference", "cards"})
 
 
 def _parse(text: str, where: str) -> dict:
@@ -89,9 +87,8 @@ def _parse(text: str, where: str) -> dict:
     elif any(k.startswith("_") or k == "provider_keys" for k in got) or any(
             k.startswith("_") for o in got.get("offerings", []) if isinstance(o, dict) for k in o):
         raise CatalogError(f"{where}: keys starting with _, and provider_keys, are unlimited's own")
-    for k in ("models", "presets"):
-        if not isinstance(got.get(k, {}), dict) or not all(isinstance(m, dict) for m in got.get(k, {}).values()):
-            raise CatalogError(f"{where}: {k} must be tables")
+    if not isinstance(got.get("models", {}), dict) or not all(isinstance(m, dict) for m in got.get("models", {}).values()):
+        raise CatalogError(f"{where}: models must be tables")
     if not all(isinstance(got.get(k, []), list) for k in ("tiers", "offerings", "banned", "tie_preference", "cards")):
         raise CatalogError(f"{where}: tiers, offerings, banned, tie_preference and cards must be lists")
     if not all(isinstance(o, dict) for k in ("offerings", "cards") for o in got.get(k, [])):
@@ -193,8 +190,6 @@ def _merge(shipped: dict, local: dict) -> dict:
     for k, v in local.get("provider_keys", {}).items():
         keys.setdefault(k, {}).update(v)
     out["provider_keys"] = keys
-    # A local preset replaces the shipped one of its name whole.
-    out["presets"] = {**shipped.get("presets", {}), **local.get("presets", {})}
     for whole in ("tiers", "tie_preference"):
         if whole in local:
             out[whole] = local[whole]
@@ -247,10 +242,6 @@ def _check(c: dict) -> None:
                                f"intelligence, tok_s and price ({', '.join(PRICES)}) are optional")
     if not all(isinstance(m, str) for m in c.get("banned", [])):
         raise CatalogError("banned: names only (providers, models, vendors, offering ids)")
-    for name, preset in c.get("presets", {}).items():
-        if not (set(preset) <= PRESET_KNOBS and all(_number(v) and math.isfinite(v) for v in preset.values())):
-            raise CatalogError(f"preset {name}: only {', '.join(sorted(PRESET_KNOBS))}, each a finite number "
-                               f"not below 0")
     makers = {m["provider"] for m in models.values()}
     if not all(p in makers for p in c.get("tie_preference", [])):
         raise CatalogError("tie_preference: known providers only")
@@ -265,7 +256,6 @@ class Catalog:
         self.tie_preference: list[str] = data.get("tie_preference", [])
         self.cards: list[dict] = data.get("cards", [])
         self.provider_keys: dict[str, dict] = data.get("provider_keys", {})
-        self.presets: dict[str, dict] = data.get("presets", {})
         # Switched off on this machine: a provider, model, vendor, offering id or `provider:model`.
         self.off: list[dict] = off or []
 
@@ -325,7 +315,7 @@ class Catalog:
                       for r in live if r["free"] for o in self.offerings if o["id"] == r["id"]]
         return {"schema": SCHEMA, "tiers": self.tiers, "models": self.models, "offerings": offerings,
                 "banned": sorted(self.banned), "tie_preference": self.tie_preference,
-                "providers": providers, "promotions": promotions, "presets": self.presets,
+                "providers": providers, "promotions": promotions,
                 "cards": [dict(c, as_of=c["as_of"].isoformat()) for c in self.cards]}
 
     def _view(self, live: list[dict]) -> dict[str, dict]:

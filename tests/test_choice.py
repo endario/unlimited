@@ -82,7 +82,7 @@ class Choose(unittest.TestCase):
         cat = catalog.load(local)
         log = Path(tempfile.mkdtemp()) / "decisions.jsonl"
         got = choice.choose(cat, tier="standard", task="example", candidates=["stealth", "glm"],
-                            quota={"glm": 0.5}, deadline=1800, now=NOW, log=log)
+                            quota={"glm": 0.5}, deadline=1800, now=NOW, log=log, temperature=0)
         self.assertEqual([(c["provider"], c["model"], c["promoted"]) for c in got["candidates"]],
                          [("stealth", "bunny", True), ("glm", "glm-5.3-flash", False)])
         self.assertEqual(got["candidates"][got["pick"]]["provider"], "stealth", "free and unproven beats half a quota")
@@ -98,7 +98,7 @@ class Choose(unittest.TestCase):
             outcomes.start(provider="stealth", model="bunny", effort=None, task="example", account=None,
                            decision=None, deadline=1800, now=NOW - timedelta(hours=1 + i), p=log)
         got = choice.choose(cat, tier="standard", task="example", candidates=["stealth", "glm"],
-                            quota={"glm": 0.5}, deadline=1800, now=NOW, log=log)
+                            quota={"glm": 0.5}, deadline=1800, now=NOW, log=log, temperature=0)
         self.assertEqual(got["candidates"][got["pick"]]["provider"], "glm")
 
     def test_the_whole_request_is_logged_with_the_callers_own_label_and_metadata(self):
@@ -111,7 +111,7 @@ class Choose(unittest.TestCase):
         self.assertEqual(logged["request"], {"tier": "standard", "candidates": ["glm", "codex"], "quota": {"glm": 0.4},
                                              "deadline": 600, "temperature": 1.5, "quota_weight": 10,
                                              "task": "summarise", "meta": {"ticket": "42"}, "exclude": {},
-                                             "vendors": None, "prefer": {}, "preset": None})
+                                             "vendors": None, "prefer": {}})
         self.assertEqual(logged["seed"] is not None, True, "a sampled pick can be replayed")
         self.assertEqual(got["decision"], logged["decision"])
 
@@ -144,6 +144,7 @@ class Choose(unittest.TestCase):
                   "at": NOW - timedelta(minutes=m), "outcome": "timeout", "secs": 1800.0, "tokens": {}} for m in (5, 10)]
         with mock.patch.dict(os.environ, {"XDG_STATE_HOME": state}):
             args = dict(tier="standard", candidates=["glm", "codex"], quota={"glm": 0.3, "codex": 0.3}, deadline=1800,
+                        temperature=0,
                         now=NOW)
             clean = choice.rank(cat, attempts=[], **args)
             hung = choice.rank(cat, attempts=hangs, **args)
@@ -167,30 +168,30 @@ class Choose(unittest.TestCase):
                                     run(model="gpt-5"), run(provider="nope"), run(offering="commandcode/nope")])
         self.assertEqual(got["attempts_unknown"], 3, "a model or offering id no route carries, an unknown provider")
 
-    def test_a_preset_fills_only_what_the_caller_omits(self):
-        local = Path(tempfile.mkdtemp()) / "catalog.toml"
-        local.write_text('schema = 2\n[presets.spread]\ntemperature = 3\nquota_weight = 7\n')
-        cat = catalog.load(local)
-        args = dict(tier="standard", candidates=["glm", "codex"], attempts=[], quota={}, deadline=600, now=NOW)
-        got = choice.rank(cat, preset="spread", **args)
-        self.assertEqual(got["effective"], {"temperature": 3, "quota_weight": 7})
-        self.assertEqual((got["request"]["preset"], got["request"]["temperature"]), ("spread", None),
-                         "the request is as asked")
-        got = choice.rank(cat, preset="spread", temperature=0, **args)
-        self.assertEqual(got["effective"], {"temperature": 0, "quota_weight": 7}, "an explicit 0 is not omitted")
-        self.assertEqual(choice.rank(cat, **args)["effective"], {"temperature": 0.0, "quota_weight": 20.0})
-        with self.assertRaises(ValueError):
-            choice.rank(cat, preset="sprad", **args)
-
-    def test_presets_ship_and_a_malformed_one_is_refused(self):
-        self.assertEqual(catalog.load(Path(tempfile.mkdtemp()) / "none.toml").presets["spread"], {"temperature": 2})
-        local = Path(tempfile.mkdtemp()) / "catalog.toml"
-        for text in ('[presets.x]\ntier = "heavy"\n', '[presets.x]\ntemperature = -1\n',
-                     '[presets.x]\ntemperature = nan\n', '[presets.x]\ntemperature = "2"\n',
-                     '[preset.x]\ntemperature = 2\n'):
-            local.write_text("schema = 2\n" + text)
-            with self.subTest(text=text), self.assertRaises(catalog.CatalogError):
-                catalog.load(local)
+    def test_by_default_a_thin_record_is_explored_and_exploration_fades_as_records_fill(self):
+        cat = catalog.load(Path(tempfile.mkdtemp()) / "none.toml")
+        run = lambda provider, model, mins, hours: {
+            "provider": provider, "model": model, "offering": None, "effort": None, "task": None,
+            "at": NOW - timedelta(hours=hours), "outcome": "ok", "secs": mins * 60.0, "tokens": {}}
+        args = dict(tier="standard", candidates=["codex", "glm"], quota={"codex": 0.5, "glm": 0.5}, deadline=900,
+                    now=NOW, seed=7)
+        # Codex has ten quick runs, GLM none: GLM is still tried now and then.
+        known = [run("codex", "gpt-6-luna", 3, h / 10) for h in range(10)]
+        odds = lambda got: {c["provider"]: c["prob"] for c in got["candidates"]}
+        got = choice.rank(cat, attempts=known, **args)
+        self.assertEqual(got["policy"], "thompson")
+        self.assertTrue(0.02 < odds(got)["glm"] < 0.5, odds(got))
+        # Once GLM has as full a record, slower, it is tried less.
+        slower = known + [run("glm", "glm-5.3-flash", 6, h / 10) for h in range(10)]
+        self.assertLess(odds(choice.rank(cat, attempts=slower, **args))["glm"], odds(got)["glm"])
+        # A rare pick (GLM, on some seed) still logs a chance of being picked.
+        picks = (choice.rank(cat, attempts=known, **{**args, "seed": s}) for s in range(500))
+        rare = next(d for d in picks if d["candidates"][d["pick"]]["provider"] == "glm")
+        self.assertGreater(rare["candidates"][rare["pick"]]["prob"], 0, "what was picked had a chance")
+        # A route no speed can save (its account far past its limit) is all but never explored.
+        spent = choice.rank(cat, attempts=known, **{**args, "quota": {"codex": 0.5, "glm": 1.5}})
+        self.assertLess(odds(spent)["glm"], 0.01)
+        self.assertEqual(choice.rank(cat, attempts=known, **args, temperature=0)["policy"], "best")
 
     def test_a_sampled_order_replays_from_its_seed(self):
         cat = catalog.load(Path(tempfile.mkdtemp()) / "none.toml")

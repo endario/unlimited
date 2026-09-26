@@ -19,9 +19,6 @@ tie_preference = ["meta", "deepseek"]  # providers preferred among near-equal ca
 provider = "deepseek"                  # its maker
 tiers = ["standard"]                   # the tiers it serves
 
-[presets.spread]                       # a named way of choosing (choose --preset): temperature
-temperature = 2                        # and quota_weight only; a local one replaces it by name
-
 [[offerings]]                          # a vendor's route to a model
 id = "opencode-go/deepseek-v4.1-flash" # the vendor's name for it: unique, what a caller launches
 model = "deepseek-v4-1-flash"
@@ -59,7 +56,7 @@ its first live offering at each tier.
 Models merge key by key; an offering replaces the shipped offering with the same id, or is added;
 `tiers` and `tie_preference` are replaced whole (a tier the local list drops is served by no shipped
 model); `banned` is the union of both; a card replaces the shipped card of the same vendor, name and
-plan; a preset replaces the shipped preset of its name whole. A local file that does not parse,
+plan. A local file that does not parse,
 states an unknown `schema`, or holds a top-level key a schema-2 file does not have, is an error,
 never ignored.
 

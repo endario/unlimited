@@ -14,15 +14,6 @@ banned = []
 # list replaces this one.
 tie_preference = ["meta", "deepseek", "stealth"]
 
-# Named ways of choosing, for `choose --preset`: each sets how to choose (temperature,
-# quota_weight), never what the task is or what the caller may use; a caller's own values win. A
-# local preset replaces the shipped one of its name. They may change between releases.
-[presets.steady]   # the lowest expected cost, every time: today's defaults
-temperature = 0
-
-[presets.spread]   # near-equal candidates take turns, so each keeps a record
-temperature = 2
-
 # A model: its provider (maker) and the tiers it serves. Keyed by a vendor-neutral name.
 [models.gpt-6-luna]
 provider = "codex"

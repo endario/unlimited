@@ -121,7 +121,7 @@ class Routes(unittest.TestCase):
 
         def pick(quota):
             got = choice.choose(load(dear), tier="standard", candidates=["deepseek"], deadline=600, now=NOW,
-                                quota=quota, log=Path(tempfile.mkdtemp()) / "d.jsonl")
+                                quota=quota, log=Path(tempfile.mkdtemp()) / "d.jsonl", temperature=0)
             return got["candidates"][got["pick"]]["model"], {x["model"]: x["debit"] for x in got["candidates"]}
 
         self.assertEqual(pick({go: 0.5, cc: 0.5}), (go, {go: 1, cc: 2}))

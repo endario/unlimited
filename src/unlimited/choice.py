@@ -44,15 +44,19 @@ def named(cat: Catalog, tier: str, names: list[str], now: datetime) -> list[dict
 
 
 def score(cands: list[dict], quota: dict[str, float], stats: dict, deadline: float,
-          prefer: list[str], quota_weight: float = QUOTA_WEIGHT, lean: dict[str, float] | None = None) -> list[dict]:
-    """Each candidate with its `rho`, `pi`, `p`, `t_ok`, `t_fail` (minutes), `preference` (minutes off
-    its cost: the catalog's tie preference and the caller's `lean` for its route id) and expected
-    cost `e`."""
+          prefer: list[str], quota_weight: float = QUOTA_WEIGHT, lean: dict[str, float] | None = None,
+          var: float = 0.25) -> list[dict]:
+    """Each candidate with its `rho`, `pi`, `p`, `t_ok`, `t_fail`, `t_next` (minutes), `preference`
+    (minutes off its cost: the catalog's tie preference and the caller's `lean` for its route id),
+    expected cost `e`, and the evidence behind `p` and `t_ok`: `ok` and `fail` (decayed weights),
+    `mu` and `var` (log-seconds). `var` is the pooled spread, for a route with no history."""
     out = []
     for c in cands:
         s = stats.get((c["provider"], c["model"]))
         p = s["p"] if s else outcomes.A0 / (outcomes.A0 + outcomes.B0)
-        t_ok = (s["t_ok"] if s else math.exp(outcomes.MU0 + 0.125)) / 60
+        v = s.get("var", var) if s else var
+        t_ok = (s["t_ok"] if s else math.exp(outcomes.MU0 + v / 2)) / 60
+        mu = s.get("mu", math.log(t_ok * 60) - v / 2) if s else outcomes.MU0
         # A failure costs its observed time to fail, with this call's deadline worth one attempt.
         fail_w, fail_secs = (s["fail"], (s["t_fail"] or 0) * s["fail"]) if s else (0.0, 0.0)
         t_fail = (deadline + fail_secs) / (1 + fail_w) / 60
@@ -62,21 +66,48 @@ def score(cands: list[dict], quota: dict[str, float], stats: dict, deadline: flo
                else quota.get(c["provider"]) if c.get("quota_applies", True) else None)
         # A route that debits its account more for a run costs that much more of it.
         pi = 0.0 if c["promoted"] else c.get("debit", 1) * price(rho)
-        out.append({**c, "rho": rho, "pi": pi, "p": p, "t_ok": t_ok, "t_fail": t_fail})
+        out.append({**c, "rho": rho, "pi": pi, "p": p, "t_ok": t_ok, "t_fail": t_fail,
+                    "ok": s["ok"] if s else 0.0, "fail": s["fail"] if s else 0.0, "mu": mu, "var": v})
     for c in out:
         others = [o["t_ok"] for o in out if o is not c]
-        t_next = statistics.median(others) if others else c["t_ok"]
+        c["t_next"] = t_next = statistics.median(others) if others else c["t_ok"]
         tie = PREFER * (len(prefer) - prefer.index(c["provider"])) / len(prefer) if c["provider"] in prefer else 0.0
         c["preference"] = tie + (lean or {}).get(c["model"], 0.0)
         c["e"] = (1 - c["p"]) * c["t_ok"] + c["p"] * (c["t_fail"] + t_next) + quota_weight * c["pi"] - c["preference"]
     return out
 
 
-def order(scored: list[dict], temperature: float, rng: random.Random) -> list[int]:
-    """Every candidate's index, in the order to try. At temperature 0 by expected cost, lowest
-    first; above it sampled without replacement, P ∝ exp(−e/τ) with τ in minutes, so a candidate
-    that much worse is e times less likely at each draw. Each candidate's odds of being first are
-    set on it as `prob`."""
+def drawn(scored: list[dict], quota_weight: float, rng: random.Random) -> list[float]:
+    """One draw of each candidate's cost: its failure rate and time to succeed drawn from what its
+    record supports (a Beta and a log-normal posterior), the rest at their means. A route with little
+    history draws widely, one with much draws near its mean."""
+    out = []
+    for c in scored:
+        p = rng.betavariate(outcomes.A0 + c["fail"], outcomes.B0 + c["ok"])
+        mu = rng.gauss(c["mu"], math.sqrt(c["var"] / (outcomes.N0 + c["ok"])))
+        t_ok = math.exp(mu + c["var"] / 2) / 60
+        out.append((1 - p) * t_ok + p * (c["t_fail"] + c["t_next"]) + quota_weight * c["pi"] - c["preference"])
+    return out
+
+
+ODDS_DRAWS = 1000  # draws behind a Thompson decision's `prob`, each candidate's chance of coming first
+
+
+def order(scored: list[dict], temperature: float | None, rng: random.Random, quota_weight: float = QUOTA_WEIGHT) -> list[int]:
+    """Every candidate's index, in the order to try, and each candidate's odds of coming first as
+    `prob`. With no temperature (the default), Thompson sampling: by one draw of each cost
+    (`e_drawn`), lowest first, so a candidate is tried about as often as it could be the best. At
+    temperature 0, by expected cost `e`, lowest first. Above it, sampled without replacement,
+    P ∝ exp(−e/τ) with τ in minutes."""
+    if temperature is None:
+        first = drawn(scored, quota_weight, rng)
+        # The odds count the draw that decided, so the pick's are never 0.
+        wins = [0] * len(scored)
+        for d in [first] + [drawn(scored, quota_weight, rng) for _ in range(ODDS_DRAWS)]:
+            wins[min(range(len(d)), key=d.__getitem__)] += 1
+        for c, e, w in zip(scored, first, wins):
+            c["e_drawn"], c["prob"] = e, w / (ODDS_DRAWS + 1)
+        return sorted(range(len(scored)), key=first.__getitem__)
     if temperature <= 0:
         out = sorted(range(len(scored)), key=lambda i: scored[i]["e"])
         for i, c in enumerate(scored):
@@ -113,8 +144,8 @@ def vendors_here(cat: Catalog) -> set[str]:
 
 
 def rank(cat: Catalog, *, tier: str, candidates: list[str], attempts: list[dict], quota: dict[str, float],
-         deadline: float, now: datetime, temperature: float | None = None, quota_weight: float | None = None,
-         preset: str | None = None, task: str | None = None, meta: dict | None = None,
+         deadline: float, now: datetime, temperature: float | None = None, quota_weight: float = QUOTA_WEIGHT,
+         task: str | None = None, meta: dict | None = None,
          exclude: dict[str, str] | None = None, vendors: Collection[str] | None = None,
          prefer: dict[str, float] | None = None, seed: int | None = None) -> dict | None:
     """The decision over `attempts` (as `outcomes.attempts` gives them), reading and writing
@@ -127,17 +158,10 @@ def rank(cat: Catalog, *, tier: str, candidates: list[str], attempts: list[dict]
     catalog does not know is refused, in `candidates` as in `prefer`; one in `prefer` naming no
     candidate is listed in `prefer_unmatched`. An attempt must have a scored outcome (`ok`,
     `timeout`, `error`, `unavailable`) and a timezone-aware `at`; `attempts_unknown` counts those
-    naming no route of the catalog. `temperature` and `quota_weight` the caller omits come from the
-    catalog's `preset`, else default to 0 and QUOTA_WEIGHT; the request records them as asked, and
-    `effective` what was used."""
-    if preset is not None and preset not in cat.presets:
-        raise ValueError(f"preset {preset}: not in the catalog ({', '.join(sorted(cat.presets)) or 'none'})")
-    asked = {"temperature": temperature, "quota_weight": quota_weight}
-    given = (cat.presets[preset] if preset else {})
-    temperature = temperature if temperature is not None else given.get("temperature", 0.0)
-    quota_weight = quota_weight if quota_weight is not None else given.get("quota_weight", QUOTA_WEIGHT)
-    if not (math.isfinite(temperature) and temperature >= 0 and math.isfinite(quota_weight) and quota_weight >= 0
-            and math.isfinite(deadline) and deadline > 0):
+    naming no route of the catalog. The decision's `policy` says how the order was made: `thompson`
+    with no `temperature` (the default), `best` at 0, `softmax` above it (see `order`)."""
+    if not ((temperature is None or (math.isfinite(temperature) and temperature >= 0))
+            and math.isfinite(quota_weight) and quota_weight >= 0 and math.isfinite(deadline) and deadline > 0):
         raise ValueError("temperature and quota weight must be finite and not negative, the deadline positive")
     prefer = prefer or {}
     known = ({m["provider"] for m in cat.models.values()} | set(cat.models) | {o["id"] for o in cat.offerings})
@@ -169,28 +193,30 @@ def rank(cat: Catalog, *, tier: str, candidates: list[str], attempts: list[dict]
         name = next((n for n in names if n in prefer), None)
         if name is not None:
             lean[c["model"]] = prefer[name]
-    scored = score(cands, quota, outcomes.stats(attempts, now), deadline, cat.tie_preference, quota_weight, lean)
+    scored = score(cands, quota, outcomes.stats(attempts, now), deadline, cat.tie_preference, quota_weight, lean,
+                   outcomes.spread(attempts, now))
     if seed is None:
         seed = random.randrange(1 << 32)
-    tried = order(scored, temperature, random.Random(seed))
-    request = {"tier": tier, "candidates": candidates, "quota": quota, "deadline": deadline, **asked,
-               "preset": preset, "task": task, "meta": meta or {},
+    tried = order(scored, temperature, random.Random(seed), quota_weight)
+    request = {"tier": tier, "candidates": candidates, "quota": quota, "deadline": deadline,
+               "temperature": temperature, "quota_weight": quota_weight, "task": task, "meta": meta or {},
                "exclude": exclude, "vendors": None if vendors is None else sorted(vendors), "prefer": prefer}
     return {"v": outcomes.VERSION, "type": "decision", "decision": uuid.uuid4().hex[:16], "at": now.isoformat(),
-            "request": request, "effective": {"temperature": temperature, "quota_weight": quota_weight},
+            "request": request,
+            "policy": "thompson" if temperature is None else "best" if temperature == 0 else "softmax",
             "seed": seed, "candidates": scored, "order": tried,
             "pick": tried[0], "prefer_unmatched": sorted(set(prefer) - used), "attempts_unknown": unknown}
 
 
 def choose(cat: Catalog, *, tier: str, candidates: list[str], quota: dict[str, float], deadline: float,
-           now: datetime, temperature: float | None = None, quota_weight: float | None = None,
-           preset: str | None = None, task: str | None = None, meta: dict | None = None, exclude: dict[str, str] | None = None,
+           now: datetime, temperature: float | None = None, quota_weight: float = QUOTA_WEIGHT,
+           task: str | None = None, meta: dict | None = None, exclude: dict[str, str] | None = None,
            vendors: Collection[str] | None = None, prefer: dict[str, float] | None = None,
            seed: int | None = None, log=None) -> dict | None:
     """`rank` over unlimited's attempt log, the decision appended to it."""
     records, _ = outcomes.read(log)
     decision = rank(cat, tier=tier, candidates=candidates, attempts=outcomes.attempts(records, now), quota=quota,
-                    deadline=deadline, now=now, temperature=temperature, quota_weight=quota_weight, preset=preset, task=task,
+                    deadline=deadline, now=now, temperature=temperature, quota_weight=quota_weight, task=task,
                     meta=meta, exclude=exclude, vendors=vendors, prefer=prefer, seed=seed)
     if decision is not None:
         outcomes.append(decision, log)

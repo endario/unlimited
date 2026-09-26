@@ -151,19 +151,23 @@ def _weight(at: datetime, now: datetime) -> float:
     return 0.5 ** (max((now - at).total_seconds(), 0.0) / HALF_LIFE.total_seconds())
 
 
-def stats(done: list[dict], now: datetime) -> dict[tuple[str, str], dict]:
-    """Per (provider, route id): the decayed failure probability `p`, the expected seconds of a
-    success `t_ok` and the
-    decayed mean seconds of a failure `t_fail` (None without one), and the weights behind them.
-    An `unavailable` attempt is its route's failure."""
-    # The spread of log-durations, pooled over every model, weighted as the per-model sums are.
+def spread(done: list[dict], now: datetime) -> float:
+    """The variance of log-seconds to succeed, pooled over every route, weighted as the per-route
+    sums are; 0.25 until there is more than one success's weight."""
     oks = [(_weight(a["at"], now), math.log(max(a["secs"], 1.0))) for a in done if a["outcome"] == "ok"]
     total = sum(w for w, _ in oks)
-    if total > 1:
-        mean = sum(w * x for w, x in oks) / total
-        var = sum(w * (x - mean) ** 2 for w, x in oks) / (total - 1)
-    else:
-        var = 0.25
+    if total <= 1:
+        return 0.25
+    mean = sum(w * x for w, x in oks) / total
+    return sum(w * (x - mean) ** 2 for w, x in oks) / (total - 1)
+
+
+def stats(done: list[dict], now: datetime) -> dict[tuple[str, str], dict]:
+    """Per (provider, route id): the decayed failure probability `p`, the expected seconds of a
+    success `t_ok` (from `mu`, the posterior mean log-seconds, and `var`, their pooled spread), the
+    decayed mean seconds of a failure `t_fail` (None without one), and the weights behind them.
+    An `unavailable` attempt is its route's failure."""
+    var = spread(done, now)
     out: dict[tuple[str, str], dict] = {}
     for a in done:
         # Keyed by route: an attempt's offering, else its model field, which has held the id
@@ -185,8 +189,9 @@ def stats(done: list[dict], now: datetime) -> dict[tuple[str, str], dict]:
             s["fail_secs"] += w * a["secs"]
     for s in out.values():
         s["p"] = (A0 + s["fail"]) / (A0 + B0 + s["fail"] + s["ok"])
-        mu = (N0 * MU0 + s["log_ok"]) / (N0 + s["ok"])
-        s["t_ok"] = math.exp(mu + var / 2)
+        s["mu"] = (N0 * MU0 + s["log_ok"]) / (N0 + s["ok"])
+        s["var"] = var
+        s["t_ok"] = math.exp(s["mu"] + var / 2)
         s["t_fail"] = s["fail_secs"] / s["fail"] if s["fail"] > 0 else None
         # What a successful run spent, and how fast it wrote: the observed side of a model's card.
         runs = s.pop("_tokens")

@@ -152,9 +152,9 @@ and durations on this machine, from `~/.local/state/unlimited/decisions.jsonl`.
 [--temperature M] [--quota-weight M] [--task LABEL] [--meta K=V]... --json` orders the candidates
 (providers, models or offering ids) by expected
 minutes: failure rate and durations here, and the quota price of each candidate's projected use
-`ρ` (a live promotion's is free), weighed at `--quota-weight` minutes per unit. At `--temperature
-0` (the default) lowest first; above it, it samples without replacement, a candidate that many
-minutes worse being e times less likely at each draw. It logs the whole request and the decision, with each candidate's odds,
+`ρ` (a live promotion's is free), weighed at `--quota-weight` minutes per unit. It explores by
+itself: each candidate is tried about as often as its record says it could be the best, less as
+records fill (Thompson sampling), so nothing needs tuning. It logs the whole request and the decision, with each candidate's odds,
 and prints the decision.
 
 `unlimited cards [--tier T] [--json]` shows each route's model card: what its vendor publishes

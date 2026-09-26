@@ -39,7 +39,7 @@ per line, appended under an exclusive lock, each with a `type`:
 |---|---|---|
 | `start` | `unlimited attempt start` | `attempt` (id), `at`, `provider`, `model`, `offering` (the route's id, when not `model`), `effort`, `account`, `decision` (the choice it carries out, if any), `deadline` (seconds), `task`, `meta` |
 | `end` | `unlimited attempt end ID` | `attempt`, `at`, `outcome` (`ok`, `timeout`, `error`, `unavailable`, `abandoned`), `tokens` (`in`, `out`, `cache`), `meta` |
-| `decision` | `unlimited choose` | `decision` (id), `at`, `request` (everything asked, below), `effective`, `seed`, `candidates` (each scored, with its odds), `order`, `pick`, `prefer_unmatched`, `attempts_unknown` |
+| `decision` | `unlimited choose` | `decision` (id), `at`, `request` (everything asked, below), `policy`, `seed`, `candidates` (each scored, with its odds), `order`, `pick`, `prefer_unmatched`, `attempts_unknown` |
 
 `task` and `meta` are the caller's: a label and string key/value pairs, recorded for later analysis,
 never read. No prompt or content is recorded unless a caller puts it in `meta`.
@@ -54,7 +54,7 @@ the file passes 1 MB.
 ## 3. Choice
 
 `unlimited choose --tier T --candidates NAME,... --deadline S [--quota ID=ρ,...]
-[--exclude ID[=REASON],...] [--prefer NAME=MINUTES,...] [--vendors V,...|any] [--preset NAME] [--temperature M] [--quota-weight M] [--task LABEL] [--meta K=V]... --json`.
+[--exclude ID[=REASON],...] [--prefer NAME=MINUTES,...] [--vendors V,...|any] [--temperature M] [--quota-weight M] [--task LABEL] [--meta K=V]... --json`.
 
 A name is a provider (its live routes at the tier, promotions first), a model (each of its live
 routes) or an offering id (that route), as the catalog has them; switched-off and banned routes are
@@ -65,7 +65,7 @@ elsewhere.
 
 The same choice without files, over attempts the caller keeps itself, is
 `unlimited.choice.rank(cat, tier=, candidates=, attempts=, quota=, deadline=, now=, temperature=,
-quota_weight=, preset=, task=, meta=, exclude=, vendors=, prefer=, seed=)`: `attempts` as `outcomes.attempts` returns them (each
+quota_weight=, task=, meta=, exclude=, vendors=, prefer=, seed=)`: `attempts` as `outcomes.attempts` returns them (each
 `provider`, `model`, `offering`, `effort`, `task`, `at`, `outcome`, `secs`, `tokens`), and the
 decision back as below, to store where the caller likes. Unknown candidate names, an attempt
 outcome other than `ok`, `timeout`, `error` or `unavailable` (leave out one that should not count)
@@ -106,18 +106,24 @@ worse by more. unlimited never learns why. A name the catalog does not know is r
 matching no candidate are listed in the decision's `prefer_unmatched`. `--quota-weight` defaults to
 20 minutes.
 
-**Presets.** `--preset NAME` names a way of choosing from the catalog's `[presets]`: it sets
-`--temperature` and `--quota-weight` wherever the call does not (an explicit value, 0 included,
-wins). `steady` takes the lowest `E` every time (today's defaults); `spread` samples at temperature
-2, so near-equal candidates take turns and each keeps a record. The request records the two as
-asked (null when omitted) and `preset`; the decision's `effective` records what was used. A preset
-is data a release or a local catalog may change.
+**Order.** The decision's `order` is every candidate, in the order to try; `pick` is its first;
+`policy` says how it was made.
 
-**Order.** The decision's `order` is every candidate, in the order to try; `pick` is its first. At
-`--temperature 0` (the default) by `E`, lowest first. Above it, sampled without replacement with
-`P ∝ exp(−E / temperature)` at each draw: a candidate that many minutes worse is e times less
-likely. Each candidate's odds of coming first are logged, with the random seed, so the order
-replays and another policy can be evaluated on the same log later.
+- **Default (`thompson`): exploring by itself.** Each candidate's failure rate is drawn from its
+  Beta posterior, `p ~ Beta(0.5 + Σw·fail, 4.5 + Σw·ok)`, and its log time to succeed from
+  `Normal(μ, σ² / (3 + Σw·ok))`; `T_fail`, `T_next`, the quota price and the preference stay at
+  their values. The order is by the drawn cost (`e_drawn`), lowest first; the rest of the order is
+  the same draw's ranking. A route with little history draws widely, so it is tried about as often
+  as it could be the best; a route that cannot win on quota or preference whatever its speed is
+  not tried; as records fill, exploration fades. How widely a thin record draws is set by the
+  priors (a 10% failure rate worth five attempts, five minutes worth three), the maintainers'
+  constants, not the caller's. `prob` is each candidate's share of first places over the deciding
+  draw and 1000 more on the decision's seed.
+- **`--temperature 0` (`best`):** by `E` at the means, lowest first, never exploring.
+- **`--temperature M` above 0 (`softmax`):** sampled without replacement with `P ∝ exp(−E / M)` at
+  each draw: a candidate that many minutes worse is e times less likely.
+
+The seed is logged, so the order replays.
 
 A decayed average would pick much the same with less machinery; the Beta prior is kept because it
 says how far a few attempts should move a model, and because the logged `p` stays a probability.
