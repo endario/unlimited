@@ -1,0 +1,45 @@
+{
+  "repo": "endario/unlimited",
+  "lanes": [
+    {
+      "id": "readings",
+      "name": "Readings",
+      "hue": "blue",
+      "prefixes": ["feat/vendor-", "feat/reading-", "fix/adapter-"],
+      "outcome": "Every account's subscription windows are read accurately from each vendor: window length, fraction used, reset, hold and plan. Not: what a reading means or where it is heading (Forecasts), or how it is shown (Display).",
+      "ms": "Every subscription a person holds, on any vendor, read reliably and fresh."
+    },
+    {
+      "id": "forecasts",
+      "name": "Forecasts",
+      "hue": "amber",
+      "prefixes": ["feat/forecast-", "feat/verdict-", "fix/projection-"],
+      "outcome": "A person or agent knows where each window is heading and whether it runs out before it resets. Not: choosing which candidate to use (Choosing), or reading the raw figures (Readings).",
+      "ms": "Forecasts trustworthy enough to pace work by."
+    },
+    {
+      "id": "catalog",
+      "name": "Catalog",
+      "hue": "violet",
+      "prefixes": ["feat/catalog-", "feat/models-", "feat/offering-"],
+      "outcome": "A caller can look up which vendors offer which models, on which plans, at what quota price and with what published figures. Not: ranking them for a task (Choosing).",
+      "ms": "One current, sourced catalog of vendors, models and offerings."
+    },
+    {
+      "id": "choosing",
+      "name": "Choosing",
+      "hue": "green",
+      "prefixes": ["feat/choose-", "feat/outcomes-", "feat/preset-"],
+      "outcome": "A caller asks which candidate is best for a task under its own constraints and gets a full, explained order, with every choice and attempt recorded as asked and as it came out. Not: holding any caller's policy or scenario, which stays with the caller.",
+      "ms": "A domain-agnostic load balancer that learns from recorded outcomes."
+    },
+    {
+      "id": "display",
+      "name": "Display",
+      "hue": "teal",
+      "prefixes": ["feat/macos-", "fix/macos-", "feat/show-"],
+      "outcome": "A person sees at a glance, in the menu bar or terminal, how much of each window is used and whether to spend or save it. Not: the JSON contract agents consume (Readings, Forecasts).",
+      "ms": "Usage legible in one glance, without opening anything."
+    }
+  ]
+}
