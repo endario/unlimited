@@ -209,7 +209,9 @@ def _choose(a) -> int:
         got = choice.choose(cat, tier=a.tier, candidates=list(dict.fromkeys(p for p in a.candidates.split(",") if p)),
                             quota=quota, deadline=a.deadline, now=now, temperature=a.temperature,
                             quota_weight=a.quota_weight, task=a.task, meta=dict(a.meta or []),
-                            exclude=dict(x.partition("=")[::2] for x in a.exclude.split(",") if x))
+                            exclude=dict(x.partition("=")[::2] for x in a.exclude.split(",") if x),
+                            vendors=(None if a.vendors == "any" else choice.vendors_here(cat) if a.vendors is None
+                                     else {v for v in a.vendors.split(",") if v}))
     except ValueError as e:
         print(f"unlimited: {e}", file=sys.stderr)
         return 2
@@ -411,6 +413,10 @@ exit status: 0 decided; 1 no named candidate is live at the tier; 2 bad input.""
                          "candidate without one is priced as at the limit")
     ch.add_argument("--exclude", default="", metavar="ID[=REASON],...",
                     help="offering ids the caller rules out; a reason is recorded, never read")
+    ch.add_argument("--vendors", metavar="VENDOR,...|any",
+                    help="the vendors a use may spend; a route on any other is not a candidate. Default: "
+                         "those with an account on this machine; `any` for every vendor, when the caller "
+                         "launches elsewhere")
     ch.add_argument("--temperature", type=float, default=0.0, metavar="MINUTES",
                     help="0 (default): cheapest first; above it the order is sampled, a candidate this many "
                          "minutes worse being e times less likely at each draw")

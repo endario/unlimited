@@ -110,7 +110,8 @@ class Choose(unittest.TestCase):
         self.assertEqual(logged["v"], 1)
         self.assertEqual(logged["request"], {"tier": "standard", "candidates": ["glm", "codex"], "quota": {"glm": 0.4},
                                              "deadline": 600, "temperature": 1.5, "quota_weight": 10,
-                                             "task": "summarise", "meta": {"ticket": "42"}, "exclude": {}})
+                                             "task": "summarise", "meta": {"ticket": "42"}, "exclude": {},
+                                             "vendors": None})
         self.assertEqual(logged["seed"] is not None, True, "a sampled pick can be replayed")
         self.assertEqual(got["decision"], logged["decision"])
 
@@ -172,16 +173,49 @@ class Choose(unittest.TestCase):
         buf = io.StringIO()
         with mock.patch.dict(os.environ, {"XDG_CONFIG_HOME": home, "XDG_STATE_HOME": state}), redirect_stdout(buf):
             self.assertEqual(cli.main(["choose", "--tier", "heavy", "--candidates", "glm,codex",
-                                       "--quota", "glm=0.2,codex=0.9", "--deadline", "900", "--json"]), 0)
+                                       "--quota", "glm=0.2,codex=0.9", "--deadline", "900", "--vendors", "any",
+                                       "--json"]), 0)
         got = json.loads(buf.getvalue())
         self.assertEqual(got["candidates"][got["pick"]]["provider"], "glm")
         buf = io.StringIO()
         with mock.patch.dict(os.environ, {"XDG_CONFIG_HOME": home, "XDG_STATE_HOME": state}), redirect_stdout(buf):
             cli.main(["choose", "--tier", "heavy", "--candidates", "glm,codex", "--quota", "glm=0.2,codex=0.9",
-                      "--exclude", "glm-5.3=benched,other", "--deadline", "900", "--json"])
+                      "--exclude", "glm-5.3=benched,other", "--deadline", "900", "--vendors", "any", "--json"])
         got = json.loads(buf.getvalue())
         self.assertEqual([c["provider"] for c in got["candidates"]], ["codex"], "the ruled-out route is no candidate")
         self.assertEqual(got["request"]["exclude"], {"glm-5.3": "benched", "other": ""})
+
+
+    def test_a_route_this_machine_has_no_account_for_is_never_recommended(self):
+        from unlimited.adapters import REGISTRY
+        cat = catalog.load(Path(tempfile.mkdtemp()) / "none.toml")
+        # This machine: a Z.ai account, and no OpenAI one.
+        with mock.patch.dict(REGISTRY, {v: mock.Mock(discover=mock.Mock(return_value=[1] if v == "zai" else []))
+                                        for v in REGISTRY}):
+            here = choice.vendors_here(cat)
+        self.assertIn("zai", here)
+        self.assertNotIn("openai", here)
+        got = choice.rank(cat, tier="heavy", candidates=["glm", "codex"], attempts=[], quota={}, deadline=900,
+                          now=NOW, vendors=here)
+        self.assertEqual([c["provider"] for c in got["candidates"]], ["glm"])
+        self.assertEqual(got["request"]["vendors"], sorted(here))
+        self.assertIsNone(choice.rank(cat, tier="heavy", candidates=["codex"], attempts=[], quota={}, deadline=900,
+                                      now=NOW, vendors=here), "nothing it could use: no decision")
+
+    def test_the_cli_by_default_offers_only_what_this_machine_can_spend(self):
+        home, state = tempfile.mkdtemp(), tempfile.mkdtemp()
+        buf = io.StringIO()
+        with mock.patch.dict(os.environ, {"XDG_CONFIG_HOME": home, "XDG_STATE_HOME": state}), redirect_stdout(buf), \
+                mock.patch.object(choice, "vendors_here", return_value={"openai"}):
+            cli.main(["choose", "--tier", "heavy", "--candidates", "glm,codex", "--deadline", "900", "--json"])
+        self.assertEqual([c["provider"] for c in json.loads(buf.getvalue())["candidates"]], ["codex"])
+
+    def test_a_vendor_unlimited_cannot_read_is_not_ruled_out(self):
+        from unlimited.adapters import REGISTRY
+        cat = catalog.load(Path(tempfile.mkdtemp()) / "none.toml")
+        failing = mock.Mock(discover=mock.Mock(side_effect=OSError("unreadable")))
+        with mock.patch.dict(REGISTRY, {v: failing for v in REGISTRY}):
+            self.assertEqual(choice.vendors_here(cat), {o["vendor"] for o in cat.offerings})
 
 
 if __name__ == "__main__":

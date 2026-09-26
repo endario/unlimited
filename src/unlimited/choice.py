@@ -7,6 +7,7 @@ import math
 import random
 import statistics
 import uuid
+from collections.abc import Collection
 from datetime import datetime
 
 from . import outcomes
@@ -93,19 +94,35 @@ def order(scored: list[dict], temperature: float, rng: random.Random) -> list[in
     return out
 
 
+def vendors_here(cat: Catalog) -> set[str]:
+    """The catalog's vendors a use on this machine could spend: each with an account found here
+    (credentials only, no network), and each unlimited has no reader for, which it cannot rule out."""
+    from .adapters import REGISTRY
+    here = set()
+    for v in {o["vendor"] for o in cat.offerings}:
+        try:
+            if v not in REGISTRY or REGISTRY[v].discover():
+                here.add(v)
+        except Exception:
+            here.add(v)  # a reader that fails says nothing about the account
+    return here
+
+
 def rank(cat: Catalog, *, tier: str, candidates: list[str], attempts: list[dict], quota: dict[str, float],
          deadline: float, now: datetime, temperature: float = 0.0, quota_weight: float = QUOTA_WEIGHT,
          task: str | None = None, meta: dict | None = None, exclude: dict[str, str] | None = None,
-         rng: random.Random | None = None) -> dict | None:
+         vendors: Collection[str] | None = None, rng: random.Random | None = None) -> dict | None:
     """The decision over `attempts` (as `outcomes.attempts` gives them), reading and writing
     nothing: the whole request, every candidate scored, `order` (indices, the order to try) and
     `pick` (its first). None when no named candidate is live. `exclude` maps a route's id to the
-    caller's reason for ruling it out; reasons, `task` and `meta` are recorded, never read."""
+    caller's reason for ruling it out; reasons, `task` and `meta` are recorded, never read. With
+    `vendors`, a route on any other vendor is not a candidate (`vendors_here` gives this machine's)."""
     if not (math.isfinite(temperature) and temperature >= 0 and math.isfinite(quota_weight) and quota_weight >= 0
             and math.isfinite(deadline) and deadline > 0):
         raise ValueError("temperature and quota weight must be finite and not negative, the deadline positive")
     exclude = exclude or {}
-    cands = [c for c in named(cat, tier, candidates, now) if c["model"] not in exclude]
+    cands = [c for c in named(cat, tier, candidates, now)
+             if c["model"] not in exclude and (vendors is None or c["vendor"] in vendors)]
     if not cands:
         return None
     scored = score(cands, quota, outcomes.stats(attempts, now), deadline, cat.tie_preference, quota_weight)
@@ -113,7 +130,7 @@ def rank(cat: Catalog, *, tier: str, candidates: list[str], attempts: list[dict]
     tried = order(scored, temperature, rng or random.Random(seed))
     request = {"tier": tier, "candidates": candidates, "quota": quota, "deadline": deadline,
                "temperature": temperature, "quota_weight": quota_weight, "task": task, "meta": meta or {},
-               "exclude": exclude}
+               "exclude": exclude, "vendors": None if vendors is None else sorted(vendors)}
     return {"v": outcomes.VERSION, "type": "decision", "decision": uuid.uuid4().hex[:16], "at": now.isoformat(),
             "request": request, "seed": None if rng else seed, "candidates": scored, "order": tried,
             "pick": tried[0]}
@@ -122,12 +139,12 @@ def rank(cat: Catalog, *, tier: str, candidates: list[str], attempts: list[dict]
 def choose(cat: Catalog, *, tier: str, candidates: list[str], quota: dict[str, float], deadline: float,
            now: datetime, temperature: float = 0.0, quota_weight: float = QUOTA_WEIGHT,
            task: str | None = None, meta: dict | None = None, exclude: dict[str, str] | None = None,
-           rng: random.Random | None = None, log=None) -> dict | None:
+           vendors: Collection[str] | None = None, rng: random.Random | None = None, log=None) -> dict | None:
     """`rank` over unlimited's attempt log, the decision appended to it."""
     records, _ = outcomes.read(log)
     decision = rank(cat, tier=tier, candidates=candidates, attempts=outcomes.attempts(records, now), quota=quota,
                     deadline=deadline, now=now, temperature=temperature, quota_weight=quota_weight, task=task,
-                    meta=meta, exclude=exclude, rng=rng)
+                    meta=meta, exclude=exclude, vendors=vendors, rng=rng)
     if decision is not None:
         outcomes.append(decision, log)
     return decision
