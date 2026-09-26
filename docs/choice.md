@@ -54,8 +54,8 @@ the file passes 1 MB.
 
 ## 3. Choice
 
-`unlimited choose --tier T --candidates NAME,... --deadline S [--quota ID=ρ,...] --json` is all a
-caller needs. It prints the decision: `candidates` scored, `order` (their indices, the order to
+`unlimited choose --tier T --candidates NAME,... --deadline S [--quota ID=ρ,...] --json` is what a
+caller usually passes. It prints the decision: `candidates` scored, `order` (their indices, the order to
 try) and `pick` (the first). Launch `candidates[pick]`; if it cannot run, the next in `order`;
 record each use with `attempt start --decision ID` and `attempt end` so the next choice learns.
 
@@ -73,7 +73,7 @@ elsewhere.
 
 **From Python, over the caller's own history:** `unlimited.choice.rank(cat, tier=, candidates=,
 attempts=, quota=, deadline=, now=, ...)` takes the same parameters as keywords and returns the
-decision, reading and writing no file; `choose` is `rank` over unlimited's log, with the decision
+decision (None when no candidate is live), reading and writing no file; `choose` is `rank` over unlimited's log, with the decision
 appended to it.
 
 - `attempts`: dicts as `outcomes.attempts` returns them (`provider`, `model`, `offering`, `effort`,
