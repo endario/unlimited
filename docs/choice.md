@@ -1,15 +1,16 @@
 # Choosing a model for a task
 
 unlimited answers one question for any caller: of the candidates the caller allows, which is the
-best to use now for a task? It never knows what the task is. The caller describes it only through
-generic parameters (how long it may take, how much to explore, what time is worth against quota)
-and may attach its own label and metadata, which unlimited records and never reads.
+best to use now for a task, and in what order to fall back? It never knows what the task is. The
+caller describes it through generic parameters and may attach its own label and metadata, which unlimited records and
+never reads. Nothing needs tuning: the choice explores by itself as far as the evidence is thin.
 
 Three parts, each usable on its own:
 
 1. **Verdict** — can an account take a unit of work of a given length on a given model?
 2. **Attempt log** — every use of a model, as asked and as it came out.
-3. **Choice** — the candidate with the lowest expected cost, learned from the log.
+3. **Choice** — the candidates in the order to try, by expected cost learned from the log,
+   exploring routes with thin records.
 
 ## 1. Verdict
 
@@ -53,8 +54,15 @@ the file passes 1 MB.
 
 ## 3. Choice
 
-`unlimited choose --tier T --candidates NAME,... --deadline S [--quota ID=ρ,...]
-[--exclude ID[=REASON],...] [--prefer NAME=MINUTES,...] [--vendors V,...|any] [--temperature M] [--quota-weight M] [--task LABEL] [--meta K=V]... --json`.
+`unlimited choose --tier T --candidates NAME,... --deadline S [--quota ID=ρ,...] --json` is all a
+caller needs. It prints the decision: `candidates` scored, `order` (their indices, the order to
+try) and `pick` (the first). Launch `candidates[pick]`; if it cannot run, the next in `order`;
+record each use with `attempt start --decision ID` and `attempt end` so the next choice learns.
+
+Rarely needed: `--exclude ID[=REASON],...` (routes the caller cannot use), `--prefer
+NAME=MINUTES,...` (lean without ruling out), `--vendors V,...|any` (whose accounts a use may
+spend), `--temperature M` and `--quota-weight M` (override how the order is made and what quota is
+worth), `--task LABEL` and `--meta K=V` (the caller's own, recorded).
 
 A name is a provider (its live routes at the tier, promotions first), a model (each of its live
 routes) or an offering id (that route), as the catalog has them; switched-off and banned routes are
@@ -63,16 +71,17 @@ recorded and never read. Nor is a route on a vendor this machine has no account 
 `--vendors` names the vendors instead, or `any` for all of them, for a caller that launches
 elsewhere.
 
-The same choice without files, over attempts the caller keeps itself, is
-`unlimited.choice.rank(cat, tier=, candidates=, attempts=, quota=, deadline=, now=, temperature=,
-quota_weight=, task=, meta=, exclude=, vendors=, prefer=, seed=)`: `attempts` as `outcomes.attempts` returns them (each
-`provider`, `model`, `offering`, `effort`, `task`, `at`, `outcome`, `secs`, `tokens`), and the
-decision back as below, to store where the caller likes. Unknown candidate names, an attempt
-outcome other than `ok`, `timeout`, `error` or `unavailable` (leave out one that should not count)
-and a timezone-naive `at` are refused; the decision's `attempts_unknown` counts attempts naming no
-route of the catalog. `vendors` is None (every vendor) unless
-given; `unlimited.choice.vendors_here(cat)` is this machine's. `choose` is `rank` over unlimited's log,
-with the decision appended to it.
+**From Python, over the caller's own history:** `unlimited.choice.rank(cat, tier=, candidates=,
+attempts=, quota=, deadline=, now=, ...)` takes the same parameters as keywords and returns the
+decision, reading and writing no file; `choose` is `rank` over unlimited's log, with the decision
+appended to it.
+
+- `attempts`: dicts as `outcomes.attempts` returns them (`provider`, `model`, `offering`, `effort`,
+  `task`, `at` timezone-aware, `outcome` one of `ok`, `timeout`, `error`, `unavailable`, `secs`,
+  `tokens`). Leave out an attempt that should not count; anything else is refused. The decision's
+  `attempts_unknown` counts those naming no route of the catalog.
+- `vendors`: None (every vendor) unless given; `choice.vendors_here(cat)` is this machine's.
+- `seed`: replays a decision's order.
 
 For each candidate, over the attempts with weight `w = 2^(−age / 12 h)`:
 

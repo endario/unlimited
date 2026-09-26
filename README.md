@@ -142,20 +142,24 @@ passes; `unlimited off` lists what is off. It drops out of `models` and `--catal
 
 ## Outcomes
 
-`unlimited attempt start --provider P --model M --deadline S [--task LABEL] [--meta K=V]...` records
-one use of a model and prints its id; `unlimited attempt end ID --outcome ok|timeout|error|unavailable|abandoned
-[--tokens-in N ...] [--meta K=V]...` records how it came out. A start whose deadline passes with no
-end counts as a timeout. The task label and metadata are the caller's own: recorded with the
-request, never read by unlimited. `unlimited outcomes` prints each model's recent failure rate
-and durations on this machine, from `~/.local/state/unlimited/decisions.jsonl`.
-`unlimited choose --tier T --candidates NAME,... --deadline S [--quota ID=ρ,...] [--exclude ID[=REASON],...] [--prefer NAME=MINUTES,...]
-[--temperature M] [--quota-weight M] [--task LABEL] [--meta K=V]... --json` orders the candidates
-(providers, models or offering ids) by expected
-minutes: failure rate and durations here, and the quota price of each candidate's projected use
-`ρ` (a live promotion's is free), weighed at `--quota-weight` minutes per unit. It explores by
-itself: each candidate is tried about as often as its record says it could be the best, less as
-records fill (Thompson sampling), so nothing needs tuning. It logs the whole request and the decision, with each candidate's odds,
-and prints the decision.
+Which model to use for a task, and a record of how each use went, so the next choice learns from it:
+
+```
+unlimited choose --tier standard --candidates codex,glm,deepseek --deadline 900 --json > decision.json
+# launch candidates[pick].model; if it cannot run, the next index in order
+id=$(unlimited attempt start --provider P --model M --deadline 900 --decision "$(jq -r .decision decision.json)")
+unlimited attempt end "$id" --outcome ok --tokens-in N --tokens-out N
+```
+
+`choose` orders the candidates (providers, models or offering ids) by expected minutes: how often
+each fails here, how long it takes, and what its quota costs (`--quota ID=ρ`, the account's
+projected use at reset). It explores by itself, trying a route with a thin
+record about as often as it could be the best, so there is nothing to tune; `--exclude`,
+`--prefer`, `--vendors`, `--temperature` and `--quota-weight` are there for the rare caller that
+needs them. A start whose deadline passes with no end counts as a timeout. Task labels and
+`--meta` are the caller's, recorded and never read. `unlimited outcomes` shows each route's recent
+record; everything lands in `~/.local/state/unlimited/decisions.jsonl`. Each command's options:
+`unlimited COMMAND --help`.
 
 `unlimited cards [--tier T] [--json]` shows each route's model card: what its vendor publishes
 (intelligence, tokens per second, price per million tokens; the catalog's `[[cards]]`) beside what

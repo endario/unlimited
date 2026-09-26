@@ -376,7 +376,10 @@ examples:
              "example:\n  unlimited on commandcode")
     on.add_argument("target", metavar="TARGET", help="exactly as it was switched off")
     ch = add("choose", "rank the candidates for a task by expected cost; logged", f"""\
-Of the candidates the caller allows, which to use now, and in what order to fall back.
+Of the candidates the caller allows, which to use now, and in what order to fall back. A caller
+needs only --tier, --candidates, --deadline and, for each account, --quota; the rest is rarely
+needed. Launch candidates[pick]; if it cannot run, the next index in order; record each use with
+`attempt start --decision ID` and `attempt end`, which is what the next choice learns from.
 
 Each candidate route is scored by its expected cost in minutes, from this machine's attempt log:
   E = (1 − p)·T_ok + p·(T_fail + T_next) + quota_weight·debit·π(ρ) − preference
@@ -384,8 +387,9 @@ p is its recent failure rate, T_ok and T_fail how long it takes to succeed or fa
 --deadline), T_next what a retry elsewhere costs, π(ρ) = exp(5(ρ − 1)) the price of spending an
 account projected to reach ρ of its limit by reset (1 at the limit; unknown counts as 1; a live
 promotion costs 0), debit how much of its account one run uses (catalog, default 1), and
-preference up to a minute for the catalog's tie_preference plus the caller's --prefer. Recent history weighs most (12 h
-half-life), so a route that just failed twice is avoided and recovers on its own.
+preference up to a minute for the catalog's tie_preference plus the caller's --prefer. Recent
+history weighs most (12 h half-life), so a route that just failed twice is avoided and recovers on
+its own.
 
 The order explores by itself: p and T_ok are drawn from what each record supports (Thompson
 sampling), so a route with little history is sometimes tried and one that cannot win is not, and
@@ -397,7 +401,6 @@ Prints the decision as JSON and appends it to the log with the whole request:
   fail, mu and var, and prob, its odds of coming first), policy (thompson, best or softmax),
   order (candidate indices, the order to try), pick (the first of order), prefer_unmatched and
   attempts_unknown.
-Pass the decision id to `attempt start --decision` so the log ties the use to the choice.
 Without the log (your own history): unlimited.choice.rank. Details: {DOCS}/choice.md#3-choice""", """\
 examples:
   # which of three providers' standard models, for a 15-minute job
@@ -429,17 +432,19 @@ exit status: 0 decided; 1 no named candidate is live at the tier; 2 bad input.""
                          "on its usual vendor); each limit's projection.at_reset in `unlimited read` is one; a "
                          "candidate without one is priced as at the limit")
     ch.add_argument("--exclude", default="", metavar="ID[=REASON],...",
-                    help="offering ids the caller rules out; a reason is recorded, never read")
+                    help="optional: offering ids the caller rules out; a reason is recorded, never "
+                         "read")
     ch.add_argument("--prefer", default="", metavar="NAME=MINUTES,...",
-                    help="lean the choice without ruling anything out: minutes taken off a candidate's "
-                         "expected cost (negative adds them), for a provider, model or offering id; a route "
-                         "takes its most specific name's value, so codex=-5,gpt-6-luna=0 handicaps every "
-                         "Codex route but Luna. The minutes applied show as each candidate's `preference`; "
-                         "names matching no candidate are listed in `prefer_unmatched`")
+                    help="optional: lean the choice without ruling anything out: minutes taken off a "
+                         "candidate's expected cost (negative adds them), for a provider, model or "
+                         "offering id; a route takes its most specific name's value, so "
+                         "codex=-5,gpt-6-luna=0 handicaps every Codex route but Luna. The minutes "
+                         "applied show as each candidate's `preference`; names matching no candidate "
+                         "are listed in `prefer_unmatched`")
     ch.add_argument("--vendors", metavar="VENDOR,...|any",
-                    help="the vendors a use may spend; a route on any other is not a candidate. Default: "
-                         "those with an account on this machine; `any` for every vendor, when the caller "
-                         "launches elsewhere")
+                    help="optional: the vendors a use may spend; a route on any other is not a "
+                         "candidate. Default: those with an account on this machine; `any` for every "
+                         "vendor, when the caller launches elsewhere")
     ch.add_argument("--temperature", type=float, metavar="MINUTES",
                     help="advanced; omit it. Without it, each candidate is tried about as often as its record "
                          "says it could be the best (Thompson sampling), which fades as records fill. 0: "

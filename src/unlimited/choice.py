@@ -1,4 +1,6 @@
-"""Which of a tier's candidates to use for a task, by expected cost in minutes (docs/choice.md): how often each fails here, how long it takes, and what its quota costs. What the task
+"""Which candidate to use for a task, and in what order to fall back (docs/choice.md): by expected
+cost in minutes (how often each fails here, how long it takes, what its quota costs), exploring
+routes whose records are thin (Thompson sampling), so a caller has nothing to tune. What the task
 is stays the caller's: it arrives only as generic parameters and an opaque label."""
 
 from __future__ import annotations
