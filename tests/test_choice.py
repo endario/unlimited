@@ -111,7 +111,7 @@ class Choose(unittest.TestCase):
         self.assertEqual(logged["request"], {"tier": "standard", "candidates": ["glm", "codex"], "quota": {"glm": 0.4},
                                              "deadline": 600, "temperature": 1.5, "quota_weight": 10,
                                              "task": "summarise", "meta": {"ticket": "42"}, "exclude": {},
-                                             "vendors": None, "prefer": {}})
+                                             "vendors": None, "prefer": {}, "preset": None})
         self.assertEqual(logged["seed"] is not None, True, "a sampled pick can be replayed")
         self.assertEqual(got["decision"], logged["decision"])
 
@@ -166,6 +166,31 @@ class Choose(unittest.TestCase):
                           attempts=[run(), run(provider="deepseek", model="x", offering="opencode-go/deepseek-v4.1-flash"),
                                     run(model="gpt-5"), run(provider="nope"), run(offering="commandcode/nope")])
         self.assertEqual(got["attempts_unknown"], 3, "a model or offering id no route carries, an unknown provider")
+
+    def test_a_preset_fills_only_what_the_caller_omits(self):
+        local = Path(tempfile.mkdtemp()) / "catalog.toml"
+        local.write_text('schema = 2\n[presets.spread]\ntemperature = 3\nquota_weight = 7\n')
+        cat = catalog.load(local)
+        args = dict(tier="standard", candidates=["glm", "codex"], attempts=[], quota={}, deadline=600, now=NOW)
+        got = choice.rank(cat, preset="spread", **args)
+        self.assertEqual(got["effective"], {"temperature": 3, "quota_weight": 7})
+        self.assertEqual((got["request"]["preset"], got["request"]["temperature"]), ("spread", None),
+                         "the request is as asked")
+        got = choice.rank(cat, preset="spread", temperature=0, **args)
+        self.assertEqual(got["effective"], {"temperature": 0, "quota_weight": 7}, "an explicit 0 is not omitted")
+        self.assertEqual(choice.rank(cat, **args)["effective"], {"temperature": 0.0, "quota_weight": 20.0})
+        with self.assertRaises(ValueError):
+            choice.rank(cat, preset="sprad", **args)
+
+    def test_presets_ship_and_a_malformed_one_is_refused(self):
+        self.assertEqual(catalog.load(Path(tempfile.mkdtemp()) / "none.toml").presets["spread"], {"temperature": 2})
+        local = Path(tempfile.mkdtemp()) / "catalog.toml"
+        for text in ('[presets.x]\ntier = "heavy"\n', '[presets.x]\ntemperature = -1\n',
+                     '[presets.x]\ntemperature = nan\n', '[presets.x]\ntemperature = "2"\n',
+                     '[preset.x]\ntemperature = 2\n'):
+            local.write_text("schema = 2\n" + text)
+            with self.subTest(text=text), self.assertRaises(catalog.CatalogError):
+                catalog.load(local)
 
     def test_a_sampled_order_replays_from_its_seed(self):
         cat = catalog.load(Path(tempfile.mkdtemp()) / "none.toml")

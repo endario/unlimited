@@ -113,10 +113,10 @@ def vendors_here(cat: Catalog) -> set[str]:
 
 
 def rank(cat: Catalog, *, tier: str, candidates: list[str], attempts: list[dict], quota: dict[str, float],
-         deadline: float, now: datetime, temperature: float = 0.0, quota_weight: float = QUOTA_WEIGHT,
-         task: str | None = None, meta: dict | None = None, exclude: dict[str, str] | None = None,
-         vendors: Collection[str] | None = None, prefer: dict[str, float] | None = None,
-         seed: int | None = None) -> dict | None:
+         deadline: float, now: datetime, temperature: float | None = None, quota_weight: float | None = None,
+         preset: str | None = None, task: str | None = None, meta: dict | None = None,
+         exclude: dict[str, str] | None = None, vendors: Collection[str] | None = None,
+         prefer: dict[str, float] | None = None, seed: int | None = None) -> dict | None:
     """The decision over `attempts` (as `outcomes.attempts` gives them), reading and writing
     nothing: the whole request, every candidate scored, `order` (indices, the order to try) and
     `pick` (its first). None when no named candidate is live. `exclude` maps a route's id to the
@@ -127,7 +127,15 @@ def rank(cat: Catalog, *, tier: str, candidates: list[str], attempts: list[dict]
     catalog does not know is refused, in `candidates` as in `prefer`; one in `prefer` naming no
     candidate is listed in `prefer_unmatched`. An attempt must have a scored outcome (`ok`,
     `timeout`, `error`, `unavailable`) and a timezone-aware `at`; `attempts_unknown` counts those
-    naming no route of the catalog."""
+    naming no route of the catalog. `temperature` and `quota_weight` the caller omits come from the
+    catalog's `preset`, else default to 0 and QUOTA_WEIGHT; the request records them as asked, and
+    `effective` what was used."""
+    if preset is not None and preset not in cat.presets:
+        raise ValueError(f"preset {preset}: not in the catalog ({', '.join(sorted(cat.presets)) or 'none'})")
+    asked = {"temperature": temperature, "quota_weight": quota_weight}
+    given = (cat.presets[preset] if preset else {})
+    temperature = temperature if temperature is not None else given.get("temperature", 0.0)
+    quota_weight = quota_weight if quota_weight is not None else given.get("quota_weight", QUOTA_WEIGHT)
     if not (math.isfinite(temperature) and temperature >= 0 and math.isfinite(quota_weight) and quota_weight >= 0
             and math.isfinite(deadline) and deadline > 0):
         raise ValueError("temperature and quota weight must be finite and not negative, the deadline positive")
@@ -165,23 +173,24 @@ def rank(cat: Catalog, *, tier: str, candidates: list[str], attempts: list[dict]
     if seed is None:
         seed = random.randrange(1 << 32)
     tried = order(scored, temperature, random.Random(seed))
-    request = {"tier": tier, "candidates": candidates, "quota": quota, "deadline": deadline,
-               "temperature": temperature, "quota_weight": quota_weight, "task": task, "meta": meta or {},
+    request = {"tier": tier, "candidates": candidates, "quota": quota, "deadline": deadline, **asked,
+               "preset": preset, "task": task, "meta": meta or {},
                "exclude": exclude, "vendors": None if vendors is None else sorted(vendors), "prefer": prefer}
     return {"v": outcomes.VERSION, "type": "decision", "decision": uuid.uuid4().hex[:16], "at": now.isoformat(),
-            "request": request, "seed": seed, "candidates": scored, "order": tried,
+            "request": request, "effective": {"temperature": temperature, "quota_weight": quota_weight},
+            "seed": seed, "candidates": scored, "order": tried,
             "pick": tried[0], "prefer_unmatched": sorted(set(prefer) - used), "attempts_unknown": unknown}
 
 
 def choose(cat: Catalog, *, tier: str, candidates: list[str], quota: dict[str, float], deadline: float,
-           now: datetime, temperature: float = 0.0, quota_weight: float = QUOTA_WEIGHT,
-           task: str | None = None, meta: dict | None = None, exclude: dict[str, str] | None = None,
+           now: datetime, temperature: float | None = None, quota_weight: float | None = None,
+           preset: str | None = None, task: str | None = None, meta: dict | None = None, exclude: dict[str, str] | None = None,
            vendors: Collection[str] | None = None, prefer: dict[str, float] | None = None,
            seed: int | None = None, log=None) -> dict | None:
     """`rank` over unlimited's attempt log, the decision appended to it."""
     records, _ = outcomes.read(log)
     decision = rank(cat, tier=tier, candidates=candidates, attempts=outcomes.attempts(records, now), quota=quota,
-                    deadline=deadline, now=now, temperature=temperature, quota_weight=quota_weight, task=task,
+                    deadline=deadline, now=now, temperature=temperature, quota_weight=quota_weight, preset=preset, task=task,
                     meta=meta, exclude=exclude, vendors=vendors, prefer=prefer, seed=seed)
     if decision is not None:
         outcomes.append(decision, log)
