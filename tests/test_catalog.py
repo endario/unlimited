@@ -79,7 +79,7 @@ class Catalog(unittest.TestCase):
         self.assertIsNone(self.load().provider_of("unknown-model"))
 
     def test_a_broken_or_unversioned_local_file_refuses_rather_than_falling_back(self):
-        for text in ("schema = 1\n[providers\n", "[providers.codex]\nstandard = 'x'\n", "schema = 2\n",
+        for text in ("schema = 1\n[providers\n", "[providers.codex]\nstandard = 'x'\n", "schema = 3\n",
                      'schema = 1\n[[promotions]]\nprovider = "nobody"\nmodel = "m"\ntiers = ["standard"]\n',
                      'schema = 1\n[[promotions]]\nprovider = "stealth"\nmodel = "m"\ntiers = ["huge"]\n',
                      'schema = 1\nbanned = "opencode-go/muse-spark-1.3-contributor"\n', "schema = 1\nproviders = 5\n",
@@ -184,7 +184,7 @@ class Cli(unittest.TestCase):
         import json
         code, out, _ = self.run_models("--tier", "heavy", "--json")
         self.assertEqual((code, json.loads(out)[0]), (0, {"provider": "codex", "model": "gpt-6-sol", "promoted": False}))
-        code, out, err = self.run_models("--json", local="schema = 2\n")
+        code, out, err = self.run_models("--json", local="schema = 3\n")
         self.assertEqual((code, out), (2, ""))
         self.assertIn("catalog", err)
 

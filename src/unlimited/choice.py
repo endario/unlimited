@@ -24,10 +24,13 @@ def price(rho: float | None) -> float:
 
 
 def candidates(cat: Catalog, tier: str, providers: list[str], now: datetime) -> list[dict]:
-    """Each provider's live promotions at `tier`, then its tier model, as the catalog has them."""
-    listed = cat.candidates(tier, now)
-    return [{"provider": c.provider, "model": c.model, "promoted": c.promoted}
-            for p in providers for c in listed if c.provider == p]
+    """Each allowed provider's live routes at `tier`, as the catalog lists them."""
+    # A caller's quota is keyed by provider, and stands for the vendor in the one-vendor view; a
+    # route on another vendor is priced as unknown (at the limit) until quota is keyed by route.
+    view = cat.to_json(now)["providers"]
+    return [{"provider": r["provider"], "model": r["id"], "vendor": r["vendor"], "promoted": r["free"],
+             "quota_applies": r["vendor"] == view.get(r["provider"], {}).get("usage")}
+            for p in providers for r in cat.routes(now, tier) if r["provider"] == p]
 
 
 def score(cands: list[dict], quota: dict[str, float], stats: dict, deadline: float,
@@ -41,7 +44,7 @@ def score(cands: list[dict], quota: dict[str, float], stats: dict, deadline: flo
         # A failure costs its observed time to fail, with this call's deadline worth one attempt.
         fail_w, fail_secs = (s["fail"], (s["t_fail"] or 0) * s["fail"]) if s else (0.0, 0.0)
         t_fail = (deadline + fail_secs) / (1 + fail_w) / 60
-        rho = None if c["promoted"] else quota.get(c["provider"])
+        rho = None if c["promoted"] else quota.get(c["provider"]) if c.get("quota_applies", True) else None
         pi = 0.0 if c["promoted"] else price(rho)
         out.append({**c, "rho": rho, "pi": pi, "p": p, "t_ok": t_ok, "t_fail": t_fail})
     for c in out:

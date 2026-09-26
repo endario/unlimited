@@ -77,13 +77,13 @@ def _switch(a) -> int:
                   + (f"  ({x['why']})" if x.get("why") else ""))
         return 0
     provider, _, model = a.target.partition(":")
-    pairs = {(n, m) for n, p in cat.providers.items() for t, m in p.items() if t in cat.tiers}
-    pairs |= {(p["provider"], p["model"]) for p in cat.promotions}
-    known = ((provider, model) in pairs if model
-             else provider in cat.providers or any(m == provider for _, m in pairs))
+    routes = [cat.route(o["id"]) for o in cat.offerings]
+    pairs = {(r["provider"], x) for r in routes for x in (r["id"], r["model"])}
+    names = {x for r in routes for x in (r["provider"], r["model"], r["vendor"], r["id"])}
+    known = (provider, model) in pairs if model else provider in names
     if not known:
-        print(f"unlimited: {a.target}: not a provider, a model or a provider:model pair in the catalog",
-              file=sys.stderr)
+        print(f"unlimited: {a.target}: not a provider, model, vendor, offering or provider:model pair in the "
+              f"catalog", file=sys.stderr)
         return 1
     kept = [x for x in off if x["target"] != a.target]
     if a.cmd == "on":

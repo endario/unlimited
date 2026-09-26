@@ -134,8 +134,8 @@ first; `--provider P` prints one model id; `--catalog` prints the whole merged c
 [`catalog.toml`](src/unlimited/catalog.toml). `~/.config/unlimited/catalog.toml` overrides it on one
 machine, with no release. Format and merge rules: [docs/catalog.md](docs/catalog.md).
 
-`unlimited off TARGET [--for 90m|12h|1d|1w] [--why TEXT]` switches a provider (`stealth`), a model id,
-or a `provider:model` pair off on this machine, until `unlimited on TARGET` or the `--for` time
+`unlimited off TARGET [--for 90m|12h|1d|1w] [--why TEXT]` switches a provider (`stealth`), a model, a vendor, an offering
+id, or a `provider:model` pair off on this machine, until `unlimited on TARGET` or the `--for` time
 passes; `unlimited off` lists what is off. It drops out of `models` and `--catalog` like a ban. The switches live in
 `~/.config/unlimited/switches.json`.
 

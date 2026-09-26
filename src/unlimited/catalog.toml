@@ -1,57 +1,114 @@
-# The model each provider offers at each tier, promotions, bans, preferences and vendors' published
-# figures. A provider is the maker of the models listed under it; `usage` is the vendor whose
-# account a run spends. Override on one machine, without a release, in
+# Models, the vendors that offer them, bans, preferences and vendors' published figures (see
+# docs/catalog.md). Override on one machine, without a release, in
 # $XDG_CONFIG_HOME/unlimited/catalog.toml (default ~/.config/unlimited/catalog.toml).
-schema = 1
+schema = 2
 
-# The tiers a provider may list a model at: capability classes, named by whoever keeps this file.
-# A local list replaces this one.
+# The tiers a model may serve: capability classes, named by whoever keeps this file. A local list
+# replaces this one.
 tiers = ["standard", "heavy"]
 
-# Model ids never offered, wherever they are listed. A local list adds to this one.
+# Never offered: a provider, model, vendor or offering id. A local list adds to this one.
 banned = []
 
 # Providers preferred among near-equal candidates, most preferred first (here the cheapest). A local
 # list replaces this one.
 tie_preference = ["meta", "deepseek", "stealth"]
 
-[providers.codex]
-usage = "openai"
-standard = "gpt-6-luna"
-heavy = "gpt-6-sol"
+# A model: its provider (maker) and the tiers it serves. Keyed by a vendor-neutral name.
+[models.gpt-6-luna]
+provider = "codex"
+tiers = ["standard"]
 
-[providers.claude]
-usage = "anthropic"
-standard = "sonnet"
-heavy = "opus"
+[models.gpt-6-sol]
+provider = "codex"
+tiers = ["heavy"]
 
-[providers.glm]
-usage = "zai"
-standard = "glm-5.3-flash"
-heavy = "glm-5.3"
+[models.sonnet]
+provider = "claude"
+tiers = ["standard"]
 
-[providers.grok]
-usage = "xai"
-standard = "grok-4.7"
+[models.opus]
+provider = "claude"
+tiers = ["heavy"]
 
-[providers.deepseek]
-usage = "opencode"
-standard = "opencode-go/deepseek-v4.1-flash"
+[models.glm-5-3-flash]
+provider = "glm"
+tiers = ["standard"]
 
-[providers.meta]
-usage = "opencode"
-standard = "opencode-go/muse-spark-1.3-contributor"
+[models.glm-5-3]
+provider = "glm"
+tiers = ["heavy"]
+
+[models.grok-4-7]
+provider = "grok"
+tiers = ["standard"]
+
+[models.deepseek-v4-1-flash]
+provider = "deepseek"
+tiers = ["standard"]
+
+[models.muse-spark-1-3-contributor]
+provider = "meta"
+tiers = ["standard"]
 
 # Unnamed preview models, whoever makes them.
-[providers.stealth]
-usage = "commandcode"
-
-# Models offered at a tier for a limited time, without quota cost. `until` is optional: live through
-# that day, UTC.
-[[promotions]]
+[models.space-bunny-alpha]
 provider = "stealth"
-model = "commandcode/stealth/space-bunny-alpha"
 tiers = ["standard"]
+
+# An offering: a vendor's route to a model. `id` is the vendor's name for it, what a caller
+# launches, unique; `vendor` is whose account a use spends. `free` marks a promotion, `until` the last
+# day it is offered (UTC).
+[[offerings]]
+id = "gpt-6-luna"
+model = "gpt-6-luna"
+vendor = "openai"
+
+[[offerings]]
+id = "gpt-6-sol"
+model = "gpt-6-sol"
+vendor = "openai"
+
+[[offerings]]
+id = "sonnet"
+model = "sonnet"
+vendor = "anthropic"
+
+[[offerings]]
+id = "opus"
+model = "opus"
+vendor = "anthropic"
+
+[[offerings]]
+id = "glm-5.3-flash"
+model = "glm-5-3-flash"
+vendor = "zai"
+
+[[offerings]]
+id = "glm-5.3"
+model = "glm-5-3"
+vendor = "zai"
+
+[[offerings]]
+id = "grok-4.7"
+model = "grok-4-7"
+vendor = "xai"
+
+[[offerings]]
+id = "opencode-go/deepseek-v4.1-flash"
+model = "deepseek-v4-1-flash"
+vendor = "opencode"
+
+[[offerings]]
+id = "opencode-go/muse-spark-1.3-contributor"
+model = "muse-spark-1-3-contributor"
+vendor = "opencode"
+
+[[offerings]]
+id = "commandcode/stealth/space-bunny-alpha"
+model = "space-bunny-alpha"
+vendor = "commandcode"
+free = true
 until = 2026-09-30
 
 # What a vendor publishes about a model it sells: an expected figure until our own attempts say
