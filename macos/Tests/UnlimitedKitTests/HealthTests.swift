@@ -30,11 +30,11 @@ func week(used: Double?, range: [Double]?, elapsed: Double = 3, past: Int = 0, h
 }
 
 @Test func nearResetWithRoomTheRecentPaceWillNotSpendIsBlue() {
-    // 6.1 of 7 days gone: the last 15%.
-    #expect(week(used: 0.5, range: [0.6, 0.89], elapsed: 6.1).health(now: now) == .sprint)
-    #expect(week(used: 0.1, range: [0.2, 0.3], elapsed: 6.1).health(now: now) == .sprint, "blue beats green")
-    #expect(week(used: 0.7, range: [0.85, 0.9], elapsed: 6.1).health(now: now) == .normal, "on course for the cap")
-    #expect(week(used: 0.5, range: [0.6, 0.89], elapsed: 5.5).health(now: now) == .normal, "not yet the final stretch")
+    // 6.7 of 7 days gone: the last 5%.
+    #expect(week(used: 0.9, range: [0.95, 1.04], elapsed: 6.7).health(now: now) == .sprint)
+    #expect(week(used: 0.1, range: [0.2, 0.3], elapsed: 6.7).health(now: now) == .sprint, "blue beats green")
+    #expect(week(used: 0.9, range: [0.95, 1.05], elapsed: 6.7).health(now: now) == .amber, "105% itself is a warning")
+    #expect(week(used: 0.9, range: [0.95, 1.04], elapsed: 6.6).health(now: now) == .normal, "not yet the final stretch")
 }
 
 @Test func anUntrustedProjectionSaysNothingEitherWay() {
@@ -109,7 +109,7 @@ func iso(_ d: Date) -> String { ISO8601DateFormatter().string(from: d) }
 }
 
 @Test func roomAboutToExpireIsPickedBeforeRoomThatWillKeep() {
-    let tiles = Tile.strip([account("1", weekly: [0.2, 0.3]), account("2", weekly: [0.6, 0.7], elapsed: 6.2)], now: now)
+    let tiles = Tile.strip([account("1", weekly: [0.2, 0.3]), account("2", weekly: [0.6, 0.7], elapsed: 6.7)], now: now)
     #expect(tiles.filter(\.best).map(\.label) == ["ZAI2"])
 }
 

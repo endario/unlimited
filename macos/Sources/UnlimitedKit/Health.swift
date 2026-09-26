@@ -14,9 +14,8 @@ public enum Health: Int, Comparable, Sendable {
     public static let amberAbove = 1.05
     /// Tunable: a forecast at or above this is red instead of amber.
     public static let redAbove = 1.5
-    /// Tunable: in this last part of its window, room the recent pace will not spend is a sprint.
-    public static let finalStretch = 0.15
-    public static let sprintBelow = 0.9
+    /// Tunable: in this last part of its window, a window not heading for amber is a sprint.
+    public static let finalStretch = 0.05
     /// Tunable: before this much of its window, and with fewer past windows than
     /// `trustPastWindows`, a projection is not drawn.
     public static let trustAfter = 0.1
@@ -46,7 +45,7 @@ extension Limit {
         let hi = p.atReset[1]
         if hi >= Health.redAbove { return .red }
         if hi >= Health.amberAbove { return .amber }
-        if hi < Health.sprintBelow, let e = elapsed(now: now), e >= 1 - Health.finalStretch { return .sprint }
+        if let e = elapsed(now: now), e >= 1 - Health.finalStretch { return .sprint }
         return hi < Health.underUsedBelow ? .underUsed : .normal
     }
 
