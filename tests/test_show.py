@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import os
-import tempfile
 import unittest
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -12,6 +11,8 @@ from unittest import mock
 from unlimited import show
 from unlimited.credential import account_of
 from unlimited.schema import credits, limit, reading
+
+import scratch
 
 NOW = datetime(2026, 9, 19, 12, 0, tzinfo=timezone.utc)
 
@@ -83,7 +84,7 @@ class Names(unittest.TestCase):
     """Each adapter names its accounts by the directories or wrappers holding them."""
 
     def test_the_bare_claude_directory_is_labeled_account1_not_default(self):
-        home = Path(tempfile.mkdtemp())
+        home = Path(scratch.mkdtemp())
         (home / ".claude").mkdir()
         (home / ".claude" / ".claude.json").write_text('{"oauthAccount": {"accountUuid": "u"}}')
         from unlimited.adapters import anthropic
@@ -91,7 +92,7 @@ class Names(unittest.TestCase):
             self.assertEqual(anthropic.names(), {"u": ["account1"]})
 
     def test_a_zai_account_is_named_by_the_wrapper_holding_its_key(self):
-        home = Path(tempfile.mkdtemp())
+        home = Path(scratch.mkdtemp())
         (home / ".config").mkdir()
         (home / ".config" / "claude-glm-2.env").write_text("GLM_API_KEY=two\n")
         from unlimited.adapters import zai
@@ -99,7 +100,7 @@ class Names(unittest.TestCase):
             self.assertEqual(zai.names(), {account_of("two"): ["claude-glm-2"]})
 
     def test_a_kimi_account_is_named_by_the_wrapper_holding_its_key(self):
-        home = Path(tempfile.mkdtemp())
+        home = Path(scratch.mkdtemp())
         (home / ".config").mkdir()
         (home / ".config" / "claude-kimi.env").write_text("KIMI_API_KEY=two\n")
         from unlimited.adapters import kimi
@@ -107,7 +108,7 @@ class Names(unittest.TestCase):
             self.assertEqual(kimi.names(), {account_of("two"): ["claude-kimi"]})
 
     def test_the_default_opencode_identity_is_labeled_opencode(self):
-        home = Path(tempfile.mkdtemp())
+        home = Path(scratch.mkdtemp())
         d = home / ".local" / "share" / "opencode"
         d.mkdir(parents=True)
         (d / "auth.json").write_text('{"opencode-go": {"type": "api", "key": "one"}}')
@@ -116,7 +117,7 @@ class Names(unittest.TestCase):
             self.assertEqual(opencode.names(), {opencode.account_of("one"): ["opencode"]})
 
     def test_a_second_opencode_identity_is_named_by_its_directory(self):
-        home = Path(tempfile.mkdtemp())
+        home = Path(scratch.mkdtemp())
         d = home / ".opencode-2" / "opencode"
         d.mkdir(parents=True)
         (d / "auth.json").write_text('{"opencode-go": {"type": "api", "key": "two"}}')
@@ -125,7 +126,7 @@ class Names(unittest.TestCase):
             self.assertEqual(opencode.names(), {opencode.account_of("two"): ["opencode-2"]})
 
     def test_the_same_opencode_key_in_two_identities_shows_both_not_one(self):
-        home = Path(tempfile.mkdtemp())
+        home = Path(scratch.mkdtemp())
         for d in (home / ".local" / "share" / "opencode", home / ".opencode-2" / "opencode"):
             d.mkdir(parents=True)
             (d / "auth.json").write_text('{"opencode-go": {"type": "api", "key": "one"}}')

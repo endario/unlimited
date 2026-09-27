@@ -5,7 +5,6 @@ from __future__ import annotations
 import io
 import json
 import os
-import tempfile
 import unittest
 from contextlib import redirect_stdout
 from datetime import datetime, timedelta, timezone
@@ -14,13 +13,15 @@ from unittest import mock
 
 from unlimited import cli, outcomes
 
+import scratch
+
 NOW = datetime(2026, 9, 25, 20, 0, tzinfo=timezone.utc)
 MIN = timedelta(minutes=1)
 
 
 class Log(unittest.TestCase):
     def setUp(self):
-        self.p = Path(tempfile.mkdtemp()) / "decisions.jsonl"
+        self.p = Path(scratch.mkdtemp()) / "decisions.jsonl"
 
     def run_attempt(self, provider, model, outcome, minutes, ago, deadline=1800.0):
         t0 = NOW - ago
@@ -96,7 +97,7 @@ class Log(unittest.TestCase):
 
 class Cli(unittest.TestCase):
     def test_start_end_then_outcomes(self):
-        state = tempfile.mkdtemp()
+        state = scratch.mkdtemp()
 
         def run(*args):
             buf = io.StringIO()
