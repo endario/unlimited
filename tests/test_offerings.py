@@ -2,12 +2,13 @@
 
 from __future__ import annotations
 
-import tempfile
 import unittest
 from datetime import datetime, timezone
 from pathlib import Path
 
 from unlimited import catalog
+
+import scratch
 
 NOW = datetime(2026, 9, 26, 12, 0, tzinfo=timezone.utc)
 SECOND = ('schema = 2\n[[offerings]]\nid = "commandcode/deepseek/deepseek-v4.1-flash"\n'
@@ -15,7 +16,7 @@ SECOND = ('schema = 2\n[[offerings]]\nid = "commandcode/deepseek/deepseek-v4.1-f
 
 
 def load(text: str, off: list | None = None) -> catalog.Catalog:
-    d = Path(tempfile.mkdtemp())
+    d = Path(scratch.mkdtemp())
     (d / "catalog.toml").write_text(text)
     if off:
         catalog.write_switches(off, d / "switches.json")
@@ -80,7 +81,7 @@ class Routes(unittest.TestCase):
         from unlimited import choice
         c = load(SECOND)
         got = choice.choose(c, tier="standard", candidates=["deepseek"], quota={"deepseek": 0.2}, deadline=600,
-                            now=NOW, log=Path(tempfile.mkdtemp()) / "d.jsonl")
+                            now=NOW, log=Path(scratch.mkdtemp()) / "d.jsonl")
         rho = {x["model"]: x["rho"] for x in got["candidates"]}
         self.assertEqual((rho["opencode-go/deepseek-v4.1-flash"], rho["commandcode/deepseek/deepseek-v4.1-flash"]),
                          (0.2, None))
@@ -89,7 +90,7 @@ class Routes(unittest.TestCase):
         from unlimited import choice
         got = choice.choose(load(SECOND), tier="standard", candidates=["deepseek"], deadline=600, now=NOW,
                             quota={"deepseek": 0.2, "commandcode/deepseek/deepseek-v4.1-flash": 0.5},
-                            log=Path(tempfile.mkdtemp()) / "d.jsonl")
+                            log=Path(scratch.mkdtemp()) / "d.jsonl")
         self.assertEqual({x["model"]: x["rho"] for x in got["candidates"]},
                          {"opencode-go/deepseek-v4.1-flash": 0.2, "commandcode/deepseek/deepseek-v4.1-flash": 0.5})
 
@@ -97,7 +98,7 @@ class Routes(unittest.TestCase):
         from unlimited import choice
         got = choice.choose(load(SECOND), tier="standard", candidates=["deepseek"], deadline=600, now=NOW, quota={},
                             exclude={"opencode-go/deepseek-v4.1-flash": "account used up"},
-                            log=Path(tempfile.mkdtemp()) / "d.jsonl")
+                            log=Path(scratch.mkdtemp()) / "d.jsonl")
         self.assertEqual([x["model"] for x in got["candidates"]], ["commandcode/deepseek/deepseek-v4.1-flash"])
         self.assertEqual(got["request"]["exclude"], {"opencode-go/deepseek-v4.1-flash": "account used up"},
                          "the caller's reason is recorded")
@@ -121,7 +122,7 @@ class Routes(unittest.TestCase):
 
         def pick(quota):
             got = choice.choose(load(dear), tier="standard", candidates=["deepseek"], deadline=600, now=NOW,
-                                quota=quota, log=Path(tempfile.mkdtemp()) / "d.jsonl", temperature=0)
+                                quota=quota, log=Path(scratch.mkdtemp()) / "d.jsonl", temperature=0)
             return got["candidates"][got["pick"]]["model"], {x["model"]: x["debit"] for x in got["candidates"]}
 
         self.assertEqual(pick({go: 0.5, cc: 0.5}), (go, {go: 1, cc: 2}))
@@ -133,7 +134,7 @@ class Routes(unittest.TestCase):
     def test_a_promotion_costs_nothing_whatever_it_debits(self):
         from unlimited import choice
         got = choice.choose(load(SECOND + "free = true\ndebit = 5\n"), tier="standard", candidates=["deepseek"],
-                            deadline=600, now=NOW, quota={}, log=Path(tempfile.mkdtemp()) / "d.jsonl")
+                            deadline=600, now=NOW, quota={}, log=Path(scratch.mkdtemp()) / "d.jsonl")
         self.assertEqual({x["model"]: x["pi"] for x in got["candidates"]}["commandcode/deepseek/deepseek-v4.1-flash"], 0)
 
     def test_a_debit_must_be_a_positive_finite_number(self):

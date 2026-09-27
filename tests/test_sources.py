@@ -5,7 +5,6 @@ from __future__ import annotations
 import io
 import json
 import os
-import tempfile
 import unittest
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -17,6 +16,8 @@ from unlimited.adapters import anthropic, commandcode, kimi, neuralwatt, opencod
 from unlimited.credential import Credential, EnvKeys, account_of, env_value
 from unlimited.transport import Answer
 
+import scratch
+
 NOW = datetime(2026, 9, 19, 12, 0, tzinfo=timezone.utc)
 UUID = "11111111-2222-3333-4444-555555555555"
 RL = {"five_hour": {"used_percentage": 23.5, "resets_at": int((NOW + timedelta(hours=2)).timestamp())},
@@ -25,7 +26,7 @@ RL = {"five_hour": {"used_percentage": 23.5, "resets_at": int((NOW + timedelta(h
 
 class Base(unittest.TestCase):
     def setUp(self):
-        self.tmp = Path(tempfile.mkdtemp())
+        self.tmp = Path(scratch.mkdtemp())
         self.home = self.tmp / "home"
         self.home.mkdir()
         p = mock.patch.dict(os.environ, {"XDG_CACHE_HOME": str(self.tmp / "cache"), "HOME": str(self.home),
