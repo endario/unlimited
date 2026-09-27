@@ -59,10 +59,10 @@ class Catalog(unittest.TestCase):
         models = [x.model for x in c.candidates("standard", NOW)]
         self.assertNotIn("opencode-go/muse-spark-1.3-contributor", models)
         self.assertNotIn("opencode-go/space-bunny-free", models)
-        self.assertEqual(c.model("meta", "standard"), "commandcode/meta/muse-spark-1.3-contributor",
-                         "banning one route leaves the model's others")
-        self.assertIsNone(self.load('schema = 1\nbanned = ["muse-spark-1-3-contributor"]\n').model("meta", "standard"),
-                          "banning the model takes every route")
+        self.assertIn("commandcode/meta/muse-spark-1.3-contributor", models, "banning one route leaves the model's others")
+        whole = [x.model for x in self.load('schema = 1\nbanned = ["muse-spark-1-3-contributor"]\n').candidates("standard", NOW)]
+        self.assertFalse([m for m in whole if "muse-spark-1.3" in m], "banning the model takes every route")
+        self.assertIn("opencode-go/muse-spark-1.2-contributor", whole, "and leaves its maker's other models")
         # A banned model still has a maker: independence is not the ban's business.
         self.assertEqual(c.provider_of("opencode-go/muse-spark-1.3-contributor"), "meta")
 
