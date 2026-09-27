@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import io
 import os
-import tempfile
 import unittest
 from contextlib import redirect_stderr, redirect_stdout
 from datetime import datetime, timezone
@@ -13,12 +12,14 @@ from unittest import mock
 
 from unlimited import catalog, cli
 
+import scratch
+
 NOW = datetime(2026, 9, 25, 12, 0, tzinfo=timezone.utc)
 
 
 class Catalog(unittest.TestCase):
     def setUp(self):
-        self.local = Path(tempfile.mkdtemp()) / "catalog.toml"
+        self.local = Path(scratch.mkdtemp()) / "catalog.toml"
 
     def load(self, text: str | None = None) -> catalog.Catalog:
         if text is not None:
@@ -98,7 +99,7 @@ class Switches(unittest.TestCase):
     SPACE_BUNNY = "commandcode/stealth/space-bunny-alpha"
 
     def load(self, *off: dict) -> catalog.Catalog:
-        local = Path(tempfile.mkdtemp()) / "catalog.toml"
+        local = Path(scratch.mkdtemp()) / "catalog.toml"
         catalog.write_switches(list(off), catalog.switches_path(local))
         return catalog.load(local)
 
@@ -132,7 +133,7 @@ class Switches(unittest.TestCase):
         self.assertNotIn("glm", [p for p, _ in self.models(c, "standard", later)])
 
     def test_a_switches_file_that_does_not_parse_stops_the_load(self):
-        local = Path(tempfile.mkdtemp()) / "catalog.toml"
+        local = Path(scratch.mkdtemp()) / "catalog.toml"
         for text in ('{"off": "stealth"}', '{"off": [{"target": "stealth", "until": "tomorrow"}]}'):
             catalog.switches_path(local).write_text(text)
             with self.assertRaises(catalog.CatalogError, msg=text):
@@ -141,7 +142,7 @@ class Switches(unittest.TestCase):
 
 class Cli(unittest.TestCase):
     def run_models(self, *args: str, local: str | None = None) -> tuple[int, str, str]:
-        home = Path(tempfile.mkdtemp())
+        home = Path(scratch.mkdtemp())
         if local is not None:
             (home / "unlimited").mkdir()
             (home / "unlimited" / "catalog.toml").write_text(local)
@@ -152,7 +153,7 @@ class Cli(unittest.TestCase):
 
     def test_off_on_round_trip_and_a_typo_is_refused(self):
         import json
-        home = Path(tempfile.mkdtemp())
+        home = Path(scratch.mkdtemp())
         def run(*args):
             out, err = io.StringIO(), io.StringIO()
             with mock.patch.dict(os.environ, {"XDG_CONFIG_HOME": str(home)}), redirect_stdout(out), redirect_stderr(err):

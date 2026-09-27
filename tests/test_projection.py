@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import os
-import tempfile
 import unittest
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -13,6 +12,8 @@ from unlimited import cache, projection, show
 from unlimited.schema import limit, moment, reading
 from unlimited.transport import Answer
 from unlimited.adapters import zai
+
+import scratch
 
 NOW = datetime(2026, 9, 19, 12, 0, tzinfo=timezone.utc)
 WEEK = 10080
@@ -165,7 +166,7 @@ class FromPastWindows(unittest.TestCase):
 
 class ThroughCache(unittest.TestCase):
     def test_history_accumulates_across_reads_and_reaches_the_reading(self):
-        tmp = Path(tempfile.mkdtemp())
+        tmp = Path(scratch.mkdtemp())
         used = {"v": 2000}
 
         def get(url, headers, now):

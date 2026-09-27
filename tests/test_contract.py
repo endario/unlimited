@@ -5,7 +5,6 @@ from __future__ import annotations
 import io
 import json
 import os
-import tempfile
 import threading
 import time
 import unittest
@@ -17,6 +16,8 @@ from unittest import mock
 from unlimited import cache, cli, transport
 from unlimited.adapters import neuralwatt, openai, zai
 from unlimited.transport import Answer
+
+import scratch
 
 NOW = datetime(2026, 9, 19, 12, 0, tzinfo=timezone.utc)
 OPENAI_SECRET = "fixture-secret-openai-token"
@@ -58,7 +59,7 @@ class Upstream:
 
 class Contract(unittest.TestCase):
     def setUp(self):
-        self.tmp = Path(tempfile.mkdtemp())
+        self.tmp = Path(scratch.mkdtemp())
         (self.tmp / "codex").mkdir()
         (self.tmp / "codex" / "auth.json").write_text(json.dumps(
             {"tokens": {"access_token": OPENAI_SECRET, "account_id": "acct-fixture"}}))

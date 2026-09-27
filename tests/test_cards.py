@@ -5,7 +5,6 @@ from __future__ import annotations
 import io
 import json
 import os
-import tempfile
 import unittest
 from contextlib import redirect_stdout
 from datetime import datetime, timedelta, timezone
@@ -14,13 +13,15 @@ from unittest import mock
 
 from unlimited import catalog, cli, outcomes
 
+import scratch
+
 NOW = datetime(2026, 9, 26, 12, 0, tzinfo=timezone.utc)
 CARD = ('[[cards]]\nvendor = "{vendor}"\nname = "GLM-5.3"\nmodels = ["glm-5.3"]\ntok_s = {tok_s}\n'
         'price = {{ input = 1.0, output = 4.0, cache_read = 0.25 }}\nsource = "s"\nas_of = 2026-09-26\n')
 
 
 def load(text: str) -> catalog.Catalog:
-    local = Path(tempfile.mkdtemp()) / "catalog.toml"
+    local = Path(scratch.mkdtemp()) / "catalog.toml"
     local.write_text("schema = 1\n" + text)
     return catalog.load(local)
 
@@ -35,7 +36,7 @@ class Lookup(unittest.TestCase):
         self.assertEqual((card["vendor"], card["tok_s"], own), ("zai", 90, True), "glm spends Z.ai")
 
     def test_a_local_card_replaces_the_shipped_one_of_its_vendor_name_and_plan(self):
-        shipped = catalog.load(Path(tempfile.mkdtemp()) / "none.toml").card("glm", "glm-5.3")[0]
+        shipped = catalog.load(Path(scratch.mkdtemp()) / "none.toml").card("glm", "glm-5.3")[0]
         local = ('[[cards]]\nvendor = "commandcode"\nplan = "goat"\nname = "GLM-5.3"\nmodels = ["glm-5.3"]\n'
                  'tok_s = 1\nsource = "mine"\nas_of = 2026-09-27\n')
         c = load(local)
@@ -51,7 +52,7 @@ class Lookup(unittest.TestCase):
 
 class Observed(unittest.TestCase):
     def test_a_successful_runs_tokens_and_pace_are_its_observed_side(self):
-        log = Path(tempfile.mkdtemp()) / "d.jsonl"
+        log = Path(scratch.mkdtemp()) / "d.jsonl"
         for i, (out, mins) in enumerate(((6000, 4), (12000, 6), (9000, 5))):
             t0 = NOW - timedelta(hours=1 + i)
             aid = outcomes.start(provider="glm", model="glm-5.3", effort="high", task="example", account=None,
@@ -64,7 +65,7 @@ class Observed(unittest.TestCase):
         self.assertAlmostEqual(s["tok_s"], 30.0)  # 9000 out in 5 minutes: the whole run's pace
 
     def test_cards_prices_a_run_at_its_cards_price(self):
-        home, state = tempfile.mkdtemp(), tempfile.mkdtemp()
+        home, state = scratch.mkdtemp(), scratch.mkdtemp()
         Path(home, "unlimited").mkdir()
         Path(home, "unlimited", "catalog.toml").write_text("schema = 1\n" + CARD.format(vendor="zai", tok_s=90))
         with mock.patch.dict(os.environ, {"XDG_CONFIG_HOME": home, "XDG_STATE_HOME": state}):
