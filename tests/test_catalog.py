@@ -220,6 +220,14 @@ class Switches(unittest.TestCase):
         self.assertEqual(catalog.off_policy(NOW, path),
                          {"kimi": None, "zai/claude-glm-2": None})
 
+    def test_an_account_switch_never_blocks_the_vendors_catalog_routes(self):
+        # An account switch binds verdict alone (like a route-less vendor): the vendor's other
+        # accounts still serve its routes.
+        c = self.load({"target": "zai", "account": "claude-glm-2"})
+        self.assertIn("glm", [p for p, _ in self.models(c, "standard")])
+        vendor_off = self.load({"target": "zai"})
+        self.assertNotIn("glm", [p for p, _ in self.models(vendor_off, "standard")])
+
     def test_a_write_waits_for_the_lock(self):
         import subprocess, sys
         local = Path(scratch.mkdtemp()) / "catalog.toml"

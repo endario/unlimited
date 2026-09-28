@@ -344,7 +344,8 @@ class Catalog:
         if names & self.banned:
             return True
         for x in self.off:
-            if live(x, now) and x["target"] in names:
+            # An account switch binds verdict alone: the vendor's other accounts still serve.
+            if live(x, now) and x.get("account") is None and x["target"] in names:
                 return True
         return False
 
