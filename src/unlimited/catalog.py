@@ -69,6 +69,18 @@ def write_switches(off: list[dict], path: Path | None = None) -> None:
     os.replace(tmp, path)
 
 
+def off_vendors(now: datetime, path: Path | None = None) -> dict[str, str | None]:
+    """The machine's live vendor switches as a policy (`verdict`'s `off`): each usage vendor
+    switched off here, to its switch's `until` (ISO text, None when it has no end)."""
+    from .adapters import REGISTRY
+    out: dict[str, str | None] = {}
+    for x in read_switches(path):
+        until = moment_utc(x.get("until"))
+        if x["target"] in REGISTRY and (until is None or until > now):
+            out[x["target"]] = x.get("until")
+    return out
+
+
 # What a schema-2 file may hold at its top level.
 TOP_LEVEL = frozenset({"schema", "tiers", "models", "offerings", "banned", "tie_preference", "cards"})
 
