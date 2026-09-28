@@ -77,3 +77,45 @@ func strip() throws -> [String: Tile] {
     """.utf8))
     #expect(Tile.strip(payg, now: now).map(\.value) == [.percent(17), .noWindow])
 }
+
+@Test func offVendorsAreMarkedAndNeverThePick() throws {
+    func weekly(_ used: Double) -> String {
+        """
+        {"name": "seven_day", "window_minutes": 10080, "used_at_least": \(used),
+         "resets_at": "2026-09-26T13:00:00+00:00", "held": null, "held_why": null, "role": "weekly"}
+        """
+    }
+    // kimi is the account pick would otherwise choose (the lower heading wins the tie-break).
+    let readings = try Reading.decode(Data("""
+    [{"schema": 1, "vendor": "kimi", "account": "k", "status": "ok", "taken_at": "2026-09-24T05:55:00+00:00",
+      "limits": [\(weekly(0.1))]},
+     {"schema": 1, "vendor": "openai", "account": "o", "status": "ok", "taken_at": "2026-09-24T05:55:00+00:00",
+      "limits": [\(weekly(0.6))]}]
+    """.utf8))
+    let tiles = Tile.strip(readings, now: now, off: ["kimi"])
+    #expect(tiles.first { $0.vendor == "kimi" }?.off == true)
+    #expect(tiles.first { $0.vendor == "openai" }?.off == false)
+    #expect(Tile.pick(tiles) == tiles.first { $0.vendor == "openai" }?.id,
+            "the off vendor's account is never the one to use next")
+    let live = Tile.strip(readings, now: now)
+    #expect(Tile.pick(live) == live.first { $0.vendor == "kimi" }?.id,
+            "without the switch kimi is the pick — the guarded assertion has something to bite on")
+    #expect(tiles.first { $0.vendor == "kimi" }?.labelled("KMI2").off == true, "kept through relabelling")
+    #expect(Tile.strip(readings, now: now).allSatisfy { !$0.off }, "no off set: nothing marked")
+}
+
+@Test func anAccountSwitchGraysOnlyThatAccount() throws {
+    let weekly = """
+    {"name": "seven_day", "window_minutes": 10080, "used_at_least": 0.2,
+     "resets_at": "2026-09-26T13:00:00+00:00", "held": null, "held_why": null, "role": "weekly"}
+    """
+    let readings = try Reading.decode(Data("""
+    [{"schema": 1, "vendor": "zai", "account": "4ff9f720", "names": ["claude-glm-2"],
+      "status": "ok", "taken_at": "2026-09-24T05:55:00+00:00", "limits": [\(weekly)]},
+     {"schema": 1, "vendor": "zai", "account": "da68cb2c", "names": ["claude-glm"],
+      "status": "ok", "taken_at": "2026-09-24T05:55:00+00:00", "limits": [\(weekly)]}]
+    """.utf8))
+    let tiles = Tile.strip(readings, now: now, off: ["zai/claude-glm-2"])
+    #expect(tiles.first { $0.id == "zai/4ff9f720" }?.off == true)
+    #expect(tiles.first { $0.id == "zai/da68cb2c" }?.off == false, "the sibling account stays offerable")
+}
