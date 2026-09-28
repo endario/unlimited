@@ -8,6 +8,48 @@ final class StripModel: ObservableObject {
     @Published private(set) var readings: [String: Reading] = [:]
     /// How to open each account's Claude Code, by tile id; absent where it has no wrapper.
     @Published private(set) var launches: [String: Launch] = [:]
+    /// The switches this machine holds (`unlimited off`); empty when the CLI cannot say — an
+    /// older one, or a file it refuses — so the strip only loses its greying.
+    @Published private(set) var offSwitches: [Runner.Switch] = []
+    /// Whether the CLI answered the switch list, so Settings can offer to flip one.
+    @Published private(set) var canOffer = false
+    /// The CLI's own message when a flip failed, for Settings to show.
+    @Published var offerProblem: String?
+    /// The binary a flip runs through, for Settings to show.
+    var offerPath: String { runner?.binary.path ?? "unlimited" }
+    /// A probe taken before a flip landed must not overwrite the flip's fresher state.
+    private var switchSeq = 0
+
+    /// The switches' keys, as the strip marks tiles: each vendor, or `vendor/account`.
+    var offKeys: Set<String> {
+        Set(offSwitches.map { s in s.account.map { "\(s.target)/\($0)" } ?? s.target })
+    }
+
+    /// Flip a switch through the CLI, then re-read the list as the source of truth. A refused
+    /// `on` (the switch was not off) is fine; anything else surfaces its message.
+    func offer(_ target: String, account: String? = nil, _ off: Bool) {
+        guard let runner else { return }
+        switchSeq += 1  // at the start: a probe taken before this flip is now the stale one
+        let seq = switchSeq
+        Task.detached {
+            var problem: String?
+            do { try runner.setOffer(target, account: account, off: off) }
+            catch Runner.RunError.exit(1, _) where !off {}  // on of a switch not off: already there
+            catch Runner.RunError.exit(_, stderr: let stderr) {
+                problem = String(stderr.split(separator: "\n").first ?? "unlimited could not switch \(target)")
+            }
+            catch { problem = "unlimited could not be run" }
+            let probed = try? runner.switches()
+            await MainActor.run {
+                self.offerProblem = problem
+                if let probed, seq == self.switchSeq {
+                    self.canOffer = true
+                    self.offSwitches = probed
+                    self.redraw()
+                }
+            }
+        }
+    }
     /// The account the popover shows, by tile id.
     @Published var selected: String?
     /// Whether the popover is showing, so the strip can mark the selected tile.
@@ -45,7 +87,7 @@ final class StripModel: ObservableObject {
 
     private func redraw() {
         guard !lastRead.isEmpty else { return }
-        accounts = Tile.strip(lastRead, now: Date())
+        accounts = Tile.strip(lastRead, now: Date(), off: offKeys)
         tiles = prefs.apply(accounts)
         if tiles.isEmpty { tiles = [.waiting] }
         save()
@@ -87,15 +129,29 @@ final class StripModel: ObservableObject {
                                            : Runner(binary: URL(filePath: (custom as NSString).expandingTildeInPath)))
         guard let runner else { return fail("unlimited not found in ~/.local/bin, /opt/homebrew/bin or /usr/local/bin") }
         busy = true
+        switchSeq += 1  // the newest probe owns the truth: anything still in flight is stale
+        let seq = switchSeq
         // The version is checked again only when the binary is replaced (an upgrade).
         let stamp = (try? FileManager.default.attributesOfItem(atPath: runner.binary.resolvingSymlinksInPath().path))?[.modificationDate] as? Date
         let checked = stamp != nil && stamp == versionChecked
         Task.detached {
             let recent = checked || runner.isRecentEnough()
             let result: Result<[Reading], Error> = recent ? Result { try runner.read(maxAge: maxAge) } : .failure(Problem.tooOld)
+            // A probe that fails (an older CLI, a file it refuses) means no greying, not a fault.
+            let probed = recent ? try? runner.switches() : nil
             await MainActor.run { if recent { self.versionChecked = stamp } }
             await MainActor.run {
                 self.busy = false
+                // Only the newest-started probe or flip owns the truth.
+                if seq == self.switchSeq {
+                    if let probed {
+                        self.canOffer = true
+                        self.offSwitches = probed
+                    } else {
+                        self.canOffer = false
+                        self.offSwitches = []
+                    }
+                }
                 switch result {
                 case .success(let readings):
                     self.problem = nil

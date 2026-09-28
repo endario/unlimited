@@ -34,7 +34,10 @@ picks an account or draws a threshold. Choosing what to do with a reading is up 
 
 Each tile shows an account's weekly use. When another of its windows is in worse shape, the tile
 cross-fades to it now and then. The thin bar beside each figure is how much of the week has
-passed. Where a vendor has several accounts, the one to use next is underlined.
+passed. Where a vendor has several accounts, the one to use next is underlined. A tile whose
+account is switched off (`unlimited off`, the vendor or the account alone) keeps
+its exact colours at half transparency and is never the one to use next; Settings' "Never offer"
+rows flip those switches. A glyph that stands for no reading at all (`!`, `—`, `?`, `…`) is grey.
 
 The colour says where the window is heading, once there is enough to go on:
 
