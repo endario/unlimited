@@ -48,7 +48,8 @@ def switches_path(local: Path | None = None) -> Path:
 
 
 def read_switches(path: Path | None = None) -> list[dict]:
-    """This machine's switched-off targets: `{"target", "until", "why"}`, `until` an ISO time or
+    """This machine's switched-off targets: `{"target", "until", "why"}` and, for a switch on one
+    account of a vendor, `"account"` (its account id or an identity name), `until` an ISO time or
     None. Written by `unlimited off/on`; a file that does not parse is an error, as the catalog's
     is, since a switch that silently stops applying is the failure it exists to prevent."""
     path = path or switches_path()
@@ -66,8 +67,10 @@ def read_switches(path: Path | None = None) -> list[dict]:
     except OSError:
         pass
     off = got.get("off") if isinstance(got, dict) else None
-    if not isinstance(off, list) or not all(isinstance(x, dict) and isinstance(x.get("target"), str) for x in off):
-        raise CatalogError(f"{path}: expected {{\"off\": [{{\"target\": ...}}]}}")
+    if not isinstance(off, list) or not all(isinstance(x, dict) and isinstance(x.get("target"), str)
+                                            and (x.get("account") is None or isinstance(x["account"], str))
+                                            for x in off):
+        raise CatalogError(f"{path}: expected {{\"off\": [{{\"target\": ..., \"account\": ...}}]}}")
     for x in off:
         if x.get("until") is not None and moment_utc(x["until"]) is None:
             raise CatalogError(f"{path}: {x['target']}: until {x['until']!r} is not an ISO time")
@@ -102,36 +105,42 @@ def write_switches(off: list[dict], path: Path | None = None) -> None:
 
 
 def switch(target: str, *, on: bool = False, until: datetime | None = None, why: str | None = None,
-           now: datetime, path: Path | None = None) -> list[dict]:
-    """Flip one switch, the whole read-mutate-write under the switches' lock; lapsed entries drop
-    as they are passed. `on` of a target that is not off raises ValueError and writes nothing.
-    Returns exactly what it wrote, so a caller can echo the state it itself persisted."""
+           account: str | None = None, now: datetime, path: Path | None = None) -> list[dict]:
+    """Flip one switch — of a whole target, or with `account`, of one account of a usage vendor —
+    the whole read-mutate-write under the switches' lock; lapsed entries drop as they are passed.
+    `on` of a switch that is not off raises NotOff and writes nothing. Returns exactly what it
+    wrote, so a caller can echo the state it itself persisted."""
     path = path or switches_path()
     with _flock(path):
         was = [x for x in read_switches(path) if live(x, now)]
-        if on and target not in [x["target"] for x in was]:
-            raise NotOff(target)
-        kept = [{"target": x["target"], "until": x.get("until"), "why": x.get("why")}
-                for x in was if x["target"] != target]
+        same = [x for x in was if x["target"] == target and x.get("account") == (account or None)]
+        if on and not same:
+            raise NotOff(target if account is None else f"{target}/{account}")
+        kept = [{"target": x["target"], "until": x.get("until"), "why": x.get("why"),
+                 **({"account": x["account"]} if x.get("account") is not None else {})}
+                for x in was if x not in same]
         if not on:
-            kept.append({"target": target, "until": until.isoformat() if until else None, "why": why})
+            kept.append({"target": target, "until": until.isoformat() if until else None, "why": why,
+                         **({"account": account} if account is not None else {})})
         _write(kept, path)
         return kept
 
 
 def live(x: dict, now: datetime) -> bool:
     """Whether a switch holds at `now`: no end, or one not yet reached. One rule, read by the
-    catalog's blocking, `off`'s listing and `off_vendors` alike."""
+    catalog's blocking, `off`'s listing and `off_policy` alike."""
     until = moment_utc(x.get("until"))
     return until is None or until > now
 
 
-def off_vendors(now: datetime, path: Path | None = None) -> dict[str, str | None]:
-    """The machine's live vendor switches as a policy (`verdict`'s `off`): each usage vendor
-    switched off here, to its switch's `until` (ISO text, None when it has no end)."""
+def off_policy(now: datetime, path: Path | None = None) -> dict[str, str | None]:
+    """The machine's live switches over usage vendors as a policy (`verdict`'s `off`): keyed by
+    the vendor (`zai`) for a whole-vendor switch, or `vendor/account` (`zai/claude-glm-2`) for one
+    account's, each to its switch's `until` (ISO text, None when it has no end). An account key
+    matches a reading whose account id or any identity name it is."""
     from .adapters import REGISTRY
-    return {x["target"]: x.get("until") for x in read_switches(path)
-            if x["target"] in REGISTRY and live(x, now)}
+    return {x["target"] if x.get("account") is None else f"{x['target']}/{x['account']}": x.get("until")
+            for x in read_switches(path) if x["target"] in REGISTRY and live(x, now)}
 
 
 # What a schema-2 file may hold at its top level.
