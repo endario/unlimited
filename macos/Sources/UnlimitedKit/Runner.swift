@@ -16,26 +16,32 @@ public struct Runner: Sendable {
         return candidates.first { FileManager.default.isExecutableFile(atPath: $0.path) }.map(Runner.init)
     }
 
-    /// One entry of the machine's switch list (`unlimited off --json`).
+    /// One entry of the machine's switch list (`unlimited off --json`): a target — a usage
+    /// vendor, or with `account`, one account of it — and its end and note.
     public struct Switch: Codable, Sendable, Equatable {
         public let target: String
         public let until: String?
         public let why: String?
+        public let account: String?
     }
 
-    /// The machine's switched-off targets. An older `unlimited` does not know `--json`; the
-    /// caller treats any failure as "none", never as a broken strip.
-    public func switches(timeout: TimeInterval = 10) throws -> [Switch] {
+    /// The machine's switched-off targets, as the strip's keys: each vendor, or `vendor/account`.
+    /// An older `unlimited` does not know `--json`; the caller treats any failure as "none",
+    /// never as a broken strip.
+    public func switches(timeout: TimeInterval = 10) throws -> [String] {
         try JSONDecoder().decode([Switch].self, from: run(["off", "--json"], timeout: timeout))
+            .map { s in s.account.map { "\(s.target)/\($0)" } ?? s.target }
     }
 
     /// Flip one switch through the CLI, keeping its own message for the caller to surface.
-    /// Exit 1 means the flip was refused (`on` of a target that is not off); the caller treats
-    /// it as "already there", any other failure as a problem.
-    public func setOffer(_ target: String, off: Bool, timeout: TimeInterval = 15) throws {
+    /// `account` narrows it to one account of a usage vendor. Exit 1 means the flip was refused
+    /// (`on` of a switch that is not off); the caller treats it as "already there", any other
+    /// failure as a problem.
+    public func setOffer(_ target: String, account: String? = nil, off: Bool, timeout: TimeInterval = 15) throws {
         let p = Process()
         p.executableURL = binary
         p.arguments = (off ? ["off"] : ["on"]) + [target]
+            + (account.map { ["--account", $0] } ?? [])
         let out = Pipe(), err = Pipe()
         p.standardOutput = out
         p.standardError = err

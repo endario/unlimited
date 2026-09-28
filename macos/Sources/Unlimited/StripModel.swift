@@ -8,9 +8,10 @@ final class StripModel: ObservableObject {
     @Published private(set) var readings: [String: Reading] = [:]
     /// How to open each account's Claude Code, by tile id; absent where it has no wrapper.
     @Published private(set) var launches: [String: Launch] = [:]
-    /// The vendors this machine switched off (`unlimited off`); empty when the CLI cannot
-    /// say — an older one, or a file it refuses — so the strip only loses its greying.
-    @Published private(set) var offVendors: Set<String> = []
+    /// The switch keys this machine holds (`unlimited off`: a vendor, or `vendor/account`);
+    /// empty when the CLI cannot say — an older one, or a file it refuses — so the strip only
+    /// loses its greying.
+    @Published private(set) var offKeys: Set<String> = []
     /// Whether the CLI answered the switch list, so Settings can offer to flip one.
     @Published private(set) var canOffer = false
     /// The CLI's own message when a flip failed, for Settings to show.
@@ -18,14 +19,14 @@ final class StripModel: ObservableObject {
     /// The binary a flip runs through, for Settings to show.
     var offerPath: String { runner?.binary.path ?? "unlimited" }
 
-    /// Flip a vendor's switch through the CLI, then re-read the list as the source of truth.
-    /// A refused `on` (the target was not off) is fine; anything else surfaces its message.
-    func offer(_ vendor: String, _ off: Bool) {
+    /// Flip a switch through the CLI, then re-read the list as the source of truth. A refused
+    /// `on` (the switch was not off) is fine; anything else surfaces its message.
+    func offer(_ vendor: String, account: String? = nil, _ off: Bool) {
         guard let runner else { return }
         Task.detached {
             var problem: String?
-            do { try runner.setOffer(vendor, off: off) }
-            catch Runner.RunError.exit(1, _) where !off {}  // on of a target not off: already there
+            do { try runner.setOffer(vendor, account: account, off: off) }
+            catch Runner.RunError.exit(1, _) where !off {}  // on of a switch not off: already there
             catch Runner.RunError.exit(_, stderr: let stderr) {
                 problem = String(stderr.split(separator: "\n").first ?? "unlimited could not switch \(vendor)")
             }
@@ -35,7 +36,7 @@ final class StripModel: ObservableObject {
                 self.offerProblem = problem
                 if let probed {
                     self.canOffer = true
-                    self.offVendors = Set(probed.map(\.target))
+                    self.offKeys = Set(probed)
                     self.redraw()
                 }
             }
@@ -78,7 +79,7 @@ final class StripModel: ObservableObject {
 
     private func redraw() {
         guard !lastRead.isEmpty else { return }
-        accounts = Tile.strip(lastRead, now: Date(), off: offVendors)
+        accounts = Tile.strip(lastRead, now: Date(), off: offKeys)
         tiles = prefs.apply(accounts)
         if tiles.isEmpty { tiles = [.waiting] }
         save()
@@ -133,10 +134,10 @@ final class StripModel: ObservableObject {
                 self.busy = false
                 if let probed {
                     self.canOffer = true
-                    self.offVendors = Set(probed.map(\.target))
+                    self.offKeys = Set(probed)
                 } else {
                     self.canOffer = false
-                    self.offVendors = []
+                    self.offKeys = []
                 }
                 switch result {
                 case .success(let readings):

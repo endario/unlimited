@@ -2,16 +2,41 @@ import Foundation
 import Testing
 @testable import UnlimitedKit
 
-@Test func rowsCoverAccountsAndSwitchesBoth() {
-    let rows = Tile.neverOffer(off: ["kimi"], vendors: ["anthropic", "kimi", "zai", "zai"])
-    #expect(rows.map(\.vendor) == ["anthropic", "zai", "kimi"])  // strip order
-    #expect(rows.map(\.off) == [false, false, true])
-    #expect(rows.map(\.accountHere) == [true, true, true])
+@Test func rowsCoverAccountsAndWholeVendorSwitches() {
+    let rows = Tile.offerRows(readings: [
+        account("anthropic", id: "a1", names: ["account1"]),
+        account("zai", id: "4ff9", names: ["claude-glm-2"]),
+        account("zai", id: "da68", names: ["claude-glm"]),
+    ], off: ["kimi"])
+    #expect(rows.map(\.ident) == ["account1", "claude-glm", "claude-glm-2", "kimi"])
+    #expect(rows.map(\.off) == [false, false, false, true])
+    #expect(rows.map(\.readHere) == [true, true, true, false])
 }
 
-@Test func rowsShowASwitchWithNoAccountHere() {
-    let rows = Tile.neverOffer(off: ["neuralwatt"], vendors: ["kimi"])
-    #expect(rows.map(\.vendor) == ["kimi", "neuralwatt"])
-    #expect(rows.map(\.accountHere) == [true, false])
-    #expect(rows.last?.off == true)
+@Test func anAccountSwitchOffsOnlyItsOwnRow() {
+    let rows = Tile.offerRows(readings: [
+        account("zai", id: "4ff9", names: ["claude-glm-2"]),
+        account("zai", id: "da68", names: ["claude-glm"]),
+    ], off: ["zai/claude-glm-2"])
+    #expect(rows.map(\.ident) == ["claude-glm", "claude-glm-2"])
+    #expect(rows.map(\.off) == [false, true])
+}
+
+@Test func aWholeVendorSwitchOffsAllItsRows() {
+    let rows = Tile.offerRows(readings: [
+        account("zai", id: "4ff9", names: ["claude-glm-2"]),
+        account("zai", id: "da68", names: ["claude-glm"]),
+    ], off: ["zai"])
+    #expect(rows.map(\.off) == [true, true])
+}
+
+private func account(_ vendor: String, id: String, names: [String]) -> Reading {
+    try! Reading.decode(Data("""
+    [{"schema": 1, "vendor": "\(vendor)", "account": "\(id)", "names": \(rawJSON(names)),
+      "status": "ok", "limits": []}]
+    """.utf8))[0]
+}
+
+private func rawJSON(_ strings: [String]) -> String {
+    "[" + strings.map { "\"\($0)\"" }.joined(separator: ", ") + "]"
 }
