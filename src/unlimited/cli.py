@@ -110,10 +110,25 @@ def _switch(a) -> int:
     return 0
 
 
+def _warn_unrouted(provider: str, route: str) -> None:
+    """An attempt naming no route of the catalog teaches the choice nothing; it is still recorded,
+    as asked, but the caller hears it now rather than as a count in later decisions."""
+    from . import catalog
+    try:
+        cat = catalog.load()
+    except catalog.CatalogError:
+        return
+    ids = sorted(o["id"] for o in cat.offerings if cat.models[o["model"]]["provider"] == provider)
+    if route not in ids:
+        print(f"unlimited: {provider} {route}: no catalog route, so no choice learns from this attempt; "
+              f"{provider}'s routes: {', '.join(ids) or 'none'}", file=sys.stderr)
+
+
 def _attempt(a) -> int:
     from . import outcomes
     now = datetime.now(timezone.utc)
     if a.phase == "start":
+        _warn_unrouted(a.provider, a.offering or a.model)
         outcomes.compact(now)
         print(outcomes.start(provider=a.provider, model=a.model, effort=a.effort, task=a.task,
                              account=a.account, decision=a.decision, deadline=a.deadline, now=now,
