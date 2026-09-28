@@ -77,3 +77,21 @@ func strip() throws -> [String: Tile] {
     """.utf8))
     #expect(Tile.strip(payg, now: now).map(\.value) == [.percent(17), .noWindow])
 }
+
+@Test func offVendorsAreMarkedAndNeverThePick() throws {
+    let weekly = """
+    {"name": "seven_day", "window_minutes": 10080, "used_at_least": 0.2,
+     "resets_at": "2026-09-26T13:00:00+00:00", "held": null, "held_why": null, "role": "weekly"}
+    """
+    let readings = try Reading.decode(Data("""
+    [{"schema": 1, "vendor": "kimi", "account": "k", "status": "ok", "limits": [\(weekly)]},
+     {"schema": 1, "vendor": "openai", "account": "o", "status": "ok", "limits": [\(weekly)]}]
+    """.utf8))
+    let tiles = Tile.strip(readings, now: now, off: ["kimi"])
+    #expect(tiles.first { $0.vendor == "kimi" }?.off == true)
+    #expect(tiles.first { $0.vendor == "openai" }?.off == false)
+    #expect(Tile.pick(tiles) == tiles.first { $0.vendor == "openai" }?.id,
+            "the off vendor's account is never the one to use next")
+    #expect(tiles.first { $0.vendor == "kimi" }?.labelled("KMI2").off == true, "kept through relabelling")
+    #expect(Tile.strip(readings, now: now).allSatisfy { !$0.off }, "no off set: nothing marked")
+}
