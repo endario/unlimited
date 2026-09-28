@@ -407,9 +407,10 @@ candidates[pick]; if it cannot run, the next index in order; record each use wit
 Each candidate route is scored by its expected cost in minutes, from this machine's attempt log:
   E = (1 − p)·T_ok + p·(T_fail + T_next) + quota_weight·debit·π(ρ) − preference
 p is its recent failure rate, T_ok and T_fail how long it takes to succeed or fail (a hang costs
---deadline), T_next what a retry elsewhere costs, π(ρ) = exp(5(ρ − 1)) the price of spending an
-account projected to reach ρ of its limit by reset (1 at the limit; unknown counts as 1; a live
-promotion costs 0), debit how much of its account one run uses (catalog, default 1), and
+--deadline), T_next what a retry elsewhere costs, π(ρ) = 1 / (1 + exp(−5(ρ − 1))) the price of
+spending an account projected to reach ρ of its limit by reset (0.5 at the limit, never past 1;
+unknown counts as at the limit; a live promotion costs 0), debit how much of its account one run
+uses (catalog, default 1), and
 preference up to a minute for the catalog's tie_preference plus the caller's --prefer. Recent
 history weighs most (12 h half-life), so a route that just failed twice is avoided and recovers on
 its own.

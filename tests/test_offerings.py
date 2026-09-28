@@ -126,7 +126,6 @@ class Routes(unittest.TestCase):
             return got["candidates"][got["pick"]]["model"], {x["model"]: x["debit"] for x in got["candidates"]}
 
         self.assertEqual(pick({go: 0.5, cc: 0.5}), (go, {go: 1, cc: 2}))
-        # ln 2 / 5 ≈ 0.14: the cheaper plan keeps the work until its account is that much more used.
         self.assertEqual(pick({go: 0.6, cc: 0.5})[0], go)
         self.assertEqual(pick({go: 0.7, cc: 0.5})[0], cc)
         self.assertEqual(pick({})[0], go, "with no projection at all, the debit alone decides")

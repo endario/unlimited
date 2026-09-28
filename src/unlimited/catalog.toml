@@ -103,15 +103,19 @@ id = "opencode-go/deepseek-v4.1-flash"
 model = "deepseek-v4-1-flash"
 vendor = "opencode"
 
+# Go's allowance (opencode.ai/docs/go, 2026-09-28) is ~226,600 requests a month of Muse Spark
+# against ~130,000 of DeepSeek V4.1 Flash, so a run of it debits 0.57 of one of DeepSeek's.
 [[offerings]]
 id = "opencode-go/muse-spark-1.3-contributor"
 model = "muse-spark-1-3-contributor"
 vendor = "opencode"
+debit = 0.57
 
 [[offerings]]
 id = "opencode-go/muse-spark-1.2-contributor"
 model = "muse-spark-1-2-contributor"
 vendor = "opencode"
+debit = 0.57
 
 [[offerings]]
 id = "commandcode/deepseek/deepseek-v4.1-flash"
