@@ -129,6 +129,7 @@ final class StripModel: ObservableObject {
                                            : Runner(binary: URL(filePath: (custom as NSString).expandingTildeInPath)))
         guard let runner else { return fail("unlimited not found in ~/.local/bin, /opt/homebrew/bin or /usr/local/bin") }
         busy = true
+        switchSeq += 1  // the newest probe owns the truth: anything still in flight is stale
         let seq = switchSeq
         // The version is checked again only when the binary is replaced (an upgrade).
         let stamp = (try? FileManager.default.attributesOfItem(atPath: runner.binary.resolvingSymlinksInPath().path))?[.modificationDate] as? Date
@@ -141,7 +142,7 @@ final class StripModel: ObservableObject {
             await MainActor.run { if recent { self.versionChecked = stamp } }
             await MainActor.run {
                 self.busy = false
-                // A probe raced by a flip is stale: the flip's own re-read is the truth.
+                // Only the newest-started probe or flip owns the truth.
                 if seq == self.switchSeq {
                     if let probed {
                         self.canOffer = true
