@@ -138,7 +138,8 @@ machine, with no release. Format and merge rules: [docs/catalog.md](docs/catalog
 `unlimited off TARGET [--for 90m|12h|1d|1w] [--why TEXT]` switches a provider (`stealth`), a model, a vendor (by its
 usage name, also one with no catalog route here — its accounts then stop being `verdict`'s to offer), an offering
 id, or a `provider:model` pair off on this machine, until `unlimited on TARGET` or the `--for` time
-passes; `unlimited off` lists what is off, `unlimited off --json` as a JSON array. It drops out of `models` and `--catalog` like a ban. The switches live in
+passes; `unlimited off` lists what is off, `unlimited off --json` as a JSON array. A target with a catalog
+route drops out of `models` and `--catalog` like a ban; a route-less vendor binds `verdict` alone. The switches live in
 `~/.config/unlimited/switches.json`.
 
 ## Outcomes
