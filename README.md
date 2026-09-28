@@ -238,6 +238,8 @@ Pre-release. The schema (`"schema": 1`) may still change.
 ## Releasing
 
 `main` takes changes only through a pull request that passes the tests and the identity check.
+The tests are stdlib `unittest`; from the repo root:
+`PYTHONPATH=src:tests python3 -m unittest discover -s tests` (the macOS app's: `cd macos && make test`).
 Bump `version` in `pyproject.toml` in one, merge it, then tag the merge commit `vX.Y.Z` and push
 the tag: the Publish workflow puts it on PyPI by trusted publishing, with no stored token.
 
