@@ -184,6 +184,10 @@ class Choose(unittest.TestCase):
                           attempts=[run(), run(provider="deepseek", model="x", offering="opencode-go/deepseek-v4.1-flash"),
                                     run(model="gpt-5"), run(provider="nope"), run(offering="commandcode/nope")])
         self.assertEqual(got["attempts_unknown"], 3, "a model or offering id no route carries, an unknown provider")
+        # A caller passing attempts as data never sees attempt start's warning; the decision names them.
+        self.assertEqual(got["routes_unknown"], [{"provider": "codex", "model": "commandcode/nope", "attempts": 1},
+                                                 {"provider": "codex", "model": "gpt-5", "attempts": 1},
+                                                 {"provider": "nope", "model": "gpt-6-luna", "attempts": 1}])
 
     def test_by_default_a_thin_record_is_explored_and_exploration_fades_as_records_fill(self):
         cat = catalog.load(Path(scratch.mkdtemp()) / "none.toml")
