@@ -150,6 +150,14 @@ class Switches(unittest.TestCase):
         catalog.write_switches([{"target": "kimi"}], catalog.switches_path(local))
         self.assertEqual(catalog.switches_path(local).stat().st_mode & 0o777, 0o600)
 
+    def test_a_switches_file_an_older_release_left_readable_is_made_private_on_read(self):
+        local = Path(scratch.mkdtemp()) / "catalog.toml"
+        path = catalog.switches_path(local)
+        catalog.write_switches([{"target": "kimi"}], path)
+        path.chmod(0o644)  # what 0.1.0's writer left behind
+        catalog.read_switches(path)
+        self.assertEqual(path.stat().st_mode & 0o777, 0o600)
+
     def test_a_switches_file_that_does_not_parse_stops_the_load(self):
         local = Path(scratch.mkdtemp()) / "catalog.toml"
         for text in ('{"off": "stealth"}', '{"off": [{"target": "stealth", "until": "tomorrow"}]}'):
@@ -220,6 +228,19 @@ class Cli(unittest.TestCase):
         self.assertEqual([(x["target"], x["why"]) for x in got], [("kimi", "banned")])
         self.assertIsNotNone(got[0]["until"])
 
+    def test_off_with_a_target_and_json_prints_what_is_off_after(self):
+        import json
+        home = Path(scratch.mkdtemp())
+        def run(*args):
+            out, err = io.StringIO(), io.StringIO()
+            with mock.patch.dict(os.environ, {"XDG_CONFIG_HOME": str(home)}), redirect_stdout(out), redirect_stderr(err):
+                return cli.main(list(args)), out.getvalue()
+        code, out = run("off", "kimi", "--json")
+        self.assertEqual(code, 0)
+        self.assertEqual([x["target"] for x in json.loads(out)], ["kimi"])
+        code, out = run("on", "kimi", "--json")
+        self.assertEqual((code, json.loads(out)), (0, []))
+
     def test_verdict_marks_a_switched_off_vendor_and_survives_a_broken_switches_file(self):
         import json
         home = Path(scratch.mkdtemp())
@@ -232,6 +253,13 @@ class Cli(unittest.TestCase):
         with mock.patch("unlimited.cache.through", return_value=[]):
             code, out, err = run()
         self.assertEqual((code, "switches.json" in err), (2, True))  # a message, not a traceback
+        # The broken file is caught before any vendor is read: the reads are not wasted.
+        def boom(**kw):
+            raise AssertionError("a vendor was read")
+        (home / "unlimited" / "switches.json").write_text("{")
+        with mock.patch("unlimited.cache.through", side_effect=boom):
+            code, _, err = run()
+        self.assertEqual((code, "switches.json" in err), (2, True))
         (home / "unlimited" / "switches.json").write_text('{"off": [{"target": "kimi"}]}')
         with mock.patch("unlimited.cache.through",
                         return_value=[{"vendor": "kimi", "account": "k", "names": [], "status": "ok"}]):

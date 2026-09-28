@@ -67,7 +67,7 @@ def _switch(a) -> int:
     try:
         cat = catalog.load()
         now = datetime.now(timezone.utc)
-        off = [x for x in cat.off if (u := catalog.moment_utc(x.get("until"))) is None or u > now]
+        off = [x for x in cat.off if catalog.live(x, now)]
     except catalog.CatalogError as e:
         print(f"unlimited: catalog: {e}", file=sys.stderr)
         return 2
@@ -97,6 +97,8 @@ def _switch(a) -> int:
         kept.append({"target": a.target, "until": (now + a.for_).isoformat() if a.for_ else None,
                      "why": a.why})
     catalog.write_switches(kept)
+    if a.json:
+        json.dump(kept, sys.stdout)
     return 0
 
 
@@ -374,13 +376,14 @@ examples:
   unlimited off codex:gpt-6-sol
   unlimited on commandcode""")
     of.add_argument("target", nargs="?", metavar="TARGET", help="what to switch off (omit to list)")
-    of.add_argument("--json", action="store_true", help="with no TARGET: a JSON array of what is off")
+    of.add_argument("--json", action="store_true", help="a JSON array of what is off (after any change)")
     of.add_argument("--for", dest="for_", type=_duration, metavar="DURATION",
                     help="lapse after this long: a number and m, h, d or w (90m, 12h, 1d, 1w); default never")
     of.add_argument("--why", metavar="NOTE", help="a note, shown when listing")
     on = add("on", "undo `unlimited off TARGET`", "Switches TARGET back on; exit 1 if it was not off.",
              "example:\n  unlimited on commandcode")
     on.add_argument("target", metavar="TARGET", help="exactly as it was switched off")
+    on.add_argument("--json", action="store_true", help="a JSON array of what is off (after any change)")
     ch = add("choose", "rank the candidates for a task by expected cost; logged", f"""\
 Of the candidates the caller allows, which to use now, and in what order to fall back. A caller
 usually passes --tier, --candidates, --deadline and --quota; the rest is rarely needed. Launch
@@ -545,19 +548,21 @@ def main(argv: list[str] | None = None) -> int:
         return _choose(a)
     if a.cmd == "cards":
         return _cards(a)
-    out = []
-    for v in getattr(a, "vendor", None) or sorted(REGISTRY):
-        out += cache.through(REGISTRY[v], max_age=a.max_age,
-                             clock=lambda: datetime.now(timezone.utc), get=transport.get)
+    off, now = None, datetime.now(timezone.utc)
     if a.cmd == "verdict":
+        # Before the reads: a broken switches file fails the command without waiting on a vendor.
         from . import catalog
-        from .verdict import verdict
-        now = datetime.now(timezone.utc)
         try:
             off = catalog.off_vendors(now)
         except catalog.CatalogError as e:
             print(f"unlimited: catalog: {e}", file=sys.stderr)
             return 2
+    out = []
+    for v in getattr(a, "vendor", None) or sorted(REGISTRY):
+        out += cache.through(REGISTRY[v], max_age=a.max_age,
+                             clock=lambda: datetime.now(timezone.utc), get=transport.get)
+    if a.cmd == "verdict":
+        from .verdict import verdict
         json.dump([{"vendor": r.get("vendor"), "account": r.get("account"), "names": r.get("names", []),
                     "verdict": verdict(r, model_scope=a.model_scope, now=now, work=timedelta(seconds=a.work),
                                        max_age=timedelta(seconds=a.max_age), off=off)} for r in out], sys.stdout)
