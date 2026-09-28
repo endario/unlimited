@@ -67,11 +67,11 @@ def _switch(a) -> int:
     try:
         cat = catalog.load()
         now = datetime.now(timezone.utc)
-        off = [x for x in cat.off if catalog.live(x, now)]
     except catalog.CatalogError as e:
         print(f"unlimited: catalog: {e}", file=sys.stderr)
         return 2
     if a.cmd == "off" and a.target is None:
+        off = [x for x in cat.off if catalog.live(x, now)]
         if a.json:
             json.dump(off, sys.stdout)
             return 0
@@ -88,14 +88,18 @@ def _switch(a) -> int:
         print(f"unlimited: {a.target}: not a provider, model, offering, usage vendor or "
               f"provider:model pair in the catalog", file=sys.stderr)
         return 1
-    was = catalog.switch(a.target, on=a.cmd == "on",
-                         until=(now + a.for_) if getattr(a, "for_", None) else None,
-                         why=getattr(a, "why", None), now=now)
-    if a.cmd == "on" and a.target not in was:
+    try:
+        wrote = catalog.switch(a.target, on=a.cmd == "on",
+                               until=(now + a.for_) if getattr(a, "for_", None) else None,
+                               why=getattr(a, "why", None), now=now)
+    except catalog.NotOff:
         print(f"unlimited: {a.target} is not switched off here", file=sys.stderr)
         return 1
+    except catalog.CatalogError as e:
+        print(f"unlimited: catalog: {e}", file=sys.stderr)
+        return 2
     if a.json:
-        json.dump(catalog.read_switches(), sys.stdout)
+        json.dump(wrote, sys.stdout)
     return 0
 
 

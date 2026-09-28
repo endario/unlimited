@@ -174,15 +174,59 @@ class Switches(unittest.TestCase):
         catalog.write_switches([{"target": "kimi", "why": "note"}], path)
         self.assertEqual(path.stat().st_mode & 0o777, 0o600)
 
-    def test_switch_flips_one_target_and_reports_what_was_live(self):
+    def test_switch_flips_one_target_and_returns_what_it_wrote(self):
         local = Path(scratch.mkdtemp()) / "catalog.toml"
         path = catalog.switches_path(local)
         catalog.write_switches([{"target": "kimi"},
                                 {"target": "zai", "until": "2020-01-01T00:00:00+00:00"}], path)
-        self.assertEqual(catalog.switch("stealth", now=NOW, path=path), ["kimi"])  # lapsed zai drops
-        self.assertEqual([x["target"] for x in catalog.read_switches(path)], ["kimi", "stealth"])
-        self.assertEqual(catalog.switch("kimi", on=True, now=NOW, path=path), ["kimi", "stealth"])
+        # The lapsed zai drops; what comes back is exactly what was written.
+        self.assertEqual(catalog.switch("stealth", now=NOW, path=path),
+                         [{"target": "kimi", "until": None, "why": None},
+                          {"target": "stealth", "until": None, "why": None}])
+        self.assertEqual(catalog.switch("kimi", on=True, now=NOW, path=path),
+                         [{"target": "stealth", "until": None, "why": None}])
         self.assertEqual([x["target"] for x in catalog.read_switches(path)], ["stealth"])
+
+    def test_on_of_a_target_that_is_not_off_writes_nothing(self):
+        local = Path(scratch.mkdtemp()) / "catalog.toml"
+        path = catalog.switches_path(local)
+        catalog.write_switches([{"target": "kimi"}], path)
+        with self.assertRaises(catalog.NotOff):
+            catalog.switch("zai", on=True, now=NOW, path=path)
+        self.assertEqual([x["target"] for x in catalog.read_switches(path)], ["kimi"])
+
+    def test_a_write_waits_for_the_lock(self):
+        import subprocess, sys
+        local = Path(scratch.mkdtemp()) / "catalog.toml"
+        path = catalog.switches_path(local)
+        catalog.write_switches([{"target": "kimi"}], path)
+        src = str(Path(__file__).resolve().parents[1] / "src")
+        child = (f"import sys; sys.path[:0] = [{src!r}]\n"
+                 "from datetime import datetime, timezone\n"
+                 "from pathlib import Path\n"
+                 "from unlimited import catalog\n"
+                 f"catalog.switch('stealth', now=datetime(2026, 9, 25, 12, 0, tzinfo=timezone.utc), path=Path({str(path)!r}))")
+        with catalog._flock(path):
+            proc = subprocess.Popen([sys.executable, "-c", child])
+            try:
+                proc.wait(timeout=2)
+            except subprocess.TimeoutExpired:
+                pass  # what the lock is for: the child is still waiting
+            else:
+                proc.kill()
+                self.fail("a second writer ran while the lock was held")
+        self.assertEqual(proc.wait(timeout=10), 0)  # released: it completes
+        self.assertEqual([x["target"] for x in catalog.read_switches(path)], ["kimi", "stealth"])
+
+    def test_a_switch_that_cannot_read_the_file_is_a_message_not_a_traceback(self):
+        home = Path(scratch.mkdtemp())
+        def run(*args):
+            out, err = io.StringIO(), io.StringIO()
+            with mock.patch.dict(os.environ, {"XDG_CONFIG_HOME": str(home)}), redirect_stdout(out), redirect_stderr(err):
+                return cli.main(list(args)), err.getvalue()
+        with mock.patch.object(catalog, "switch", side_effect=catalog.CatalogError("x: broken")):
+            code, err = run("off", "kimi")
+        self.assertEqual((code, "unlimited: catalog: x: broken" in err), (2, True))
 
     def test_a_switches_file_that_does_not_parse_stops_the_load(self):
         local = Path(scratch.mkdtemp()) / "catalog.toml"
