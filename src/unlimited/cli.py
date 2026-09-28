@@ -89,8 +89,11 @@ def _switch(a) -> int:
     known = ((provider, model) in pairs if model else provider in names or provider in REGISTRY) \
         if account is None else provider in REGISTRY and not model
     if not known:
-        print(f"unlimited: {a.target}: not a provider, model, offering, usage vendor or "
-              f"provider:model pair in the catalog", file=sys.stderr)
+        why = (f"unlimited: --account applies only to a usage vendor ({', '.join(sorted(REGISTRY))})"
+               if account is not None else
+               f"unlimited: {a.target}: not a provider, model, offering, usage vendor or "
+               f"provider:model pair in the catalog")
+        print(why, file=sys.stderr)
         return 1
     try:
         wrote = catalog.switch(a.target, on=a.cmd == "on",

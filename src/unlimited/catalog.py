@@ -74,6 +74,8 @@ def read_switches(path: Path | None = None) -> list[dict]:
     for x in off:
         if x.get("until") is not None and moment_utc(x["until"]) is None:
             raise CatalogError(f"{path}: {x['target']}: until {x['until']!r} is not an ISO time")
+        if x.get("account") is not None and not x["account"].strip():
+            raise CatalogError(f"{path}: {x['target']}: account {x['account']!r} is blank")
     return off
 
 
