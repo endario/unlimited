@@ -318,8 +318,9 @@ examples:
     r.add_argument("--json", action="store_true", help="JSON output (the only format; accepted for clarity)")
     vd = add("verdict", "whether each account can take a unit of work, as JSON", f"""\
 For each account, whether it can take a unit of work of --work seconds now: `unread` (no fresh
-reading), `excluded` (the vendor stopped it, a window is used up, or one runs out before the work
-would finish; with which window and when it lifts) or `ranked`, with a `tier` (0: no window
+reading), `excluded` (the vendor stopped it, a window is used up, one runs out before the work
+would finish, or the vendor is switched off here; with which window and when it lifts) or
+`ranked`, with a `tier` (0: no window
 projected past its limit; 1: one is, but after the work) and a `score` to order accounts by.
 Ordering, tie rules and fallback are the caller's. Details: {DOCS}/choice.md#1-verdict""", """\
 example:
@@ -549,11 +550,17 @@ def main(argv: list[str] | None = None) -> int:
         out += cache.through(REGISTRY[v], max_age=a.max_age,
                              clock=lambda: datetime.now(timezone.utc), get=transport.get)
     if a.cmd == "verdict":
+        from . import catalog
         from .verdict import verdict
         now = datetime.now(timezone.utc)
+        try:
+            off = catalog.off_vendors(now)
+        except catalog.CatalogError as e:
+            print(f"unlimited: catalog: {e}", file=sys.stderr)
+            return 2
         json.dump([{"vendor": r.get("vendor"), "account": r.get("account"), "names": r.get("names", []),
                     "verdict": verdict(r, model_scope=a.model_scope, now=now, work=timedelta(seconds=a.work),
-                                       max_age=timedelta(seconds=a.max_age))} for r in out], sys.stdout)
+                                       max_age=timedelta(seconds=a.max_age), off=off)} for r in out], sys.stdout)
         return 0
     if a.cmd in (None, "status"):
         from .show import render

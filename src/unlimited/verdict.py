@@ -95,9 +95,14 @@ def _iso(t: datetime | None) -> str | None:
 
 
 def verdict(reading: object, *, model_scope: str | None, now: datetime, work: timedelta,
-            max_age: timedelta, starts: datetime | None = None) -> dict:
+            max_age: timedelta, starts: datetime | None = None,
+            off: dict[str, str | None] | None = None) -> dict:
     """`unread`, `excluded` or `ranked` for `work` on `model_scope` starting at `starts`.
-    `ranked` is advisory: it describes one reading and reserves nothing."""
+    `ranked` is advisory: it describes one reading and reserves nothing. `off` is the machine's
+    vendor policy (`catalog.off_vendors(now)`): a reading whose vendor it names is `excluded`
+    outright, with the switch's `until` and no window."""
+    if isinstance(reading, dict) and reading.get("vendor") in (off or {}):
+        return {"state": "excluded", "reason": "off", "until": (off or {})[reading["vendor"]]}
     starts = starts or now
     if not isinstance(reading, dict):
         return {"state": "unread", "reason": "no-reading"}

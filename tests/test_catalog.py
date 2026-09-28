@@ -215,6 +215,26 @@ class Cli(unittest.TestCase):
         self.assertEqual([(x["target"], x["why"]) for x in got], [("kimi", "banned")])
         self.assertIsNotNone(got[0]["until"])
 
+    def test_verdict_marks_a_switched_off_vendor_and_survives_a_broken_switches_file(self):
+        import json
+        home = Path(scratch.mkdtemp())
+        (home / "unlimited").mkdir()
+        (home / "unlimited" / "switches.json").write_text("{")
+        def run():
+            out, err = io.StringIO(), io.StringIO()
+            with mock.patch.dict(os.environ, {"XDG_CONFIG_HOME": str(home)}), redirect_stdout(out), redirect_stderr(err):
+                return cli.main(["verdict", "--work", "900"]), out.getvalue(), err.getvalue()
+        with mock.patch("unlimited.cache.through", return_value=[]):
+            code, out, err = run()
+        self.assertEqual((code, "switches.json" in err), (2, True))  # a message, not a traceback
+        (home / "unlimited" / "switches.json").write_text('{"off": [{"target": "kimi"}]}')
+        with mock.patch("unlimited.cache.through",
+                        return_value=[{"vendor": "kimi", "account": "k", "names": [], "status": "ok"}]):
+            code, out, _ = run()
+        self.assertEqual(code, 0)
+        self.assertEqual(json.loads(out)[0]["verdict"],
+                         {"state": "excluded", "reason": "off", "until": None})
+
     def test_one_providers_model_or_exit_1_when_it_has_none_at_the_tier(self):
         self.assertEqual(self.run_models("--provider", "codex", "--tier", "heavy")[:2], (0, "gpt-6-sol\n"))
         self.assertEqual(self.run_models("--provider", "grok", "--tier", "heavy")[:2], (1, ""))
