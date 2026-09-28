@@ -29,6 +29,7 @@ final class StripModel: ObservableObject {
     /// `on` (the switch was not off) is fine; anything else surfaces its message.
     func offer(_ target: String, account: String? = nil, _ off: Bool) {
         guard let runner else { return }
+        switchSeq += 1  // at the start: a probe taken before this flip is now the stale one
         let seq = switchSeq
         Task.detached {
             var problem: String?
@@ -44,7 +45,6 @@ final class StripModel: ObservableObject {
                 if let probed, seq == self.switchSeq {
                     self.canOffer = true
                     self.offSwitches = probed
-                    self.switchSeq += 1
                     self.redraw()
                 }
             }

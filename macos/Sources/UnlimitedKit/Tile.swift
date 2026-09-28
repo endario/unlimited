@@ -134,19 +134,25 @@ public struct Tile: Identifiable, Equatable, Sendable {
 
     /// The rows: every account read here, plus every switch nothing here answers to, in strip
     /// order then by ident. A row's flip names the switch that matched it — the vendor's own if
-    /// both matched — so `on` can always undo what `off` wrote.
+    /// both matched, its own account if none did — so a toggle always switches exactly the row
+    /// it names, and `on` can always undo what `off` wrote.
     public static func offerRows(readings: [Reading], switches: [Runner.Switch]) -> [OfferRow] {
         let order = Dictionary(uniqueKeysWithValues: Tile.vendors.enumerated().map { ($1.id, $0) })
         var matched: Set<Runner.Switch> = []
         let rows = readings.map { r -> OfferRow in
             let keys = Set(policyKeys(r))
+            let hits = switches.filter { s in
+                keys.contains(s.target) && s.account == nil
+                    || s.account.map({ keys.contains("\(s.target)/\($0)") }) ?? false
+            }
+            matched.formUnion(hits)
             // A whole-target switch covers more than an account's; undo the covering one.
-            let hit = switches.first(where: { $0.account == nil && keys.contains($0.target) })
-                ?? switches.first { s in s.account.map { keys.contains("\(s.target)/\($0)") } ?? false }
-            if let hit { matched.insert(hit) }
+            let hit = hits.first(where: { $0.account == nil }) ?? hits.first
             let ident = r.names.first ?? r.account ?? "?"
+            // Matched: undo the switch as it was written. Unmatched: a flip is this account's own.
+            let account = hit.map { $0.account } ?? ident
             return OfferRow(vendor: r.vendor, ident: ident, off: hit != nil, readHere: true,
-                            target: hit?.target ?? r.vendor, account: hit?.account)
+                            target: r.vendor, account: account)
         }
         let extras = switches.filter { !matched.contains($0) }.map { s in
             OfferRow(vendor: s.target, ident: s.account ?? s.target, off: true, readHere: false,

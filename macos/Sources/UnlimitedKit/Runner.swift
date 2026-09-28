@@ -67,21 +67,26 @@ public struct Runner: Sendable {
     }
 
     /// The one process-plumbing copy: run the CLI, kill it at the timeout, keep its stderr for
-    /// the error a caller may want to surface.
+    /// the error a caller may want to surface. Stderr goes to a file, not a pipe — a chatty
+    /// child cannot then stall the stdout read until the timeout.
     func runCaptured(_ args: [String], timeout: TimeInterval) throws -> (Data, String) {
+        let errPath = FileManager.default.temporaryDirectory.appending(path: "unlimited-\(UUID().uuidString).err")
+        FileManager.default.createFile(atPath: errPath.path, contents: nil,
+                                       attributes: [.posixPermissions: 0o600])
         let p = Process()
         p.executableURL = binary
         p.arguments = args
-        let out = Pipe(), err = Pipe()
+        let out = Pipe()
         p.standardOutput = out
-        p.standardError = err
+        p.standardError = try FileHandle(forWritingTo: errPath)
         try p.run()
         let killer = DispatchWorkItem { p.terminate() }
         DispatchQueue.global().asyncAfter(deadline: .now() + timeout, execute: killer)
         let data = out.fileHandleForReading.readDataToEndOfFile()
-        let message = String(decoding: err.fileHandleForReading.readDataToEndOfFile(), as: UTF8.self)
         p.waitUntilExit()
         killer.cancel()
+        let message = String(decoding: (try? Data(contentsOf: errPath)) ?? Data(), as: UTF8.self)
+        try? FileManager.default.removeItem(at: errPath)
         guard p.terminationStatus == 0 else { throw RunError.exit(p.terminationStatus, stderr: message) }
         return (data, message)
     }

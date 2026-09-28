@@ -76,7 +76,7 @@ struct SettingsView: View {
                 Text(p).foregroundStyle(.red)
             }
             if model.canOffer {
-                Text("Off = no choice here spends the account (a whole-vendor switch, written by the CLI, spends every account of the vendor); usage is still tracked. The Accounts toggles above only hide a tile.")
+                Text("Off = no choice here spends the account (a whole-vendor switch, written by the CLI, spends every account of the vendor); usage is still tracked.")
                 Text("Flips run through \(model.offerPath).")
             } else {
                 Text("unlimited did not answer `off --json`: upgrade it (`uv tool install --force unlimited`) or repair what `unlimited off` reports.")
