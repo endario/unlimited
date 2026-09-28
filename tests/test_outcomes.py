@@ -6,7 +6,7 @@ import io
 import json
 import os
 import unittest
-from contextlib import redirect_stdout
+from contextlib import redirect_stderr, redirect_stdout
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from unittest import mock
@@ -111,6 +111,21 @@ class Cli(unittest.TestCase):
         self.assertEqual((start["task"], start["meta"], end["meta"], end["tokens"]),
                          ("example", {"k": "v"}, {"verdict": "good"}, {"out": 10}))
         self.assertEqual((got["provider"], got["model"], got["fail"]), ("glm", "g", 0.0))
+
+    def test_starting_an_attempt_on_no_catalog_route_says_so_and_still_records_it(self):
+        # A caller that records the name its CLI resolved (claude-sonnet-5) rather than the route
+        # it launched (sonnet) teaches no route; the choice only counted it in attempts_unknown.
+        state, config = scratch.mkdtemp(), scratch.mkdtemp()
+        for model, warned in (("claude-sonnet-5", True), ("sonnet", False)):
+            out, err = io.StringIO(), io.StringIO()
+            with mock.patch.dict(os.environ, {"XDG_STATE_HOME": state, "XDG_CONFIG_HOME": config}), \
+                    redirect_stdout(out), redirect_stderr(err):
+                self.assertEqual(cli.main(["attempt", "start", "--provider", "claude", "--model", model,
+                                           "--deadline", "60"]), 0)
+            self.assertTrue(out.getvalue().strip())
+            self.assertEqual("no catalog route" in err.getvalue(), warned, err.getvalue())
+            if warned:
+                self.assertIn("sonnet", err.getvalue().split("routes:")[1])
 
 
 if __name__ == "__main__":
