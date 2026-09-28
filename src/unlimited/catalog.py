@@ -8,6 +8,7 @@ import json
 import math
 import os
 import tomllib
+from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import date, datetime, timezone
 from importlib import resources
@@ -24,6 +25,10 @@ def _number(v: object) -> bool:
 
 class CatalogError(Exception):
     """The catalog cannot be read. A routing call that meets this must not start its run."""
+
+
+class NotOff(Exception):
+    """`switch` was asked to switch a target on that is not switched off."""
 
 
 @dataclass(frozen=True)
@@ -69,9 +74,19 @@ def read_switches(path: Path | None = None) -> list[dict]:
     return off
 
 
-def write_switches(off: list[dict], path: Path | None = None) -> None:
-    path = path or switches_path()
+@contextmanager
+def _flock(path: Path):
+    """The switches' lock, held by every writer across its whole read-modify-write."""
     path.parent.mkdir(parents=True, exist_ok=True)
+    fd = os.open(path.with_name("switches.lock"), os.O_WRONLY | os.O_CREAT, 0o600)
+    try:
+        fcntl.flock(fd, fcntl.LOCK_EX)
+        yield
+    finally:
+        os.close(fd)
+
+
+def _write(off: list[dict], path: Path) -> None:
     tmp = path.with_suffix(".tmp")
     fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)  # holds free-text --why
     os.fchmod(fd, 0o600)  # the open's mode applies only when it creates the file
@@ -80,25 +95,28 @@ def write_switches(off: list[dict], path: Path | None = None) -> None:
     os.replace(tmp, path)
 
 
-def switch(target: str, *, on: bool = False, until: datetime | None = None, why: str | None = None,
-           now: datetime, path: Path | None = None) -> list[str]:
-    """Flip one switch, the whole read-mutate-write under one flock on `switches.lock` beside the
-    file: two writers share it (the CLI and the menu bar app), so every writer holds the lock
-    across the cycle. Lapsed entries drop as they are passed. Returns the live targets before
-    the flip, so `on` can refuse a target that was not off."""
+def write_switches(off: list[dict], path: Path | None = None) -> None:
     path = path or switches_path()
-    path.parent.mkdir(parents=True, exist_ok=True)
-    lock = os.open(path.with_name("switches.lock"), os.O_WRONLY | os.O_CREAT, 0o600)
-    try:
-        fcntl.flock(lock, fcntl.LOCK_EX)
+    with _flock(path):
+        _write(off, path)
+
+
+def switch(target: str, *, on: bool = False, until: datetime | None = None, why: str | None = None,
+           now: datetime, path: Path | None = None) -> list[dict]:
+    """Flip one switch, the whole read-mutate-write under the switches' lock; lapsed entries drop
+    as they are passed. `on` of a target that is not off raises ValueError and writes nothing.
+    Returns exactly what it wrote, so a caller can echo the state it itself persisted."""
+    path = path or switches_path()
+    with _flock(path):
         was = [x for x in read_switches(path) if live(x, now)]
-        kept = [x for x in was if x["target"] != target]
+        if on and target not in [x["target"] for x in was]:
+            raise NotOff(target)
+        kept = [{"target": x["target"], "until": x.get("until"), "why": x.get("why")}
+                for x in was if x["target"] != target]
         if not on:
             kept.append({"target": target, "until": until.isoformat() if until else None, "why": why})
-        write_switches(kept, path)
-        return [x["target"] for x in was]
-    finally:
-        os.close(lock)
+        _write(kept, path)
+        return kept
 
 
 def live(x: dict, now: datetime) -> bool:

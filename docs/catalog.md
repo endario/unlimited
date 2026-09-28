@@ -70,6 +70,5 @@ passes; `unlimited off` lists what is off, `unlimited off --json` as a JSON arra
 name a usage vendor with no catalog route here — the switch then applies to that vendor's accounts
 (`verdict` excludes them), not to any route. A name that is both a provider and a usage vendor
 (`commandcode`) does both. Kept in `switches.json` beside the local catalog; a write holds
-`switches.lock` beside it across the whole read-modify-write, so the CLI and the menu bar app can
-flip switches concurrently. A
-banned model is permanent until the file changes; a switch is for a while.
+`switches.lock` beside it across the whole read-modify-write. A banned model is permanent until
+the file changes; a switch is for a while.
