@@ -438,8 +438,8 @@ Prints the decision as JSON and appends it to the log with the whole request:
   decision (id), request, seed, candidates (each with provider, model = its offering id,
   vendor, rho, pi, debit, p, t_ok, t_fail, t_next, preference, e, e_drawn, the evidence ok,
   fail, mu and var, and prob, its odds of coming first), policy (thompson, best or softmax),
-  order (candidate indices, the order to try), pick (the first of order), prefer_unmatched and
-  attempts_unknown.
+  order (candidate indices, the order to try), pick (the first of order), prefer_unmatched,
+  attempts_unknown and routes_unknown.
 Without the log (your own history): unlimited.choice.rank. Details: {DOCS}/choice.md#3-choice""", """\
 examples:
   # which of three providers' standard models, for a 15-minute job
