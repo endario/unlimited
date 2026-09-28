@@ -3,6 +3,7 @@ The shipped `catalog.toml` is overridden by $XDG_CONFIG_HOME/unlimited/catalog.t
 
 from __future__ import annotations
 
+import fcntl
 import json
 import math
 import os
@@ -77,6 +78,27 @@ def write_switches(off: list[dict], path: Path | None = None) -> None:
     with os.fdopen(fd, "w") as f:
         f.write(json.dumps({"off": off}, indent=1) + "\n")
     os.replace(tmp, path)
+
+
+def switch(target: str, *, on: bool = False, until: datetime | None = None, why: str | None = None,
+           now: datetime, path: Path | None = None) -> list[str]:
+    """Flip one switch, the whole read-mutate-write under one flock on `switches.lock` beside the
+    file: two writers share it (the CLI and the menu bar app), so every writer holds the lock
+    across the cycle. Lapsed entries drop as they are passed. Returns the live targets before
+    the flip, so `on` can refuse a target that was not off."""
+    path = path or switches_path()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    lock = os.open(path.with_name("switches.lock"), os.O_WRONLY | os.O_CREAT, 0o600)
+    try:
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        was = [x for x in read_switches(path) if live(x, now)]
+        kept = [x for x in was if x["target"] != target]
+        if not on:
+            kept.append({"target": target, "until": until.isoformat() if until else None, "why": why})
+        write_switches(kept, path)
+        return [x["target"] for x in was]
+    finally:
+        os.close(lock)
 
 
 def live(x: dict, now: datetime) -> bool:
