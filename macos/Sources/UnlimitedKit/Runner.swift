@@ -29,6 +29,26 @@ public struct Runner: Sendable {
         try JSONDecoder().decode([Switch].self, from: run(["off", "--json"], timeout: timeout))
     }
 
+    /// Flip one switch through the CLI, keeping its own message for the caller to surface.
+    /// Exit 1 means the flip was refused (`on` of a target that is not off); the caller treats
+    /// it as "already there", any other failure as a problem.
+    public func setOffer(_ target: String, off: Bool, timeout: TimeInterval = 15) throws {
+        let p = Process()
+        p.executableURL = binary
+        p.arguments = (off ? ["off"] : ["on"]) + [target]
+        let out = Pipe(), err = Pipe()
+        p.standardOutput = out
+        p.standardError = err
+        try p.run()
+        let killer = DispatchWorkItem { p.terminate() }
+        DispatchQueue.global().asyncAfter(deadline: .now() + timeout, execute: killer)
+        _ = out.fileHandleForReading.readDataToEndOfFile()
+        let message = String(decoding: err.fileHandleForReading.readDataToEndOfFile(), as: UTF8.self)
+        p.waitUntilExit()
+        killer.cancel()
+        guard p.terminationStatus == 0 else { throw RunError.exit(p.terminationStatus, stderr: message) }
+    }
+
     /// A cold read asks every vendor in turn; the timeout leaves room for a slow one.
     public func read(maxAge: Int? = nil, timeout: TimeInterval = 45) throws -> [Reading] {
         try Reading.decode(run(["read", "--json"] + (maxAge.map { ["--max-age", String($0)] } ?? []), timeout: timeout))
@@ -64,5 +84,8 @@ public struct Runner: Sendable {
         return data
     }
 
-    public enum RunError: Error { case exit(Int32) }
+    public enum RunError: Error {
+        case exit(Int32)
+        case exit(Int32, stderr: String)
+    }
 }
