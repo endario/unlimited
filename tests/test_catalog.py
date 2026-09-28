@@ -132,6 +132,48 @@ class Switches(unittest.TestCase):
         self.assertIn("stealth", [p for p, _ in self.models(c, "standard", later)])
         self.assertNotIn("glm", [p for p, _ in self.models(c, "standard", later)])
 
+    def test_off_vendors_is_the_live_vendor_policy(self):
+        local = Path(scratch.mkdtemp()) / "catalog.toml"
+        until = "2026-09-25T13:00:00+00:00"
+        catalog.write_switches([{"target": "kimi"},                  # a usage vendor, no end
+                                {"target": "stealth"},               # a provider only
+                                {"target": "sonnet"},                # an offering id only
+                                {"target": "zai", "until": until}],  # a vendor, until passed
+                               catalog.switches_path(local))
+        self.assertEqual(catalog.off_vendors(NOW, catalog.switches_path(local)),
+                         {"kimi": None, "zai": until})  # zai's until has not yet passed
+        later = datetime(2026, 9, 25, 14, 0, tzinfo=timezone.utc)
+        self.assertEqual(catalog.off_vendors(later, catalog.switches_path(local)), {"kimi": None})
+
+    def test_the_switches_file_is_private_as_soon_as_it_exists(self):
+        local = Path(scratch.mkdtemp()) / "catalog.toml"
+        catalog.write_switches([{"target": "kimi"}], catalog.switches_path(local))
+        self.assertEqual(catalog.switches_path(local).stat().st_mode & 0o777, 0o600)
+
+    def test_a_switches_file_an_older_release_left_readable_is_made_private_on_read(self):
+        local = Path(scratch.mkdtemp()) / "catalog.toml"
+        path = catalog.switches_path(local)
+        catalog.write_switches([{"target": "kimi"}], path)
+        path.chmod(0o644)  # what 0.1.0's writer left behind
+        catalog.read_switches(path)
+        self.assertEqual(path.stat().st_mode & 0o777, 0o600)
+
+    def test_a_mode_that_cannot_be_repaired_does_not_stop_the_read(self):
+        local = Path(scratch.mkdtemp()) / "catalog.toml"
+        path = catalog.switches_path(local)
+        catalog.write_switches([{"target": "kimi"}], path)
+        path.chmod(0o644)  # a file on a mount, or of an owner, that refuses chmod
+        with mock.patch.object(catalog.os, "chmod", side_effect=PermissionError):
+            self.assertEqual([x["target"] for x in catalog.read_switches(path)], ["kimi"])
+
+    def test_a_stale_tmp_from_an_older_release_cannot_leak_the_new_file(self):
+        local = Path(scratch.mkdtemp()) / "catalog.toml"
+        path = catalog.switches_path(local)
+        path.with_suffix(".tmp").write_text("{}")  # what 0.1.0 left at the umask
+        path.with_suffix(".tmp").chmod(0o644)
+        catalog.write_switches([{"target": "kimi", "why": "note"}], path)
+        self.assertEqual(path.stat().st_mode & 0o777, 0o600)
+
     def test_a_switches_file_that_does_not_parse_stops_the_load(self):
         local = Path(scratch.mkdtemp()) / "catalog.toml"
         for text in ('{"off": "stealth"}', '{"off": [{"target": "stealth", "until": "tomorrow"}]}'):
@@ -170,6 +212,77 @@ class Cli(unittest.TestCase):
         self.assertEqual(run("on", "stealth")[0], 0)
         self.assertIn("stealth", candidates())
         self.assertEqual(run("on", "stealth")[0], 1)
+
+    def test_off_accepts_a_usage_vendor_with_no_catalog_route(self):
+        import json
+        home = Path(scratch.mkdtemp())
+        def run(*args):
+            out, err = io.StringIO(), io.StringIO()
+            with mock.patch.dict(os.environ, {"XDG_CONFIG_HOME": str(home)}), redirect_stdout(out), redirect_stderr(err):
+                return cli.main(list(args)), out.getvalue(), err.getvalue()
+        self.assertEqual(run("off", "kimi")[0], 0)  # no catalog route on vendor kimi anywhere
+        switches = json.loads((home / "unlimited" / "switches.json").read_text())["off"]
+        self.assertEqual(switches, [{"target": "kimi", "until": None, "why": None}])
+        self.assertEqual(run("on", "kimi")[0], 0)
+        self.assertEqual(run("off", "kimij")[0], 1)  # an unknown name is still refused
+
+    def test_off_lists_live_switches_as_json(self):
+        import json
+        home = Path(scratch.mkdtemp())
+        def run(*args):
+            out, err = io.StringIO(), io.StringIO()
+            with mock.patch.dict(os.environ, {"XDG_CONFIG_HOME": str(home)}), redirect_stdout(out), redirect_stderr(err):
+                return cli.main(list(args)), out.getvalue()
+        run("off", "kimi", "--for", "1h", "--why", "banned")
+        # A switch whose time has passed is not listed.
+        (home / "unlimited" / "switches.json").write_text(json.dumps(
+            {"off": [{"target": "zai", "until": "2020-01-01T00:00:00+00:00"},
+                     {"target": "kimi", "until": "2999-01-01T00:00:00+00:00", "why": "banned"}]}))
+        code, out = run("off", "--json")
+        self.assertEqual(code, 0)
+        got = json.loads(out)
+        self.assertEqual([(x["target"], x["why"]) for x in got], [("kimi", "banned")])
+        self.assertIsNotNone(got[0]["until"])
+
+    def test_off_with_a_target_and_json_prints_what_is_off_after(self):
+        import json
+        home = Path(scratch.mkdtemp())
+        def run(*args):
+            out, err = io.StringIO(), io.StringIO()
+            with mock.patch.dict(os.environ, {"XDG_CONFIG_HOME": str(home)}), redirect_stdout(out), redirect_stderr(err):
+                return cli.main(list(args)), out.getvalue()
+        code, out = run("off", "kimi", "--json")
+        self.assertEqual(code, 0)
+        self.assertEqual([x["target"] for x in json.loads(out)], ["kimi"])
+        code, out = run("on", "kimi", "--json")
+        self.assertEqual((code, json.loads(out)), (0, []))
+
+    def test_verdict_marks_a_switched_off_vendor_and_survives_a_broken_switches_file(self):
+        import json
+        home = Path(scratch.mkdtemp())
+        (home / "unlimited").mkdir()
+        (home / "unlimited" / "switches.json").write_text("{")
+        def run():
+            out, err = io.StringIO(), io.StringIO()
+            with mock.patch.dict(os.environ, {"XDG_CONFIG_HOME": str(home)}), redirect_stdout(out), redirect_stderr(err):
+                return cli.main(["verdict", "--work", "900"]), out.getvalue(), err.getvalue()
+        with mock.patch("unlimited.cache.through", return_value=[]):
+            code, out, err = run()
+        self.assertEqual((code, "switches.json" in err), (2, True))  # a message, not a traceback
+        # The broken file is caught before any vendor is read: the reads are not wasted.
+        def boom(**kw):
+            raise AssertionError("a vendor was read")
+        (home / "unlimited" / "switches.json").write_text("{")
+        with mock.patch("unlimited.cache.through", side_effect=boom):
+            code, _, err = run()
+        self.assertEqual((code, "switches.json" in err), (2, True))
+        (home / "unlimited" / "switches.json").write_text('{"off": [{"target": "kimi"}]}')
+        with mock.patch("unlimited.cache.through",
+                        return_value=[{"vendor": "kimi", "account": "k", "names": [], "status": "ok"}]):
+            code, out, _ = run()
+        self.assertEqual(code, 0)
+        self.assertEqual(json.loads(out)[0]["verdict"],
+                         {"state": "excluded", "reason": "off", "until": None})
 
     def test_one_providers_model_or_exit_1_when_it_has_none_at_the_tier(self):
         self.assertEqual(self.run_models("--provider", "codex", "--tier", "heavy")[:2], (0, "gpt-6-sol\n"))

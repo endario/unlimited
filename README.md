@@ -135,9 +135,11 @@ first; `--provider P` prints one model id; `--catalog` prints the whole merged c
 [`catalog.toml`](src/unlimited/catalog.toml). `~/.config/unlimited/catalog.toml` overrides it on one
 machine, with no release. Format and merge rules: [docs/catalog.md](docs/catalog.md).
 
-`unlimited off TARGET [--for 90m|12h|1d|1w] [--why TEXT]` switches a provider (`stealth`), a model, a vendor, an offering
+`unlimited off TARGET [--for 90m|12h|1d|1w] [--why TEXT]` switches a provider (`stealth`), a model, a vendor (by its
+usage name, also one with no catalog route here — its accounts then stop being `verdict`'s to offer), an offering
 id, or a `provider:model` pair off on this machine, until `unlimited on TARGET` or the `--for` time
-passes; `unlimited off` lists what is off. It drops out of `models` and `--catalog` like a ban. The switches live in
+passes; `unlimited off` lists what is off, `unlimited off --json` as a JSON array. A target with a catalog
+route drops out of `models` and `--catalog` like a ban; a route-less vendor binds `verdict` alone. The switches live in
 `~/.config/unlimited/switches.json`.
 
 ## Outcomes
@@ -172,7 +174,8 @@ own vendor has no card shows another vendor's as a guideline only. Design:
 
 `unlimited verdict --work SECONDS [--model-scope M] [--max-age S] [--vendor V]... --json` says, for
 each account, whether it can take a unit of work of that length on that model family: `unread`,
-`excluded` (with the window that binds and when it lifts), or `ranked` (with a tier and a score). Advisory: it reserves nothing. Design:
+`excluded` (with the window that binds and when it lifts; or, for a vendor switched off here, when
+the switch lifts), or `ranked` (with a tier and a score). Advisory: it reserves nothing. Design:
 [docs/choice.md](docs/choice.md).
 
 ## Credits
