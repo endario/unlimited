@@ -184,6 +184,24 @@ class Cli(unittest.TestCase):
         self.assertEqual(run("on", "kimi")[0], 0)
         self.assertEqual(run("off", "kimij")[0], 1)  # an unknown name is still refused
 
+    def test_off_lists_live_switches_as_json(self):
+        import json
+        home = Path(scratch.mkdtemp())
+        def run(*args):
+            out, err = io.StringIO(), io.StringIO()
+            with mock.patch.dict(os.environ, {"XDG_CONFIG_HOME": str(home)}), redirect_stdout(out), redirect_stderr(err):
+                return cli.main(list(args)), out.getvalue()
+        run("off", "kimi", "--for", "1h", "--why", "banned")
+        # A switch whose time has passed is not listed.
+        (home / "unlimited" / "switches.json").write_text(json.dumps(
+            {"off": [{"target": "zai", "until": "2020-01-01T00:00:00+00:00"},
+                     {"target": "kimi", "until": "2999-01-01T00:00:00+00:00", "why": "banned"}]}))
+        code, out = run("off", "--json")
+        self.assertEqual(code, 0)
+        got = json.loads(out)
+        self.assertEqual([(x["target"], x["why"]) for x in got], [("kimi", "banned")])
+        self.assertIsNotNone(got[0]["until"])
+
     def test_one_providers_model_or_exit_1_when_it_has_none_at_the_tier(self):
         self.assertEqual(self.run_models("--provider", "codex", "--tier", "heavy")[:2], (0, "gpt-6-sol\n"))
         self.assertEqual(self.run_models("--provider", "grok", "--tier", "heavy")[:2], (1, ""))
