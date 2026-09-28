@@ -548,12 +548,12 @@ def main(argv: list[str] | None = None) -> int:
         return _choose(a)
     if a.cmd == "cards":
         return _cards(a)
-    off, now = None, datetime.now(timezone.utc)
+    off = None
     if a.cmd == "verdict":
         # Before the reads: a broken switches file fails the command without waiting on a vendor.
         from . import catalog
         try:
-            off = catalog.off_vendors(now)
+            off = catalog.off_vendors(datetime.now(timezone.utc))
         except catalog.CatalogError as e:
             print(f"unlimited: catalog: {e}", file=sys.stderr)
             return 2
@@ -563,6 +563,7 @@ def main(argv: list[str] | None = None) -> int:
                              clock=lambda: datetime.now(timezone.utc), get=transport.get)
     if a.cmd == "verdict":
         from .verdict import verdict
+        now = datetime.now(timezone.utc)
         json.dump([{"vendor": r.get("vendor"), "account": r.get("account"), "names": r.get("names", []),
                     "verdict": verdict(r, model_scope=a.model_scope, now=now, work=timedelta(seconds=a.work),
                                        max_age=timedelta(seconds=a.max_age), off=off)} for r in out], sys.stdout)

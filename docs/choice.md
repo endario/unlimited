@@ -14,7 +14,7 @@ Three parts, each usable on its own:
 
 ## 1. Verdict
 
-`unlimited verdict --work SECONDS [--model-scope M] [--max-age S] --json`, or
+`unlimited verdict --work SECONDS [--model-scope M] [--max-age S] [--vendor V]... --json`, or
 `unlimited.verdict.verdict(reading, model_scope=, now=, work=, max_age=, starts=None, off=)`, over one
 schema-1 reading:
 

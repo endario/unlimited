@@ -158,6 +158,22 @@ class Switches(unittest.TestCase):
         catalog.read_switches(path)
         self.assertEqual(path.stat().st_mode & 0o777, 0o600)
 
+    def test_a_mode_that_cannot_be_repaired_does_not_stop_the_read(self):
+        local = Path(scratch.mkdtemp()) / "catalog.toml"
+        path = catalog.switches_path(local)
+        catalog.write_switches([{"target": "kimi"}], path)
+        path.chmod(0o644)  # a file on a mount, or of an owner, that refuses chmod
+        with mock.patch.object(catalog.os, "chmod", side_effect=PermissionError):
+            self.assertEqual([x["target"] for x in catalog.read_switches(path)], ["kimi"])
+
+    def test_a_stale_tmp_from_an_older_release_cannot_leak_the_new_file(self):
+        local = Path(scratch.mkdtemp()) / "catalog.toml"
+        path = catalog.switches_path(local)
+        path.with_suffix(".tmp").write_text("{}")  # what 0.1.0 left at the umask
+        path.with_suffix(".tmp").chmod(0o644)
+        catalog.write_switches([{"target": "kimi", "why": "note"}], path)
+        self.assertEqual(path.stat().st_mode & 0o777, 0o600)
+
     def test_a_switches_file_that_does_not_parse_stops_the_load(self):
         local = Path(scratch.mkdtemp()) / "catalog.toml"
         for text in ('{"off": "stealth"}', '{"off": [{"target": "stealth", "until": "tomorrow"}]}'):

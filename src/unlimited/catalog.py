@@ -52,9 +52,13 @@ def read_switches(path: Path | None = None) -> list[dict]:
         return []
     except (OSError, ValueError) as e:
         raise CatalogError(f"{path}: {e}") from None
-    # An older release left the file at the umask; it holds free-text --why.
-    if path.stat().st_mode & 0o777 != 0o600:
-        os.chmod(path, 0o600)
+    # An older release left the file at the umask; it holds free-text --why. A mode that cannot
+    # be repaired is not a reason to refuse the command.
+    try:
+        if path.stat().st_mode & 0o777 != 0o600:
+            os.chmod(path, 0o600)
+    except OSError:
+        pass
     off = got.get("off") if isinstance(got, dict) else None
     if not isinstance(off, list) or not all(isinstance(x, dict) and isinstance(x.get("target"), str) for x in off):
         raise CatalogError(f"{path}: expected {{\"off\": [{{\"target\": ...}}]}}")
@@ -69,6 +73,7 @@ def write_switches(off: list[dict], path: Path | None = None) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     tmp = path.with_suffix(".tmp")
     fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)  # holds free-text --why
+    os.fchmod(fd, 0o600)  # the open's mode applies only when it creates the file
     with os.fdopen(fd, "w") as f:
         f.write(json.dumps({"off": off}, indent=1) + "\n")
     os.replace(tmp, path)
