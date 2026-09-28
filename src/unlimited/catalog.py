@@ -65,7 +65,9 @@ def write_switches(off: list[dict], path: Path | None = None) -> None:
     path = path or switches_path()
     path.parent.mkdir(parents=True, exist_ok=True)
     tmp = path.with_suffix(".tmp")
-    tmp.write_text(json.dumps({"off": off}, indent=1) + "\n")
+    fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)  # holds free-text --why
+    with os.fdopen(fd, "w") as f:
+        f.write(json.dumps({"off": off}, indent=1) + "\n")
     os.replace(tmp, path)
 
 
