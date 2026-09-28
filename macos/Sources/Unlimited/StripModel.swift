@@ -8,35 +8,43 @@ final class StripModel: ObservableObject {
     @Published private(set) var readings: [String: Reading] = [:]
     /// How to open each account's Claude Code, by tile id; absent where it has no wrapper.
     @Published private(set) var launches: [String: Launch] = [:]
-    /// The switch keys this machine holds (`unlimited off`: a vendor, or `vendor/account`);
-    /// empty when the CLI cannot say — an older one, or a file it refuses — so the strip only
-    /// loses its greying.
-    @Published private(set) var offKeys: Set<String> = []
+    /// The switches this machine holds (`unlimited off`); empty when the CLI cannot say — an
+    /// older one, or a file it refuses — so the strip only loses its greying.
+    @Published private(set) var offSwitches: [Runner.Switch] = []
     /// Whether the CLI answered the switch list, so Settings can offer to flip one.
     @Published private(set) var canOffer = false
     /// The CLI's own message when a flip failed, for Settings to show.
     @Published var offerProblem: String?
     /// The binary a flip runs through, for Settings to show.
     var offerPath: String { runner?.binary.path ?? "unlimited" }
+    /// A probe taken before a flip landed must not overwrite the flip's fresher state.
+    private var switchSeq = 0
+
+    /// The switches' keys, as the strip marks tiles: each vendor, or `vendor/account`.
+    var offKeys: Set<String> {
+        Set(offSwitches.map { s in s.account.map { "\(s.target)/\($0)" } ?? s.target })
+    }
 
     /// Flip a switch through the CLI, then re-read the list as the source of truth. A refused
     /// `on` (the switch was not off) is fine; anything else surfaces its message.
-    func offer(_ vendor: String, account: String? = nil, _ off: Bool) {
+    func offer(_ target: String, account: String? = nil, _ off: Bool) {
         guard let runner else { return }
+        let seq = switchSeq
         Task.detached {
             var problem: String?
-            do { try runner.setOffer(vendor, account: account, off: off) }
+            do { try runner.setOffer(target, account: account, off: off) }
             catch Runner.RunError.exit(1, _) where !off {}  // on of a switch not off: already there
             catch Runner.RunError.exit(_, stderr: let stderr) {
-                problem = String(stderr.split(separator: "\n").first ?? "unlimited could not switch \(vendor)")
+                problem = String(stderr.split(separator: "\n").first ?? "unlimited could not switch \(target)")
             }
             catch { problem = "unlimited could not be run" }
             let probed = try? runner.switches()
             await MainActor.run {
                 self.offerProblem = problem
-                if let probed {
+                if let probed, seq == self.switchSeq {
                     self.canOffer = true
-                    self.offKeys = Set(probed)
+                    self.offSwitches = probed
+                    self.switchSeq += 1
                     self.redraw()
                 }
             }
@@ -121,6 +129,7 @@ final class StripModel: ObservableObject {
                                            : Runner(binary: URL(filePath: (custom as NSString).expandingTildeInPath)))
         guard let runner else { return fail("unlimited not found in ~/.local/bin, /opt/homebrew/bin or /usr/local/bin") }
         busy = true
+        let seq = switchSeq
         // The version is checked again only when the binary is replaced (an upgrade).
         let stamp = (try? FileManager.default.attributesOfItem(atPath: runner.binary.resolvingSymlinksInPath().path))?[.modificationDate] as? Date
         let checked = stamp != nil && stamp == versionChecked
@@ -132,12 +141,15 @@ final class StripModel: ObservableObject {
             await MainActor.run { if recent { self.versionChecked = stamp } }
             await MainActor.run {
                 self.busy = false
-                if let probed {
-                    self.canOffer = true
-                    self.offKeys = Set(probed)
-                } else {
-                    self.canOffer = false
-                    self.offKeys = []
+                // A probe raced by a flip is stale: the flip's own re-read is the truth.
+                if seq == self.switchSeq {
+                    if let probed {
+                        self.canOffer = true
+                        self.offSwitches = probed
+                    } else {
+                        self.canOffer = false
+                        self.offSwitches = []
+                    }
                 }
                 switch result {
                 case .success(let readings):

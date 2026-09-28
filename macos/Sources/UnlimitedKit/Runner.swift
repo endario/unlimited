@@ -18,19 +18,21 @@ public struct Runner: Sendable {
 
     /// One entry of the machine's switch list (`unlimited off --json`): a target — a usage
     /// vendor, or with `account`, one account of it — and its end and note.
-    public struct Switch: Codable, Sendable, Equatable {
+    public struct Switch: Codable, Sendable, Equatable, Hashable {
         public let target: String
         public let until: String?
         public let why: String?
         public let account: String?
+
+        public init(target: String, until: String? = nil, why: String? = nil, account: String? = nil) {
+            (self.target, self.until, self.why, self.account) = (target, until, why, account)
+        }
     }
 
-    /// The machine's switched-off targets, as the strip's keys: each vendor, or `vendor/account`.
-    /// An older `unlimited` does not know `--json`; the caller treats any failure as "none",
-    /// never as a broken strip.
-    public func switches(timeout: TimeInterval = 10) throws -> [String] {
+    /// The machine's switch list. An older `unlimited` does not know `--json`; the caller
+    /// treats any failure as "none", never as a broken strip.
+    public func switches(timeout: TimeInterval = 10) throws -> [Switch] {
         try JSONDecoder().decode([Switch].self, from: run(["off", "--json"], timeout: timeout))
-            .map { s in s.account.map { "\(s.target)/\($0)" } ?? s.target }
     }
 
     /// Flip one switch through the CLI, keeping its own message for the caller to surface.
@@ -38,21 +40,8 @@ public struct Runner: Sendable {
     /// (`on` of a switch that is not off); the caller treats it as "already there", any other
     /// failure as a problem.
     public func setOffer(_ target: String, account: String? = nil, off: Bool, timeout: TimeInterval = 15) throws {
-        let p = Process()
-        p.executableURL = binary
-        p.arguments = (off ? ["off"] : ["on"]) + [target]
-            + (account.map { ["--account", $0] } ?? [])
-        let out = Pipe(), err = Pipe()
-        p.standardOutput = out
-        p.standardError = err
-        try p.run()
-        let killer = DispatchWorkItem { p.terminate() }
-        DispatchQueue.global().asyncAfter(deadline: .now() + timeout, execute: killer)
-        _ = out.fileHandleForReading.readDataToEndOfFile()
-        let message = String(decoding: err.fileHandleForReading.readDataToEndOfFile(), as: UTF8.self)
-        p.waitUntilExit()
-        killer.cancel()
-        guard p.terminationStatus == 0 else { throw RunError.exit(p.terminationStatus, stderr: message) }
+        try runCaptured((off ? ["off"] : ["on"]) + [target] + (account.map { ["--account", $0] } ?? []),
+                        timeout: timeout)
     }
 
     /// A cold read asks every vendor in turn; the timeout leaves room for a slow one.
@@ -74,24 +63,30 @@ public struct Runner: Sendable {
     }
 
     func run(_ args: [String], timeout: TimeInterval) throws -> Data {
+        try runCaptured(args, timeout: timeout).0
+    }
+
+    /// The one process-plumbing copy: run the CLI, kill it at the timeout, keep its stderr for
+    /// the error a caller may want to surface.
+    func runCaptured(_ args: [String], timeout: TimeInterval) throws -> (Data, String) {
         let p = Process()
         p.executableURL = binary
         p.arguments = args
-        let out = Pipe()
+        let out = Pipe(), err = Pipe()
         p.standardOutput = out
-        p.standardError = FileHandle.nullDevice
+        p.standardError = err
         try p.run()
         let killer = DispatchWorkItem { p.terminate() }
         DispatchQueue.global().asyncAfter(deadline: .now() + timeout, execute: killer)
         let data = out.fileHandleForReading.readDataToEndOfFile()
+        let message = String(decoding: err.fileHandleForReading.readDataToEndOfFile(), as: UTF8.self)
         p.waitUntilExit()
         killer.cancel()
-        guard p.terminationStatus == 0 else { throw RunError.exit(p.terminationStatus) }
-        return data
+        guard p.terminationStatus == 0 else { throw RunError.exit(p.terminationStatus, stderr: message) }
+        return (data, message)
     }
 
     public enum RunError: Error {
-        case exit(Int32)
         case exit(Int32, stderr: String)
     }
 }

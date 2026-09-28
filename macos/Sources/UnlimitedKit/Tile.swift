@@ -19,6 +19,13 @@ public struct Tile: Identifiable, Equatable, Sendable {
             case .waiting: "…"
             }
         }
+
+        /// Whether a figure stands behind the value; the rest stand for the absence of a
+        /// reading, and render in the grey that is not a colour anyone reads as usage.
+        public var showsData: Bool {
+            if case .percent = self { return true }
+            return false
+        }
     }
 
     /// Another window more likely to stop this account than its longest one.
@@ -59,8 +66,8 @@ public struct Tile: Identifiable, Equatable, Sendable {
         return t
     }
 
-    /// Of one vendor's accounts that nothing is stopping — a switched-off vendor included in
-    /// that — the one whose room expires soonest (blue), else the one with the most room at reset.
+    /// Of one vendor's accounts that nothing is stopping, the one whose room expires soonest
+    /// (blue), else the one with the most room at reset.
     static func pick(_ tiles: [Tile]) -> String? {
         let open = tiles.filter { t in
             guard case .percent = t.value, !t.dimmed, !t.off, t.health < .amber else { return false }
@@ -112,30 +119,38 @@ public struct Tile: Identifiable, Equatable, Sendable {
 
     /// One row of the "Never offer" list: one account, whether it is switched off (its vendor's
     /// switch or its own), whether it was read here — a CLI-written switch nothing here answers
-    /// to must still show, or it could never be undone from the app — and the account a flip of
-    /// it names (nil: the whole vendor).
-    public struct OfferRow: Equatable, Sendable {
+    /// to must still show, or it could never be undone from the app — and the switch a flip of
+    /// it names (`account` nil: the whole target).
+    public struct OfferRow: Equatable, Sendable, Identifiable {
         public let vendor: String
         public let ident: String
         public let off: Bool
         public let readHere: Bool
+        public let target: String
         public let account: String?
+
+        public var id: String { "\(target)|\(account ?? "-")|\(ident)" }
     }
 
-    /// The rows: every account read here, plus every switch key nothing here answers to, in
-    /// strip order then by ident.
-    public static func offerRows(readings: [Reading], off: Set<String>) -> [OfferRow] {
+    /// The rows: every account read here, plus every switch nothing here answers to, in strip
+    /// order then by ident. A row's flip names the switch that matched it — the vendor's own if
+    /// both matched — so `on` can always undo what `off` wrote.
+    public static func offerRows(readings: [Reading], switches: [Runner.Switch]) -> [OfferRow] {
         let order = Dictionary(uniqueKeysWithValues: Tile.vendors.enumerated().map { ($1.id, $0) })
-        let rows = readings.map { r in
-            OfferRow(vendor: r.vendor, ident: r.names.first ?? r.account ?? "?",
-                     off: policyKeys(r).contains { off.contains($0) }, readHere: true,
-                     account: r.names.first ?? r.account)
+        var matched: Set<Runner.Switch> = []
+        let rows = readings.map { r -> OfferRow in
+            let keys = Set(policyKeys(r))
+            // A whole-target switch covers more than an account's; undo the covering one.
+            let hit = switches.first(where: { $0.account == nil && keys.contains($0.target) })
+                ?? switches.first { s in s.account.map { keys.contains("\(s.target)/\($0)") } ?? false }
+            if let hit { matched.insert(hit) }
+            let ident = r.names.first ?? r.account ?? "?"
+            return OfferRow(vendor: r.vendor, ident: ident, off: hit != nil, readHere: true,
+                            target: hit?.target ?? r.vendor, account: hit?.account)
         }
-        let answered = Set(readings.flatMap(policyKeys))
-        let extras = off.subtracting(answered).map { key in
-            let parts = key.split(separator: "/", maxSplits: 1).map(String.init)
-            return OfferRow(vendor: parts[0], ident: parts.count > 1 ? parts[1] : parts[0],
-                            off: true, readHere: false, account: parts.count > 1 ? parts[1] : nil)
+        let extras = switches.filter { !matched.contains($0) }.map { s in
+            OfferRow(vendor: s.target, ident: s.account ?? s.target, off: true, readHere: false,
+                     target: s.target, account: s.account)
         }
         return (rows + extras)
             .sorted { (order[$0.vendor] ?? .max, $0.vendor, $0.ident) < (order[$1.vendor] ?? .max, $1.vendor, $1.ident) }
