@@ -115,6 +115,18 @@ class Ranking(unittest.TestCase):
         self.assertEqual(v(r, off={"zai": None})["state"], "ranked")   # another vendor's switch
         self.assertEqual(v("broken", off={"openai": None})["state"], "unread")  # not a reading
 
+    def test_one_account_of_a_vendor_switched_off_excludes_only_it(self):
+        zai = lambda **kw: {**reading(five(0.2, 300), window("seven_day", 0.2, WEEK, 5000), vendor="zai"), **kw}
+        glm2 = zai(account="4ff9f720f21e938b", names=["claude-glm-2"])
+        glm1 = zai(account="da68cb2cdf8f3998", names=["claude-glm"])
+        by_name = {"zai/claude-glm-2": None}
+        self.assertEqual(v(glm2, off=by_name)["state"], "excluded")
+        self.assertEqual(v(glm1, off=by_name)["state"], "ranked")
+        by_id = {"zai/4ff9f720f21e938b": "2026-09-25T00:00:00+00:00"}  # the account id works too
+        self.assertEqual(v(glm2, off=by_id),
+                         {"state": "excluded", "reason": "off", "until": "2026-09-25T00:00:00+00:00"})
+        self.assertEqual(v(glm1, off=by_id)["state"], "ranked")
+
 
 class Scope(unittest.TestCase):
     def test_an_exhausted_opus_week_excludes_opus_work_and_not_sonnet_work(self):

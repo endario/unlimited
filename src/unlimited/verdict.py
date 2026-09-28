@@ -99,10 +99,18 @@ def verdict(reading: object, *, model_scope: str | None, now: datetime, work: ti
             off: dict[str, str | None] | None = None) -> dict:
     """`unread`, `excluded` or `ranked` for `work` on `model_scope` starting at `starts`.
     `ranked` is advisory: it describes one reading and reserves nothing. `off` is the machine's
-    vendor policy (`catalog.off_vendors(now)`): a reading whose vendor it names is `excluded`
-    outright, with the switch's `until` and no window."""
-    if isinstance(reading, dict) and reading.get("vendor") in (off or {}):
-        return {"state": "excluded", "reason": "off", "until": (off or {})[reading["vendor"]]}
+    policy (`catalog.off_policy(now)`), keyed by vendor for a whole-vendor switch or
+    `vendor/account` for one account's: a reading whose vendor it names, or one of whose account
+    id or identity names a `vendor/…` key names, is `excluded` outright, with the switch's
+    `until` and no window."""
+    if isinstance(reading, dict):
+        vendor = reading.get("vendor")
+        ids = [vendor] + [f"{vendor}/{x}" for x in
+                          [reading.get("account")] + list(reading.get("names") or [])
+                          if isinstance(x, str) and x]
+        hit = next((k for k in ids if k in (off or {})), None)
+        if hit is not None:
+            return {"state": "excluded", "reason": "off", "until": (off or {})[hit]}
     starts = starts or now
     if not isinstance(reading, dict):
         return {"state": "unread", "reason": "no-reading"}

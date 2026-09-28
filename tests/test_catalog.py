@@ -132,18 +132,18 @@ class Switches(unittest.TestCase):
         self.assertIn("stealth", [p for p, _ in self.models(c, "standard", later)])
         self.assertNotIn("glm", [p for p, _ in self.models(c, "standard", later)])
 
-    def test_off_vendors_is_the_live_vendor_policy(self):
+    def test_off_policy_is_the_live_policy_and_drops_lapsed(self):
         local = Path(scratch.mkdtemp()) / "catalog.toml"
         until = "2026-09-25T13:00:00+00:00"
         catalog.write_switches([{"target": "kimi"},                  # a usage vendor, no end
                                 {"target": "stealth"},               # a provider only
                                 {"target": "sonnet"},                # an offering id only
-                                {"target": "zai", "until": until}],  # a vendor, until passed
+                                {"target": "zai", "until": until}],  # a vendor, until not yet passed
                                catalog.switches_path(local))
-        self.assertEqual(catalog.off_vendors(NOW, catalog.switches_path(local)),
-                         {"kimi": None, "zai": until})  # zai's until has not yet passed
+        self.assertEqual(catalog.off_policy(NOW, catalog.switches_path(local)),
+                         {"kimi": None, "zai": until})
         later = datetime(2026, 9, 25, 14, 0, tzinfo=timezone.utc)
-        self.assertEqual(catalog.off_vendors(later, catalog.switches_path(local)), {"kimi": None})
+        self.assertEqual(catalog.off_policy(later, catalog.switches_path(local)), {"kimi": None})
 
     def test_the_switches_file_is_private_as_soon_as_it_exists(self):
         local = Path(scratch.mkdtemp()) / "catalog.toml"
@@ -194,6 +194,31 @@ class Switches(unittest.TestCase):
         with self.assertRaises(catalog.NotOff):
             catalog.switch("zai", on=True, now=NOW, path=path)
         self.assertEqual([x["target"] for x in catalog.read_switches(path)], ["kimi"])
+
+    def test_a_switch_can_name_one_account_of_a_vendor(self):
+        local = Path(scratch.mkdtemp()) / "catalog.toml"
+        path = catalog.switches_path(local)
+        catalog.write_switches([{"target": "zai", "account": "claude-glm-2"},
+                                {"target": "kimi"}], path)
+        # on of the vendor alone refuses (no vendor switch) and leaves the account switch alone
+        with self.assertRaises(catalog.NotOff):
+            catalog.switch("zai", on=True, now=NOW, path=path)
+        self.assertEqual([(x["target"], x.get("account")) for x in catalog.read_switches(path)],
+                         [("zai", "claude-glm-2"), ("kimi", None)])
+        self.assertEqual(catalog.switch("zai", account="claude-glm-2", on=True, now=NOW, path=path),
+                         [{"target": "kimi", "until": None, "why": None}])
+        with self.assertRaises(catalog.NotOff):
+            catalog.switch("zai", account="claude-glm-1", on=True, now=NOW, path=path)
+
+    def test_off_policy_keys_vendor_and_account_switches(self):
+        local = Path(scratch.mkdtemp()) / "catalog.toml"
+        path = catalog.switches_path(local)
+        catalog.write_switches([{"target": "kimi"},
+                                {"target": "zai", "account": "claude-glm-2"},
+                                {"target": "stealth"},                       # a provider only
+                                {"target": "zai", "until": "2020-01-01T00:00:00+00:00"}], path)
+        self.assertEqual(catalog.off_policy(NOW, path),
+                         {"kimi": None, "zai/claude-glm-2": None})
 
     def test_a_write_waits_for_the_lock(self):
         import subprocess, sys
@@ -297,6 +322,22 @@ class Cli(unittest.TestCase):
         got = json.loads(out)
         self.assertEqual([(x["target"], x["why"]) for x in got], [("kimi", "banned")])
         self.assertIsNotNone(got[0]["until"])
+
+    def test_off_can_name_one_account_of_a_usage_vendor(self):
+        import json
+        home = Path(scratch.mkdtemp())
+        def run(*args):
+            out, err = io.StringIO(), io.StringIO()
+            with mock.patch.dict(os.environ, {"XDG_CONFIG_HOME": str(home)}), redirect_stdout(out), redirect_stderr(err):
+                return cli.main(list(args)), out.getvalue(), err.getvalue()
+        self.assertEqual(run("off", "zai", "--account", "claude-glm-2")[0], 0)
+        got = json.loads((home / "unlimited" / "switches.json").read_text())["off"]
+        self.assertEqual(got, [{"target": "zai", "account": "claude-glm-2", "until": None, "why": None}])
+        code, out, _ = run("off")
+        self.assertEqual((code, out.split()[0]), (0, "zai/claude-glm-2"))
+        code, out, _ = run("on", "zai", "--account", "claude-glm-2", "--json")
+        self.assertEqual((code, json.loads(out)), (0, []))
+        self.assertEqual(run("off", "sonnet", "--account", "x")[0], 1)   # only a usage vendor
 
     def test_off_with_a_target_and_json_prints_what_is_off_after(self):
         import json

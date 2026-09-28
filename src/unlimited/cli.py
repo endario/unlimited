@@ -62,7 +62,8 @@ def _duration(text: str) -> timedelta:
 
 
 def _switch(a) -> int:
-    """Switch a provider, a model or a `provider:model` pair off (or back on) on this machine."""
+    """Switch a provider, a model, a `provider:model` pair, or (with --account) one account of a
+    usage vendor off (or back on) on this machine."""
     from . import catalog
     try:
         cat = catalog.load()
@@ -76,14 +77,17 @@ def _switch(a) -> int:
             json.dump(off, sys.stdout)
             return 0
         for x in off:
-            print(f"{x['target']:<48} {'until ' + x['until'] if x.get('until') else 'until switched on'}"
+            what = x["target"] if x.get("account") is None else f"{x['target']}/{x['account']}"
+            print(f"{what:<48} {'until ' + x['until'] if x.get('until') else 'until switched on'}"
                   + (f"  ({x['why']})" if x.get("why") else ""))
         return 0
+    account = getattr(a, "account", None)
     provider, _, model = a.target.partition(":")
     routes = [cat.route(o["id"]) for o in cat.offerings]
     pairs = {(r["provider"], x) for r in routes for x in (r["id"], r["model"])}
     names = {x for r in routes for x in (r["provider"], r["model"], r["vendor"], r["id"])}
-    known = (provider, model) in pairs if model else provider in names or provider in REGISTRY
+    known = ((provider, model) in pairs if model else provider in names or provider in REGISTRY) \
+        if account is None else provider in REGISTRY and not model
     if not known:
         print(f"unlimited: {a.target}: not a provider, model, offering, usage vendor or "
               f"provider:model pair in the catalog", file=sys.stderr)
@@ -91,9 +95,9 @@ def _switch(a) -> int:
     try:
         wrote = catalog.switch(a.target, on=a.cmd == "on",
                                until=(now + a.for_) if getattr(a, "for_", None) else None,
-                               why=getattr(a, "why", None), now=now)
-    except catalog.NotOff:
-        print(f"unlimited: {a.target} is not switched off here", file=sys.stderr)
+                               why=getattr(a, "why", None), account=account, now=now)
+    except catalog.NotOff as e:
+        print(f"unlimited: {e}: not switched off here", file=sys.stderr)
         return 1
     except catalog.CatalogError as e:
         print(f"unlimited: catalog: {e}", file=sys.stderr)
@@ -377,6 +381,9 @@ examples:
   unlimited off codex:gpt-6-sol
   unlimited on commandcode""")
     of.add_argument("target", nargs="?", metavar="TARGET", help="what to switch off (omit to list)")
+    of.add_argument("--account", metavar="NAME",
+                    help="switch off one account of a usage vendor TARGET, not the vendor: its "
+                         "account id (`unlimited read`) or an identity name (claude-glm-2)")
     of.add_argument("--json", action="store_true", help="a JSON array of what is off (after any change)")
     of.add_argument("--for", dest="for_", type=_duration, metavar="DURATION",
                     help="lapse after this long: a number and m, h, d or w (90m, 12h, 1d, 1w); default never")
@@ -384,6 +391,7 @@ examples:
     on = add("on", "undo `unlimited off TARGET`", "Switches TARGET back on; exit 1 if it was not off.",
              "example:\n  unlimited on commandcode")
     on.add_argument("target", metavar="TARGET", help="exactly as it was switched off")
+    on.add_argument("--account", metavar="NAME", help="exactly as it was switched off")
     on.add_argument("--json", action="store_true", help="a JSON array of what is off (after any change)")
     ch = add("choose", "rank the candidates for a task by expected cost; logged", f"""\
 Of the candidates the caller allows, which to use now, and in what order to fall back. A caller
@@ -554,7 +562,7 @@ def main(argv: list[str] | None = None) -> int:
         # Before the reads: a broken switches file fails the command without waiting on a vendor.
         from . import catalog
         try:
-            off = catalog.off_vendors(datetime.now(timezone.utc))
+            off = catalog.off_policy(datetime.now(timezone.utc))
         except catalog.CatalogError as e:
             print(f"unlimited: catalog: {e}", file=sys.stderr)
             return 2
