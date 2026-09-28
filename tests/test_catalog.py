@@ -145,6 +145,11 @@ class Switches(unittest.TestCase):
         later = datetime(2026, 9, 25, 14, 0, tzinfo=timezone.utc)
         self.assertEqual(catalog.off_vendors(later, catalog.switches_path(local)), {"kimi": None})
 
+    def test_the_switches_file_is_private_as_soon_as_it_exists(self):
+        local = Path(scratch.mkdtemp()) / "catalog.toml"
+        catalog.write_switches([{"target": "kimi"}], catalog.switches_path(local))
+        self.assertEqual(catalog.switches_path(local).stat().st_mode & 0o777, 0o600)
+
     def test_a_switches_file_that_does_not_parse_stops_the_load(self):
         local = Path(scratch.mkdtemp()) / "catalog.toml"
         for text in ('{"off": "stealth"}', '{"off": [{"target": "stealth", "until": "tomorrow"}]}'):
