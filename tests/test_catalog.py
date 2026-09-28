@@ -354,7 +354,15 @@ class Cli(unittest.TestCase):
         self.assertEqual((code, out.split()[0]), (0, "zai/claude-glm-2"))
         code, out, _ = run("on", "zai", "--account", "claude-glm-2", "--json")
         self.assertEqual((code, json.loads(out)), (0, []))
-        self.assertEqual(run("off", "sonnet", "--account", "x")[0], 1)   # only a usage vendor
+        code, _, err = run("off", "sonnet", "--account", "x")  # only a usage vendor
+        self.assertEqual((code, "--account applies only to a usage vendor" in err), (1, True))
+
+    def test_a_hand_written_blank_account_in_the_file_is_an_error(self):
+        local = Path(scratch.mkdtemp()) / "catalog.toml"
+        path = catalog.switches_path(local)
+        path.write_text('{"off": [{"target": "zai", "account": "   "}]}')
+        with self.assertRaises(catalog.CatalogError):
+            catalog.read_switches(path)
 
     def test_off_with_a_target_and_json_prints_what_is_off_after(self):
         import json
