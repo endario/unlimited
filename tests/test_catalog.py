@@ -132,6 +132,19 @@ class Switches(unittest.TestCase):
         self.assertIn("stealth", [p for p, _ in self.models(c, "standard", later)])
         self.assertNotIn("glm", [p for p, _ in self.models(c, "standard", later)])
 
+    def test_off_vendors_is_the_live_vendor_policy(self):
+        local = Path(scratch.mkdtemp()) / "catalog.toml"
+        until = "2026-09-25T13:00:00+00:00"
+        catalog.write_switches([{"target": "kimi"},                  # a usage vendor, no end
+                                {"target": "stealth"},               # a provider only
+                                {"target": "sonnet"},                # an offering id only
+                                {"target": "zai", "until": until}],  # a vendor, until passed
+                               catalog.switches_path(local))
+        self.assertEqual(catalog.off_vendors(NOW, catalog.switches_path(local)),
+                         {"kimi": None, "zai": until})  # zai's until has not yet passed
+        later = datetime(2026, 9, 25, 14, 0, tzinfo=timezone.utc)
+        self.assertEqual(catalog.off_vendors(later, catalog.switches_path(local)), {"kimi": None})
+
     def test_a_switches_file_that_does_not_parse_stops_the_load(self):
         local = Path(scratch.mkdtemp()) / "catalog.toml"
         for text in ('{"off": "stealth"}', '{"off": [{"target": "stealth", "until": "tomorrow"}]}'):
