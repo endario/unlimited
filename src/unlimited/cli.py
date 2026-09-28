@@ -80,10 +80,10 @@ def _switch(a) -> int:
     routes = [cat.route(o["id"]) for o in cat.offerings]
     pairs = {(r["provider"], x) for r in routes for x in (r["id"], r["model"])}
     names = {x for r in routes for x in (r["provider"], r["model"], r["vendor"], r["id"])}
-    known = (provider, model) in pairs if model else provider in names
+    known = (provider, model) in pairs if model else provider in names or provider in REGISTRY
     if not known:
-        print(f"unlimited: {a.target}: not a provider, model, vendor, offering or provider:model pair in the "
-              f"catalog", file=sys.stderr)
+        print(f"unlimited: {a.target}: not a provider, model, offering, usage vendor or "
+              f"provider:model pair in the catalog", file=sys.stderr)
         return 1
     kept = [x for x in off if x["target"] != a.target]
     if a.cmd == "on":
@@ -360,9 +360,10 @@ examples:
     cd.add_argument("--json", action="store_true", help="a JSON array of {provider, model, tiers, expected, observed}")
     of = add("off", "switch a provider, model, vendor or route off here; list what is off", """\
 Switches a catalog entry off on this machine, so it is never a candidate, until switched on or
-until --for lapses. TARGET is a provider, a model, a vendor, an offering id, or PROVIDER:MODEL.
-The shipped catalog is untouched; the switch lives in ~/.config/unlimited/switches.json.
-With no TARGET, lists what is off and until when.""", """\
+until --for lapses. TARGET is a provider, a model, a vendor (by its usage name, also one with no
+catalog route here), an offering id, or PROVIDER:MODEL. The shipped catalog is untouched; the
+switch lives in ~/.config/unlimited/switches.json. With no TARGET, lists what is off and until
+when.""", """\
 examples:
   unlimited off                                         # what is off
   unlimited off commandcode --for 12h --why "overloaded"

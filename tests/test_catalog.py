@@ -171,6 +171,19 @@ class Cli(unittest.TestCase):
         self.assertIn("stealth", candidates())
         self.assertEqual(run("on", "stealth")[0], 1)
 
+    def test_off_accepts_a_usage_vendor_with_no_catalog_route(self):
+        import json
+        home = Path(scratch.mkdtemp())
+        def run(*args):
+            out, err = io.StringIO(), io.StringIO()
+            with mock.patch.dict(os.environ, {"XDG_CONFIG_HOME": str(home)}), redirect_stdout(out), redirect_stderr(err):
+                return cli.main(list(args)), out.getvalue(), err.getvalue()
+        self.assertEqual(run("off", "kimi")[0], 0)  # no catalog route on vendor kimi anywhere
+        switches = json.loads((home / "unlimited" / "switches.json").read_text())["off"]
+        self.assertEqual(switches, [{"target": "kimi", "until": None, "why": None}])
+        self.assertEqual(run("on", "kimi")[0], 0)
+        self.assertEqual(run("off", "kimij")[0], 1)  # an unknown name is still refused
+
     def test_one_providers_model_or_exit_1_when_it_has_none_at_the_tier(self):
         self.assertEqual(self.run_models("--provider", "codex", "--tier", "heavy")[:2], (0, "gpt-6-sol\n"))
         self.assertEqual(self.run_models("--provider", "grok", "--tier", "heavy")[:2], (1, ""))
