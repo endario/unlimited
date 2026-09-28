@@ -9,6 +9,7 @@ import math
 import random
 import statistics
 import uuid
+from collections import Counter
 from collections.abc import Collection
 from datetime import datetime
 
@@ -178,7 +179,7 @@ def rank(cat: Catalog, *, tier: str, candidates: list[str], attempts: list[dict]
         if not (isinstance(a.get("at"), datetime) and a["at"].tzinfo is not None):
             raise ValueError(f"attempt at {a.get('at')!r}: expected a timezone-aware datetime")
     routes = {(cat.models[o["model"]]["provider"], o["id"]) for o in cat.offerings}
-    unknown = sum(1 for a in attempts if (a.get("provider"), a.get("offering") or a.get("model")) not in routes)
+    unknown = Counter(k for a in attempts if (k := (a.get("provider"), a.get("offering") or a.get("model"))) not in routes)
     for name, minutes in prefer.items():
         if name not in known:
             raise ValueError(f"prefer {name}: not a provider, model or offering id in the catalog")
@@ -208,7 +209,8 @@ def rank(cat: Catalog, *, tier: str, candidates: list[str], attempts: list[dict]
             "request": request,
             "policy": "thompson" if temperature is None else "best" if temperature == 0 else "softmax",
             "seed": seed, "candidates": scored, "order": tried,
-            "pick": tried[0], "prefer_unmatched": sorted(set(prefer) - used), "attempts_unknown": unknown}
+            "pick": tried[0], "prefer_unmatched": sorted(set(prefer) - used), "attempts_unknown": sum(unknown.values()),
+            "routes_unknown": [{"provider": p, "model": m, "attempts": n} for (p, m), n in sorted(unknown.items(), key=str)]}
 
 
 def choose(cat: Catalog, *, tier: str, candidates: list[str], quota: dict[str, float], deadline: float,
