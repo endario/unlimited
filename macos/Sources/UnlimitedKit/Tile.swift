@@ -102,21 +102,43 @@ public struct Tile: Identifiable, Equatable, Sendable {
     /// The vendor's name for a person; an unknown vendor shows its id.
     public static func vendorName(_ id: String) -> String { vendors.first { $0.id == id }?.name ?? id }
 
-    /// One row of the "Never offer" list: a vendor this machine can switch off, whether it is
-    /// off now, and whether an account of it was read here (a switch with no account here must
-    /// still show, or a CLI-written one could never be undone from the app).
-    public struct NeverOffer: Equatable, Sendable {
-        public let vendor: String
-        public let off: Bool
-        public let accountHere: Bool
+    /// The policy keys a reading answers to: its vendor, and `vendor/account` for its account id
+    /// and each identity name — the shapes `unlimited off` writes.
+    static func policyKeys(_ r: Reading) -> [String] {
+        let vendor = r.vendor
+        return [vendor] + [r.account].compactMap { $0 } .map { "\(vendor)/\($0)" }
+            + r.names.map { "\(vendor)/\($0)" }
     }
 
-    /// The list: every vendor read here plus every vendor switched off, in strip order.
-    public static func neverOffer(off: Set<String>, vendors: [String]) -> [NeverOffer] {
+    /// One row of the "Never offer" list: one account, whether it is switched off (its vendor's
+    /// switch or its own), whether it was read here — a CLI-written switch nothing here answers
+    /// to must still show, or it could never be undone from the app — and the account a flip of
+    /// it names (nil: the whole vendor).
+    public struct OfferRow: Equatable, Sendable {
+        public let vendor: String
+        public let ident: String
+        public let off: Bool
+        public let readHere: Bool
+        public let account: String?
+    }
+
+    /// The rows: every account read here, plus every switch key nothing here answers to, in
+    /// strip order then by ident.
+    public static func offerRows(readings: [Reading], off: Set<String>) -> [OfferRow] {
         let order = Dictionary(uniqueKeysWithValues: Tile.vendors.enumerated().map { ($1.id, $0) })
-        return Set(vendors).union(off)
-            .map { NeverOffer(vendor: $0, off: off.contains($0), accountHere: vendors.contains($0)) }
-            .sorted { (order[$0.vendor] ?? .max, $0.vendor) < (order[$1.vendor] ?? .max, $1.vendor) }
+        let rows = readings.map { r in
+            OfferRow(vendor: r.vendor, ident: r.names.first ?? r.account ?? "?",
+                     off: policyKeys(r).contains { off.contains($0) }, readHere: true,
+                     account: r.names.first ?? r.account)
+        }
+        let answered = Set(readings.flatMap(policyKeys))
+        let extras = off.subtracting(answered).map { key in
+            let parts = key.split(separator: "/", maxSplits: 1).map(String.init)
+            return OfferRow(vendor: parts[0], ident: parts.count > 1 ? parts[1] : parts[0],
+                            off: true, readHere: false, account: parts.count > 1 ? parts[1] : nil)
+        }
+        return (rows + extras)
+            .sorted { (order[$0.vendor] ?? .max, $0.vendor, $0.ident) < (order[$1.vendor] ?? .max, $1.vendor, $1.ident) }
     }
 
     /// The tile under `x`, measured from the strip's leading edge.
@@ -130,14 +152,18 @@ public struct Tile: Identifiable, Equatable, Sendable {
     public var vendor: String { String(id.prefix { $0 != "/" }) }
 
     /// Tiles in vendor order, then by label; one waiting tile when there is nothing to show.
-    /// `off`: this machine's switched-off vendors (`unlimited off`), marked and never the pick.
+    /// `off`: this machine's switch keys (`unlimited off`, `vendor` or `vendor/account`), marked
+    /// and never the pick — an account switch greys its account alone.
     public static func strip(_ readings: [Reading], now: Date, off: Set<String> = []) -> [Tile] {
         let order = Dictionary(uniqueKeysWithValues: vendors.enumerated().map { ($1.id, $0) })
         let tiles = readings
-            .map { tile($0, now: now) }
-            .sorted { (order[$0.vendor] ?? .max, $0.tile.label, $0.tile.id) < (order[$1.vendor] ?? .max, $1.tile.label, $1.tile.id) }
-            .map(\.tile)
-            .map { t -> Tile in var t = t; t.off = off.contains(t.vendor); return t }
+            .map { r -> (String, Tile) in
+                var (vendor, t) = tile(r, now: now)
+                t.off = policyKeys(r).contains { off.contains($0) }
+                return (vendor, t)
+            }
+            .sorted { (order[$0.0] ?? .max, $0.1.label, $0.1.id) < (order[$1.0] ?? .max, $1.1.label, $1.1.id) }
+            .map(\.1)
         // Accounts without identity names (Codex, Grok) share a label; number them apart.
         let counts = Dictionary(tiles.map { ($0.label, 1) }, uniquingKeysWith: +)
         var seen: [String: Int] = [:]

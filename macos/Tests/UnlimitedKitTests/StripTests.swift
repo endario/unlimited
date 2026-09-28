@@ -97,3 +97,19 @@ func strip() throws -> [String: Tile] {
     #expect(tiles.first { $0.vendor == "kimi" }?.labelled("KMI2").off == true, "kept through relabelling")
     #expect(Tile.strip(readings, now: now).allSatisfy { !$0.off }, "no off set: nothing marked")
 }
+
+@Test func anAccountSwitchGraysOnlyThatAccount() throws {
+    let weekly = """
+    {"name": "seven_day", "window_minutes": 10080, "used_at_least": 0.2,
+     "resets_at": "2026-09-26T13:00:00+00:00", "held": null, "held_why": null, "role": "weekly"}
+    """
+    let readings = try Reading.decode(Data("""
+    [{"schema": 1, "vendor": "zai", "account": "4ff9f720", "names": ["claude-glm-2"],
+      "status": "ok", "taken_at": "2026-09-24T05:55:00+00:00", "limits": [\(weekly)]},
+     {"schema": 1, "vendor": "zai", "account": "da68cb2c", "names": ["claude-glm"],
+      "status": "ok", "taken_at": "2026-09-24T05:55:00+00:00", "limits": [\(weekly)]}]
+    """.utf8))
+    let tiles = Tile.strip(readings, now: now, off: ["zai/claude-glm-2"])
+    #expect(tiles.first { $0.id == "zai/4ff9f720" }?.off == true)
+    #expect(tiles.first { $0.id == "zai/da68cb2c" }?.off == false, "the sibling account stays offerable")
+}
