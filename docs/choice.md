@@ -47,7 +47,7 @@ per line, appended under an exclusive lock, each with a `type`:
 |---|---|---|
 | `start` | `unlimited attempt start` | `attempt` (id), `at`, `provider`, `model`, `offering` (the route's id, when not `model`), `effort`, `account`, `decision` (the choice it carries out, if any), `deadline` (seconds), `task`, `meta` |
 | `end` | `unlimited attempt end ID` | `attempt`, `at`, `outcome` (`ok`, `timeout`, `error`, `unavailable`, `abandoned`), `tokens` (`in`, `out`, `cache`), `meta` |
-| `decision` | `unlimited choose` | `decision` (id), `at`, `request` (everything asked, below), `policy`, `seed`, `candidates` (each scored, with its odds), `order`, `pick`, `prefer_unmatched`, `attempts_unknown` |
+| `decision` | `unlimited choose` | `decision` (id), `at`, `request` (everything asked, below), `policy`, `seed`, `candidates` (each scored, with its odds), `order`, `pick`, `prefer_unmatched`, `attempts_unknown`, `routes_unknown` |
 
 `task` and `meta` are the caller's: a label and string key/value pairs, recorded for later analysis,
 never read. No prompt or content is recorded unless a caller puts it in `meta`.
@@ -86,7 +86,8 @@ appended to it.
 - `attempts`: dicts as `outcomes.attempts` returns them (`provider`, `model`, `offering`, `effort`,
   `task`, `at` timezone-aware, `outcome` one of `ok`, `timeout`, `error`, `unavailable`, `secs`,
   `tokens`). Leave out an attempt that should not count; anything else is refused. The decision's
-  `attempts_unknown` counts those naming no route of the catalog.
+  `attempts_unknown` counts those naming no route of the catalog, and `routes_unknown` names each
+  such provider and model or offering with its count.
 - `vendors`: None (every vendor) unless given; `choice.vendors_here(cat)` is this machine's.
 - `seed`: replays a decision's order.
 
