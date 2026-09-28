@@ -88,17 +88,14 @@ def _switch(a) -> int:
         print(f"unlimited: {a.target}: not a provider, model, offering, usage vendor or "
               f"provider:model pair in the catalog", file=sys.stderr)
         return 1
-    kept = [x for x in off if x["target"] != a.target]
-    if a.cmd == "on":
-        if len(kept) == len(off):
-            print(f"unlimited: {a.target} is not switched off here", file=sys.stderr)
-            return 1
-    else:
-        kept.append({"target": a.target, "until": (now + a.for_).isoformat() if a.for_ else None,
-                     "why": a.why})
-    catalog.write_switches(kept)
+    was = catalog.switch(a.target, on=a.cmd == "on",
+                         until=(now + a.for_) if getattr(a, "for_", None) else None,
+                         why=getattr(a, "why", None), now=now)
+    if a.cmd == "on" and a.target not in was:
+        print(f"unlimited: {a.target} is not switched off here", file=sys.stderr)
+        return 1
     if a.json:
-        json.dump(kept, sys.stdout)
+        json.dump(catalog.read_switches(), sys.stdout)
     return 0
 
 

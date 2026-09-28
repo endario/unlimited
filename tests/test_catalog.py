@@ -174,6 +174,16 @@ class Switches(unittest.TestCase):
         catalog.write_switches([{"target": "kimi", "why": "note"}], path)
         self.assertEqual(path.stat().st_mode & 0o777, 0o600)
 
+    def test_switch_flips_one_target_and_reports_what_was_live(self):
+        local = Path(scratch.mkdtemp()) / "catalog.toml"
+        path = catalog.switches_path(local)
+        catalog.write_switches([{"target": "kimi"},
+                                {"target": "zai", "until": "2020-01-01T00:00:00+00:00"}], path)
+        self.assertEqual(catalog.switch("stealth", now=NOW, path=path), ["kimi"])  # lapsed zai drops
+        self.assertEqual([x["target"] for x in catalog.read_switches(path)], ["kimi", "stealth"])
+        self.assertEqual(catalog.switch("kimi", on=True, now=NOW, path=path), ["kimi", "stealth"])
+        self.assertEqual([x["target"] for x in catalog.read_switches(path)], ["stealth"])
+
     def test_a_switches_file_that_does_not_parse_stops_the_load(self):
         local = Path(scratch.mkdtemp()) / "catalog.toml"
         for text in ('{"off": "stealth"}', '{"off": [{"target": "stealth", "until": "tomorrow"}]}'):
