@@ -28,9 +28,8 @@ fields of an offering.
 
        E = … + quota_weight·debit_r·π(ρ_r) − preference
 
-   With `π = exp(5(ρ − 1))`, a route debiting 2× loses to its sibling until the sibling's account is
-   about 0.14 more used (ln 2 / 5): the cheaper plan takes the work while it has room, the dearer
-   one is overflow. With no projection for either, the debit alone decides. A promotion still costs
+   The cheaper plan takes the work while it has room, the dearer one is overflow. With no
+   projection for either, the debit alone decides. A promotion still costs
    nothing; each candidate in the logged decision carries its `debit`.
 
 Deferred: pricing pay-per-token routes in dollars against a budget, and unlimited choosing accounts
