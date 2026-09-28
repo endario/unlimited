@@ -42,14 +42,13 @@ struct TileView: View {
         VStack(spacing: -0.5) {
             Text(tile.label)
                 .font(.system(size: 8, weight: .medium, design: .monospaced))
-                // A switched-off vendor: its label greys; its value keeps its health colour,
-                // muted — over- and under-use still readable at a glance.
-                .foregroundStyle(tile.off ? Color.secondary : Color.primary)
                 .underline(tile.best, color: .primary.opacity(0.7))
             ZStack {
                 Text(tile.value.text)
-                    .foregroundStyle(tile.health.color)
-                    .opacity(showAlt ? 0 : tile.off ? 0.5 : 1)
+                    // A figure wears its health colour; the glyphs that stand for no reading
+                    // at all wear the grey that is not a colour anyone reads as usage.
+                    .foregroundStyle(tile.value.showsData ? tile.health.color : Color.secondary)
+                    .opacity(showAlt ? 0 : 1)
                 if let alt = tile.alternate {
                     HStack(spacing: 1) {
                         Image(systemName: alt.glyph).font(.system(size: 6, weight: .bold))
@@ -68,7 +67,9 @@ struct TileView: View {
                 Circle().fill(alt.health.color).frame(width: 3, height: 3)
             }
         }
-        .opacity(tile.dimmed ? 0.45 : 1)
+        // Ghosted, not recoloured: an unusable or switched-off tile keeps its exact colours
+        // and drops to half transparency.
+        .opacity(tile.dimmed || tile.off ? 0.45 : 1)
         .frame(width: Self.width, height: 22)
         // The week's time so far, filling upward to the reset.
         .overlay(alignment: .trailing) {

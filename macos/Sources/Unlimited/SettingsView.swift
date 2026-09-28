@@ -38,11 +38,10 @@ struct SettingsView: View {
             }
             Section {
                 if model.canOffer {
-                    ForEach(Tile.offerRows(readings: Array(model.readings.values), off: model.offKeys),
-                            id: \.ident) { row in
+                    ForEach(Tile.offerRows(readings: Array(model.readings.values), switches: model.offSwitches)) { row in
                         HStack {
                             Toggle("", isOn: Binding(get: { row.off },
-                                                     set: { v in model.offer(row.vendor, account: row.account, v) }))
+                                                     set: { v in model.offer(row.target, account: row.account, v) }))
                                 .labelsHidden()
                             Text("\(Tile.vendorName(row.vendor)) · \(row.ident)")
                             if !row.readHere { Text("not read here").foregroundStyle(.secondary) }
@@ -80,7 +79,7 @@ struct SettingsView: View {
                 Text("Off = no choice here spends the account (a whole-vendor switch, written by the CLI, spends every account of the vendor); usage is still tracked. The Accounts toggles above only hide a tile.")
                 Text("Flips run through \(model.offerPath).")
             } else {
-                Text("Needs an unlimited that answers `off --json` — upgrade with `uv tool install --force unlimited`.")
+                Text("unlimited did not answer `off --json`: upgrade it (`uv tool install --force unlimited`) or repair what `unlimited off` reports.")
             }
         }
         .font(.caption)
