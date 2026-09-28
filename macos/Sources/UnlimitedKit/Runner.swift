@@ -16,6 +16,19 @@ public struct Runner: Sendable {
         return candidates.first { FileManager.default.isExecutableFile(atPath: $0.path) }.map(Runner.init)
     }
 
+    /// One entry of the machine's switch list (`unlimited off --json`).
+    public struct Switch: Codable, Sendable, Equatable {
+        public let target: String
+        public let until: String?
+        public let why: String?
+    }
+
+    /// The machine's switched-off targets. An older `unlimited` does not know `--json`; the
+    /// caller treats any failure as "none", never as a broken strip.
+    public func switches(timeout: TimeInterval = 10) throws -> [Switch] {
+        try JSONDecoder().decode([Switch].self, from: run(["off", "--json"], timeout: timeout))
+    }
+
     /// A cold read asks every vendor in turn; the timeout leaves room for a slow one.
     public func read(maxAge: Int? = nil, timeout: TimeInterval = 45) throws -> [Reading] {
         try Reading.decode(run(["read", "--json"] + (maxAge.map { ["--max-age", String($0)] } ?? []), timeout: timeout))

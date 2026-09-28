@@ -84,8 +84,10 @@ func strip() throws -> [String: Tile] {
      "resets_at": "2026-09-26T13:00:00+00:00", "held": null, "held_why": null, "role": "weekly"}
     """
     let readings = try Reading.decode(Data("""
-    [{"schema": 1, "vendor": "kimi", "account": "k", "status": "ok", "limits": [\(weekly)]},
-     {"schema": 1, "vendor": "openai", "account": "o", "status": "ok", "limits": [\(weekly)]}]
+    [{"schema": 1, "vendor": "kimi", "account": "k", "status": "ok", "taken_at": "2026-09-24T05:55:00+00:00",
+      "limits": [\(weekly)]},
+     {"schema": 1, "vendor": "openai", "account": "o", "status": "ok", "taken_at": "2026-09-24T05:55:00+00:00",
+      "limits": [\(weekly)]}]
     """.utf8))
     let tiles = Tile.strip(readings, now: now, off: ["kimi"])
     #expect(tiles.first { $0.vendor == "kimi" }?.off == true)

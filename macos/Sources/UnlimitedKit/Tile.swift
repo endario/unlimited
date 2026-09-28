@@ -37,6 +37,8 @@ public struct Tile: Identifiable, Equatable, Sendable {
     public var alternate: Alternate?
     /// The vendor's account to use next: marked only where a vendor has more than one.
     public var best = false
+    /// The vendor is switched off here (`unlimited off`): tracked, never offered.
+    public var off = false
     /// The high end of the longest window's forecast, for choosing the best pick.
     var heading: Double?
     /// How much of the longest window has passed, 0 to 1.
@@ -51,16 +53,17 @@ public struct Tile: Identifiable, Equatable, Sendable {
     /// The same tile under another label.
     public func labelled(_ label: String) -> Tile {
         var t = Tile(id: id, label: label, value: value, dimmed: dimmed, health: health, alternate: alternate, best: best)
+        t.off = off
         t.heading = heading
         t.elapsed = elapsed
         return t
     }
 
-    /// Of one vendor's accounts that nothing is stopping, the one whose room expires soonest
-    /// (blue), else the one with the most room at reset.
+    /// Of one vendor's accounts that nothing is stopping — a switched-off vendor included in
+    /// that — the one whose room expires soonest (blue), else the one with the most room at reset.
     static func pick(_ tiles: [Tile]) -> String? {
         let open = tiles.filter { t in
-            guard case .percent = t.value, !t.dimmed, t.health < .amber else { return false }
+            guard case .percent = t.value, !t.dimmed, !t.off, t.health < .amber else { return false }
             return (t.alternate?.health ?? .normal) < .amber
         }
         guard tiles.count > 1 else { return nil }
@@ -110,12 +113,14 @@ public struct Tile: Identifiable, Equatable, Sendable {
     public var vendor: String { String(id.prefix { $0 != "/" }) }
 
     /// Tiles in vendor order, then by label; one waiting tile when there is nothing to show.
-    public static func strip(_ readings: [Reading], now: Date) -> [Tile] {
+    /// `off`: this machine's switched-off vendors (`unlimited off`), marked and never the pick.
+    public static func strip(_ readings: [Reading], now: Date, off: Set<String> = []) -> [Tile] {
         let order = Dictionary(uniqueKeysWithValues: vendors.enumerated().map { ($1.id, $0) })
         let tiles = readings
             .map { tile($0, now: now) }
             .sorted { (order[$0.vendor] ?? .max, $0.tile.label, $0.tile.id) < (order[$1.vendor] ?? .max, $1.tile.label, $1.tile.id) }
             .map(\.tile)
+            .map { t -> Tile in var t = t; t.off = off.contains(t.vendor); return t }
         // Accounts without identity names (Codex, Grok) share a label; number them apart.
         let counts = Dictionary(tiles.map { ($0.label, 1) }, uniquingKeysWith: +)
         var seen: [String: Int] = [:]

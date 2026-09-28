@@ -8,6 +8,9 @@ final class StripModel: ObservableObject {
     @Published private(set) var readings: [String: Reading] = [:]
     /// How to open each account's Claude Code, by tile id; absent where it has no wrapper.
     @Published private(set) var launches: [String: Launch] = [:]
+    /// The vendors this machine switched off (`unlimited off`); empty when the CLI cannot
+    /// say — an older one, or a file it refuses — so the strip only loses its greying.
+    @Published private(set) var offVendors: Set<String> = []
     /// The account the popover shows, by tile id.
     @Published var selected: String?
     /// Whether the popover is showing, so the strip can mark the selected tile.
@@ -45,7 +48,7 @@ final class StripModel: ObservableObject {
 
     private func redraw() {
         guard !lastRead.isEmpty else { return }
-        accounts = Tile.strip(lastRead, now: Date())
+        accounts = Tile.strip(lastRead, now: Date(), off: offVendors)
         tiles = prefs.apply(accounts)
         if tiles.isEmpty { tiles = [.waiting] }
         save()
@@ -93,9 +96,12 @@ final class StripModel: ObservableObject {
         Task.detached {
             let recent = checked || runner.isRecentEnough()
             let result: Result<[Reading], Error> = recent ? Result { try runner.read(maxAge: maxAge) } : .failure(Problem.tooOld)
+            // A probe that fails (an older CLI, a file it refuses) means no greying, not a fault.
+            let off: Set<String>? = recent ? (try? runner.switches()).map { Set($0.map(\.target)) } : nil
             await MainActor.run { if recent { self.versionChecked = stamp } }
             await MainActor.run {
                 self.busy = false
+                if let off { self.offVendors = off }
                 switch result {
                 case .success(let readings):
                     self.problem = nil
