@@ -42,12 +42,12 @@ struct TileView: View {
         VStack(spacing: -0.5) {
             Text(tile.label)
                 .font(.system(size: 8, weight: .medium, design: .monospaced))
-                // A switched-off vendor: its label greys, the tracked value keeps its colour.
+                // A switched-off vendor: label and value grey together, the account still read.
                 .foregroundStyle(tile.off ? Color.secondary : Color.primary)
                 .underline(tile.best, color: .primary.opacity(0.7))
             ZStack {
                 Text(tile.value.text)
-                    .foregroundStyle(tile.health.color)
+                    .foregroundStyle(tile.off ? Color.secondary : tile.health.color)
                     .opacity(showAlt ? 0 : 1)
                 if let alt = tile.alternate {
                     HStack(spacing: 1) {
