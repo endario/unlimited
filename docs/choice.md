@@ -26,8 +26,11 @@ schema-1 reading:
   until the first window runs out).
 
 The `off` exclusion is the owner's policy, not a vendor window: it carries no window name, and its
-`until` is the switch's end (null when it has none). The CLI passes the machine's live vendor
-switches (`catalog.off_vendors(now)`); a Python caller passes the same to apply the policy.
+`until` is the switch's end (null when it has none). The CLI passes the machine's live switches
+over usage vendors (`catalog.off_policy(now)`, keyed by vendor — `zai` — for a whole-vendor
+switch, or `vendor/account` — `zai/claude-glm-2` — for one account's); a reading matches an
+account key when the key's account is its account id or one of its identity names. A Python
+caller passes the same map to apply the policy.
 
 Which limits apply: those with role `session`, `weekly`, `month` or `extra` always; `weekly_model`
 only when its scope is `model_scope`; a limit with no role key always (missing data is never read as
