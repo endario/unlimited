@@ -16,15 +16,16 @@ from . import outcomes
 from .catalog import Catalog
 
 SCORED = ("ok", "timeout", "error", "unavailable")  # the outcomes an attempt given to rank may have
-KAPPA = 5.0  # quota price steepness: exp(κ(ρ − 1))
+KAPPA = 5.0  # quota price steepness: 1 / (1 + exp(−κ(ρ − 1)))
 QUOTA_WEIGHT = 20.0  # default minutes one unit of quota price is worth
 PREFER = 1.0  # minutes the first of tie_preference is worth; the rest less, in order
 
 
 def price(rho: float | None) -> float:
-    """What spending this account now costs, in units of a quota at its limit: near zero where the
-    quota would expire unused, rising steeply past it. Unknown is priced as at the limit."""
-    return 1.0 if rho is None else math.exp(KAPPA * (rho - 1.0))
+    """What spending this account now costs, in runs displaced from later in its window: near zero
+    where the quota would expire unused, a half at the limit, approaching one past it (a run spent
+    now displaces at most itself). Unknown is priced as at the limit."""
+    return 1.0 / (1.0 + math.exp(-KAPPA * ((1.0 if rho is None else rho) - 1.0)))
 
 
 def named(cat: Catalog, tier: str, names: list[str], now: datetime) -> list[dict]:
