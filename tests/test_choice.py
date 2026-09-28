@@ -26,9 +26,25 @@ def stat(p, t_ok_min, t_fail_min=None, fail=0.0, ok=5.0):
 
 class Price(unittest.TestCase):
     def test_the_quota_price_at_its_named_points(self):
-        for rho, want in ((0.3, 0.030), (0.8, 0.368), (1.0, 1.0), (1.2, 2.718)):
+        for rho, want in ((0.3, 0.029), (0.8, 0.269), (1.0, 0.5), (1.2, 0.731), (2.0, 0.993)):
             self.assertAlmostEqual(choice.price(rho), want, places=3)
-        self.assertEqual(choice.price(None), 1.0, "unread is priced as at the limit")
+        self.assertEqual(choice.price(None), 0.5, "unread is priced as at the limit")
+
+    def test_the_price_never_passes_one_run_displaced(self):
+        # Past the limit a run displaces at most itself from later in the window; an exponential
+        # price let a projection of 1.4 cost eight runs and bury the cheapest route (2026-09-28).
+        self.assertLessEqual(choice.price(5.0), 1.0)
+        self.assertLess(choice.price(1.42), 1.0)
+
+    def test_an_over_projected_account_does_not_swamp_a_route_that_is_fast_and_debits_little(self):
+        # The decision of 2026-09-28 13:43Z, reduced: Muse on OpenCode Go (fast, debiting 0.57 of
+        # a plain run, account projected to 1.42) against GLM (slower, projected to 1.11).
+        cands = [{"provider": "meta", "model": "muse", "promoted": False, "debit": 0.57},
+                 {"provider": "glm", "model": "flash", "promoted": False, "debit": 1}]
+        stats = {("meta", "muse"): stat(0.08, 6.9), ("glm", "flash"): stat(0.08, 9.5)}
+        got = choice.score(cands, {"muse": 1.42, "flash": 1.11}, stats, 900.0, [])
+        e = {c["model"]: c["e"] for c in got}
+        self.assertLess(e["muse"], e["flash"])
 
 
 class WorkedExample(unittest.TestCase):
@@ -47,17 +63,17 @@ class WorkedExample(unittest.TestCase):
 
     def test_expected_costs_match_the_table(self):
         e = {c["provider"]: round(c["e"], 1) for c in self.scored()}
-        self.assertEqual(e, {"stealth": 17.3, "glm": 18.2, "deepseek": 5.0, "codex": 29.8})
+        self.assertEqual(e, {"stealth": 17.3, "glm": 12.4, "deepseek": 5.0, "codex": 16.4})
 
     def test_temperature_zero_takes_the_lowest_and_above_it_samples_with_logged_odds(self):
         s = self.scored()
         self.assertEqual([s[i]["provider"] for i in choice.order(s, 0.0, random.Random(0))],
-                         ["deepseek", "stealth", "glm", "codex"], "every candidate, cheapest first")
+                         ["deepseek", "glm", "codex", "stealth"], "every candidate, cheapest first")
         self.assertEqual([c["prob"] for c in s], [0.0, 0.0, 1.0, 0.0])
         s = self.scored()
         got = choice.order(s, 2.0, random.Random(0))
         self.assertEqual(sorted(got), [0, 1, 2, 3], "sampled without replacement: each once")
-        self.assertGreater(s[2]["prob"], 0.99)
+        self.assertGreater(s[2]["prob"], 0.95)
         self.assertAlmostEqual(sum(c["prob"] for c in s), 1.0)
 
     def test_close_candidates_are_both_explored(self):
