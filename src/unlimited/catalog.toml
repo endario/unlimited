@@ -117,23 +117,25 @@ model = "muse-spark-1-2-contributor"
 vendor = "opencode"
 debit = 0.57
 
+# Command Code's GOAT plan (commandcode.ai/docs/plans/goat, 2026-09-28) allows each model its own
+# monthly dollars at Go's token prices: DeepSeek V4.1 Flash $60 as on Go, Muse Spark Contributor $20
+# against Go's $60, so a Muse run debits 3 × 0.57.
 [[offerings]]
 id = "commandcode/deepseek/deepseek-v4.1-flash"
 model = "deepseek-v4-1-flash"
 vendor = "commandcode"
-debit = 1.5
 
 [[offerings]]
 id = "commandcode/meta/muse-spark-1.3-contributor"
 model = "muse-spark-1-3-contributor"
 vendor = "commandcode"
-debit = 3
+debit = 1.71
 
 [[offerings]]
 id = "commandcode/meta/muse-spark-1.2-contributor"
 model = "muse-spark-1-2-contributor"
 vendor = "commandcode"
-debit = 3
+debit = 1.71
 
 [[offerings]]
 id = "commandcode/stealth/space-bunny-alpha"
