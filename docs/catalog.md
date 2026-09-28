@@ -66,5 +66,7 @@ A local `schema = 1` file is still read.
 
 `unlimited off TARGET [--for 90m|12h|1d|1w] [--why TEXT]` takes a provider, model, vendor, offering id
 or `provider:model` pair out of the catalog on this machine, until `unlimited on TARGET` or the time
-passes; `unlimited off` lists what is off. Kept in `switches.json` beside the local catalog. A
+passes; `unlimited off` lists what is off, `unlimited off --json` as a JSON array. A vendor target may
+name a usage vendor with no catalog route here — the switch then applies to that vendor's accounts
+(`verdict` excludes them), not to any route. Kept in `switches.json` beside the local catalog. A
 banned model is permanent until the file changes; a switch is for a while.
