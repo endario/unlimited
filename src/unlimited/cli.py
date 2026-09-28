@@ -72,6 +72,9 @@ def _switch(a) -> int:
         print(f"unlimited: catalog: {e}", file=sys.stderr)
         return 2
     if a.cmd == "off" and a.target is None:
+        if a.json:
+            json.dump(off, sys.stdout)
+            return 0
         for x in off:
             print(f"{x['target']:<48} {'until ' + x['until'] if x.get('until') else 'until switched on'}"
                   + (f"  ({x['why']})" if x.get("why") else ""))
@@ -370,6 +373,7 @@ examples:
   unlimited off codex:gpt-6-sol
   unlimited on commandcode""")
     of.add_argument("target", nargs="?", metavar="TARGET", help="what to switch off (omit to list)")
+    of.add_argument("--json", action="store_true", help="with no TARGET: a JSON array of what is off")
     of.add_argument("--for", dest="for_", type=_duration, metavar="DURATION",
                     help="lapse after this long: a number and m, h, d or w (90m, 12h, 1d, 1w); default never")
     of.add_argument("--why", metavar="NOTE", help="a note, shown when listing")
