@@ -43,7 +43,9 @@ struct SettingsView: View {
                             Toggle("", isOn: Binding(get: { row.off },
                                                      set: { v in model.offer(row.target, account: row.account, v) }))
                                 .labelsHidden()
-                            Text("\(Tile.vendorName(row.vendor)) · \(row.ident)")
+                            // An unmatched whole-target switch is its own name: no double print.
+                            Text(row.readHere || row.account != nil
+                                 ? "\(Tile.vendorName(row.vendor)) · \(row.ident)" : row.ident)
                             if !row.readHere { Text("not read here").foregroundStyle(.secondary) }
                             Spacer()
                         }

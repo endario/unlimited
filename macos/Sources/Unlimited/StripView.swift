@@ -54,7 +54,7 @@ struct TileView: View {
                         Image(systemName: alt.glyph).font(.system(size: 6, weight: .bold))
                         Text(alt.value.text)
                     }
-                    .foregroundStyle(alt.health.color)
+                    .foregroundStyle(alt.value.showsData ? alt.health.color : Color.secondary)
                     .opacity(showAlt ? 1 : 0)
                 }
             }

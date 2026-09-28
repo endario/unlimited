@@ -134,8 +134,7 @@ public struct Tile: Identifiable, Equatable, Sendable {
 
     /// The rows: every account read here, plus every switch nothing here answers to, in strip
     /// order then by ident. A row's flip names the switch that matched it — the vendor's own if
-    /// both matched, its own account if none did — so a toggle always switches exactly the row
-    /// it names, and `on` can always undo what `off` wrote.
+    /// both matched, its own account if none did — so `on` can always undo what `off` wrote.
     public static func offerRows(readings: [Reading], switches: [Runner.Switch]) -> [OfferRow] {
         let order = Dictionary(uniqueKeysWithValues: Tile.vendors.enumerated().map { ($1.id, $0) })
         var matched: Set<Runner.Switch> = []
