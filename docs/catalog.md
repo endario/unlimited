@@ -68,7 +68,9 @@ A local `schema = 1` file is still read.
 or `provider:model` pair out of the catalog on this machine, until `unlimited on TARGET` or the time
 passes; `unlimited off` lists what is off, `unlimited off --json` as a JSON array. A vendor target may
 name a usage vendor with no catalog route here — the switch then applies to that vendor's accounts
-(`verdict` excludes them), not to any route. A name that is both a provider and a usage vendor
+(`verdict` excludes them), not to any route; `--account NAME` narrows it to one account (its id
+from `read`, or an identity name like `claude-glm-2`), leaving the vendor's other accounts
+offerable. A name that is both a provider and a usage vendor
 (`commandcode`) does both. Kept in `switches.json` beside the local catalog; a write holds
 `switches.lock` beside it across the whole read-modify-write. A banned model is permanent until
 the file changes; a switch is for a while.
