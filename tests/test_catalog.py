@@ -228,6 +228,15 @@ class Switches(unittest.TestCase):
         vendor_off = self.load({"target": "zai"})
         self.assertNotIn("glm", [p for p, _ in self.models(vendor_off, "standard")])
 
+    def test_a_blank_account_is_refused_not_written(self):
+        local = Path(scratch.mkdtemp()) / "catalog.toml"
+        path = catalog.switches_path(local)
+        catalog.write_switches([{"target": "zai"}], path)  # a live whole-vendor switch
+        for blank in ("", "   "):
+            with self.assertRaises(catalog.CatalogError):
+                catalog.switch("zai", account=blank, now=NOW, path=path)
+        self.assertEqual(catalog.read_switches(path), [{"target": "zai"}])  # untouched
+
     def test_a_write_waits_for_the_lock(self):
         import subprocess, sys
         local = Path(scratch.mkdtemp()) / "catalog.toml"
