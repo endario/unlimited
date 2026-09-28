@@ -43,8 +43,8 @@ def switches_path(local: Path | None = None) -> Path:
 
 def read_switches(path: Path | None = None) -> list[dict]:
     """This machine's switched-off targets: `{"target", "until", "why"}`, `until` an ISO time or
-    None. Written by `unlimited models off/on`; a file that does not parse is an error, as the
-    catalog's is, since a switch that silently stops applying is the failure it exists to prevent."""
+    None. Written by `unlimited off/on`; a file that does not parse is an error, as the catalog's
+    is, since a switch that silently stops applying is the failure it exists to prevent."""
     path = path or switches_path()
     try:
         got = json.loads(path.read_text())
@@ -52,6 +52,13 @@ def read_switches(path: Path | None = None) -> list[dict]:
         return []
     except (OSError, ValueError) as e:
         raise CatalogError(f"{path}: {e}") from None
+    # An older release left the file at the umask; it holds free-text --why. A mode that cannot
+    # be repaired is not a reason to refuse the command.
+    try:
+        if path.stat().st_mode & 0o777 != 0o600:
+            os.chmod(path, 0o600)
+    except OSError:
+        pass
     off = got.get("off") if isinstance(got, dict) else None
     if not isinstance(off, list) or not all(isinstance(x, dict) and isinstance(x.get("target"), str) for x in off):
         raise CatalogError(f"{path}: expected {{\"off\": [{{\"target\": ...}}]}}")
@@ -65,8 +72,26 @@ def write_switches(off: list[dict], path: Path | None = None) -> None:
     path = path or switches_path()
     path.parent.mkdir(parents=True, exist_ok=True)
     tmp = path.with_suffix(".tmp")
-    tmp.write_text(json.dumps({"off": off}, indent=1) + "\n")
+    fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)  # holds free-text --why
+    os.fchmod(fd, 0o600)  # the open's mode applies only when it creates the file
+    with os.fdopen(fd, "w") as f:
+        f.write(json.dumps({"off": off}, indent=1) + "\n")
     os.replace(tmp, path)
+
+
+def live(x: dict, now: datetime) -> bool:
+    """Whether a switch holds at `now`: no end, or one not yet reached. One rule, read by the
+    catalog's blocking, `off`'s listing and `off_vendors` alike."""
+    until = moment_utc(x.get("until"))
+    return until is None or until > now
+
+
+def off_vendors(now: datetime, path: Path | None = None) -> dict[str, str | None]:
+    """The machine's live vendor switches as a policy (`verdict`'s `off`): each usage vendor
+    switched off here, to its switch's `until` (ISO text, None when it has no end)."""
+    from .adapters import REGISTRY
+    return {x["target"]: x.get("until") for x in read_switches(path)
+            if x["target"] in REGISTRY and live(x, now)}
 
 
 # What a schema-2 file may hold at its top level.
@@ -270,10 +295,7 @@ class Catalog:
         if names & self.banned:
             return True
         for x in self.off:
-            until = moment_utc(x.get("until"))
-            if until is not None and until <= now:
-                continue
-            if x["target"] in names:
+            if live(x, now) and x["target"] in names:
                 return True
         return False
 

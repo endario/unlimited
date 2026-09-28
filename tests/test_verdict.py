@@ -106,6 +106,15 @@ class Ranking(unittest.TestCase):
                   reading(vendor="anthropic"), reading(window("seven_day", 0.1, WEEK, 100), vendor="anthropic")):
             self.assertEqual(v(r)["state"], "unread", r)
 
+    def test_a_vendor_switched_off_here_is_excluded_before_any_window(self):
+        r = reading(five(0.2, 300), vendor="openai")
+        self.assertEqual(v(r, off={"openai": None})["state"], "excluded")
+        self.assertEqual(v(r, off={"openai": "2026-09-24T10:00:00+00:00"}),
+                         {"state": "excluded", "reason": "off", "until": "2026-09-24T10:00:00+00:00"})
+        self.assertEqual(v(r)["state"], "ranked")                      # no policy: unchanged
+        self.assertEqual(v(r, off={"zai": None})["state"], "ranked")   # another vendor's switch
+        self.assertEqual(v("broken", off={"openai": None})["state"], "unread")  # not a reading
+
 
 class Scope(unittest.TestCase):
     def test_an_exhausted_opus_week_excludes_opus_work_and_not_sonnet_work(self):

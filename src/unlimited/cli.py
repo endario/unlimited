@@ -67,11 +67,14 @@ def _switch(a) -> int:
     try:
         cat = catalog.load()
         now = datetime.now(timezone.utc)
-        off = [x for x in cat.off if (u := catalog.moment_utc(x.get("until"))) is None or u > now]
+        off = [x for x in cat.off if catalog.live(x, now)]
     except catalog.CatalogError as e:
         print(f"unlimited: catalog: {e}", file=sys.stderr)
         return 2
     if a.cmd == "off" and a.target is None:
+        if a.json:
+            json.dump(off, sys.stdout)
+            return 0
         for x in off:
             print(f"{x['target']:<48} {'until ' + x['until'] if x.get('until') else 'until switched on'}"
                   + (f"  ({x['why']})" if x.get("why") else ""))
@@ -80,10 +83,10 @@ def _switch(a) -> int:
     routes = [cat.route(o["id"]) for o in cat.offerings]
     pairs = {(r["provider"], x) for r in routes for x in (r["id"], r["model"])}
     names = {x for r in routes for x in (r["provider"], r["model"], r["vendor"], r["id"])}
-    known = (provider, model) in pairs if model else provider in names
+    known = (provider, model) in pairs if model else provider in names or provider in REGISTRY
     if not known:
-        print(f"unlimited: {a.target}: not a provider, model, vendor, offering or provider:model pair in the "
-              f"catalog", file=sys.stderr)
+        print(f"unlimited: {a.target}: not a provider, model, offering, usage vendor or "
+              f"provider:model pair in the catalog", file=sys.stderr)
         return 1
     kept = [x for x in off if x["target"] != a.target]
     if a.cmd == "on":
@@ -94,6 +97,8 @@ def _switch(a) -> int:
         kept.append({"target": a.target, "until": (now + a.for_).isoformat() if a.for_ else None,
                      "why": a.why})
     catalog.write_switches(kept)
+    if a.json:
+        json.dump(kept, sys.stdout)
     return 0
 
 
@@ -315,8 +320,9 @@ examples:
     r.add_argument("--json", action="store_true", help="JSON output (the only format; accepted for clarity)")
     vd = add("verdict", "whether each account can take a unit of work, as JSON", f"""\
 For each account, whether it can take a unit of work of --work seconds now: `unread` (no fresh
-reading), `excluded` (the vendor stopped it, a window is used up, or one runs out before the work
-would finish; with which window and when it lifts) or `ranked`, with a `tier` (0: no window
+reading), `excluded` (the vendor stopped it, a window is used up, one runs out before the work
+would finish, or the vendor is switched off here; with which window and when it lifts) or
+`ranked`, with a `tier` (0: no window
 projected past its limit; 1: one is, but after the work) and a `score` to order accounts by.
 Ordering, tie rules and fallback are the caller's. Details: {DOCS}/choice.md#1-verdict""", """\
 example:
@@ -360,21 +366,24 @@ examples:
     cd.add_argument("--json", action="store_true", help="a JSON array of {provider, model, tiers, expected, observed}")
     of = add("off", "switch a provider, model, vendor or route off here; list what is off", """\
 Switches a catalog entry off on this machine, so it is never a candidate, until switched on or
-until --for lapses. TARGET is a provider, a model, a vendor, an offering id, or PROVIDER:MODEL.
-The shipped catalog is untouched; the switch lives in ~/.config/unlimited/switches.json.
-With no TARGET, lists what is off and until when.""", """\
+until --for lapses. TARGET is a provider, a model, a vendor (by its usage name, also one with no
+catalog route here), an offering id, or PROVIDER:MODEL. The shipped catalog is untouched; the
+switch lives in ~/.config/unlimited/switches.json. With no TARGET, lists what is off and until
+when.""", """\
 examples:
   unlimited off                                         # what is off
   unlimited off commandcode --for 12h --why "overloaded"
   unlimited off codex:gpt-6-sol
   unlimited on commandcode""")
     of.add_argument("target", nargs="?", metavar="TARGET", help="what to switch off (omit to list)")
+    of.add_argument("--json", action="store_true", help="a JSON array of what is off (after any change)")
     of.add_argument("--for", dest="for_", type=_duration, metavar="DURATION",
                     help="lapse after this long: a number and m, h, d or w (90m, 12h, 1d, 1w); default never")
     of.add_argument("--why", metavar="NOTE", help="a note, shown when listing")
     on = add("on", "undo `unlimited off TARGET`", "Switches TARGET back on; exit 1 if it was not off.",
              "example:\n  unlimited on commandcode")
     on.add_argument("target", metavar="TARGET", help="exactly as it was switched off")
+    on.add_argument("--json", action="store_true", help="a JSON array of what is off (after any change)")
     ch = add("choose", "rank the candidates for a task by expected cost; logged", f"""\
 Of the candidates the caller allows, which to use now, and in what order to fall back. A caller
 usually passes --tier, --candidates, --deadline and --quota; the rest is rarely needed. Launch
@@ -539,6 +548,15 @@ def main(argv: list[str] | None = None) -> int:
         return _choose(a)
     if a.cmd == "cards":
         return _cards(a)
+    off = None
+    if a.cmd == "verdict":
+        # Before the reads: a broken switches file fails the command without waiting on a vendor.
+        from . import catalog
+        try:
+            off = catalog.off_vendors(datetime.now(timezone.utc))
+        except catalog.CatalogError as e:
+            print(f"unlimited: catalog: {e}", file=sys.stderr)
+            return 2
     out = []
     for v in getattr(a, "vendor", None) or sorted(REGISTRY):
         out += cache.through(REGISTRY[v], max_age=a.max_age,
@@ -548,7 +566,7 @@ def main(argv: list[str] | None = None) -> int:
         now = datetime.now(timezone.utc)
         json.dump([{"vendor": r.get("vendor"), "account": r.get("account"), "names": r.get("names", []),
                     "verdict": verdict(r, model_scope=a.model_scope, now=now, work=timedelta(seconds=a.work),
-                                       max_age=timedelta(seconds=a.max_age))} for r in out], sys.stdout)
+                                       max_age=timedelta(seconds=a.max_age), off=off)} for r in out], sys.stdout)
         return 0
     if a.cmd in (None, "status"):
         from .show import render
