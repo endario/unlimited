@@ -139,7 +139,9 @@ machine, with no release. Format and merge rules: [docs/catalog.md](docs/catalog
 usage name, also one with no catalog route here — its accounts then stop being `verdict`'s to offer), an offering
 id, or a `provider:model` pair off on this machine, until `unlimited on TARGET` or the `--for` time
 passes; `--account NAME` narrows a vendor switch to one account (its id or an identity name like
-`claude-glm-2`). `unlimited off` lists what is off, `unlimited off --json` as a JSON array. A target with a catalog
+`claude-glm-2`, matched only by `verdict` — the vendor's routes and other accounts stay offerable;
+a name no account here answers to is accepted and simply matches nothing).
+`unlimited off` lists what is off, `unlimited off --json` as a JSON array. A target with a catalog
 route drops out of `models` and `--catalog` like a ban; a route-less vendor binds `verdict` alone. The switches live in
 `~/.config/unlimited/switches.json`.
 

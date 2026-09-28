@@ -378,12 +378,14 @@ when.""", """\
 examples:
   unlimited off                                         # what is off
   unlimited off commandcode --for 12h --why "overloaded"
+  unlimited off zai --account claude-glm-2              # one account, not the vendor
   unlimited off codex:gpt-6-sol
   unlimited on commandcode""")
     of.add_argument("target", nargs="?", metavar="TARGET", help="what to switch off (omit to list)")
     of.add_argument("--account", metavar="NAME",
                     help="switch off one account of a usage vendor TARGET, not the vendor: its "
-                         "account id (`unlimited read`) or an identity name (claude-glm-2)")
+                         "account id (`unlimited read`) or an identity name (claude-glm-2); a "
+                         "name no account here answers to is accepted and matches nothing")
     of.add_argument("--json", action="store_true", help="a JSON array of what is off (after any change)")
     of.add_argument("--for", dest="for_", type=_duration, metavar="DURATION",
                     help="lapse after this long: a number and m, h, d or w (90m, 12h, 1d, 1w); default never")

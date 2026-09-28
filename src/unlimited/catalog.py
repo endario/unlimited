@@ -110,10 +110,13 @@ def switch(target: str, *, on: bool = False, until: datetime | None = None, why:
     the whole read-mutate-write under the switches' lock; lapsed entries drop as they are passed.
     `on` of a switch that is not off raises NotOff and writes nothing. Returns exactly what it
     wrote, so a caller can echo the state it itself persisted."""
+    if account is not None and not account.strip():
+        raise CatalogError(f"{target}: --account needs an account id or a name")
+    account = account or None
     path = path or switches_path()
     with _flock(path):
         was = [x for x in read_switches(path) if live(x, now)]
-        same = [x for x in was if x["target"] == target and x.get("account") == (account or None)]
+        same = [x for x in was if x["target"] == target and x.get("account") == account]
         if on and not same:
             raise NotOff(target if account is None else f"{target}/{account}")
         kept = [{"target": x["target"], "until": x.get("until"), "why": x.get("why"),
@@ -136,8 +139,7 @@ def live(x: dict, now: datetime) -> bool:
 def off_policy(now: datetime, path: Path | None = None) -> dict[str, str | None]:
     """The machine's live switches over usage vendors as a policy (`verdict`'s `off`): keyed by
     the vendor (`zai`) for a whole-vendor switch, or `vendor/account` (`zai/claude-glm-2`) for one
-    account's, each to its switch's `until` (ISO text, None when it has no end). An account key
-    matches a reading whose account id or any identity name it is."""
+    account's, each to its switch's `until` (ISO text, None when it has no end)."""
     from .adapters import REGISTRY
     return {x["target"] if x.get("account") is None else f"{x['target']}/{x['account']}": x.get("until")
             for x in read_switches(path) if x["target"] in REGISTRY and live(x, now)}
