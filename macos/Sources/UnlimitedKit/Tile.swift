@@ -102,6 +102,23 @@ public struct Tile: Identifiable, Equatable, Sendable {
     /// The vendor's name for a person; an unknown vendor shows its id.
     public static func vendorName(_ id: String) -> String { vendors.first { $0.id == id }?.name ?? id }
 
+    /// One row of the "Never offer" list: a vendor this machine can switch off, whether it is
+    /// off now, and whether an account of it was read here (a switch with no account here must
+    /// still show, or a CLI-written one could never be undone from the app).
+    public struct NeverOffer: Equatable, Sendable {
+        public let vendor: String
+        public let off: Bool
+        public let accountHere: Bool
+    }
+
+    /// The list: every vendor read here plus every vendor switched off, in strip order.
+    public static func neverOffer(off: Set<String>, vendors: [String]) -> [NeverOffer] {
+        let order = Dictionary(uniqueKeysWithValues: Tile.vendors.enumerated().map { ($1.id, $0) })
+        return Set(vendors).union(off)
+            .map { NeverOffer(vendor: $0, off: off.contains($0), accountHere: vendors.contains($0)) }
+            .sorted { (order[$0.vendor] ?? .max, $0.vendor) < (order[$1.vendor] ?? .max, $1.vendor) }
+    }
+
     /// The tile under `x`, measured from the strip's leading edge.
     public static func at(_ x: Double, in tiles: [Tile], width: Double, spacing: Double, padding: Double) -> Tile? {
         guard !tiles.isEmpty else { return nil }

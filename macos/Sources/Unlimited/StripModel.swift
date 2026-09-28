@@ -11,6 +11,36 @@ final class StripModel: ObservableObject {
     /// The vendors this machine switched off (`unlimited off`); empty when the CLI cannot
     /// say — an older one, or a file it refuses — so the strip only loses its greying.
     @Published private(set) var offVendors: Set<String> = []
+    /// Whether the CLI answered the switch list, so Settings can offer to flip one.
+    @Published private(set) var canOffer = false
+    /// The CLI's own message when a flip failed, for Settings to show.
+    @Published var offerProblem: String?
+    /// The binary a flip runs through, for Settings to show.
+    var offerPath: String { runner?.binary.path ?? "unlimited" }
+
+    /// Flip a vendor's switch through the CLI, then re-read the list as the source of truth.
+    /// A refused `on` (the target was not off) is fine; anything else surfaces its message.
+    func offer(_ vendor: String, _ off: Bool) {
+        guard let runner else { return }
+        Task.detached {
+            var problem: String?
+            do { try runner.setOffer(vendor, off: off) }
+            catch Runner.RunError.exit(1, _) where !off {}  // on of a target not off: already there
+            catch Runner.RunError.exit(_, stderr: let stderr) {
+                problem = String(stderr.split(separator: "\n").first ?? "unlimited could not switch \(vendor)")
+            }
+            catch { problem = "unlimited could not be run" }
+            let probed = try? runner.switches()
+            await MainActor.run {
+                self.offerProblem = problem
+                if let probed {
+                    self.canOffer = true
+                    self.offVendors = Set(probed.map(\.target))
+                    self.redraw()
+                }
+            }
+        }
+    }
     /// The account the popover shows, by tile id.
     @Published var selected: String?
     /// Whether the popover is showing, so the strip can mark the selected tile.
@@ -97,11 +127,17 @@ final class StripModel: ObservableObject {
             let recent = checked || runner.isRecentEnough()
             let result: Result<[Reading], Error> = recent ? Result { try runner.read(maxAge: maxAge) } : .failure(Problem.tooOld)
             // A probe that fails (an older CLI, a file it refuses) means no greying, not a fault.
-            let off: Set<String>? = recent ? (try? runner.switches()).map { Set($0.map(\.target)) } : nil
+            let probed = recent ? try? runner.switches() : nil
             await MainActor.run { if recent { self.versionChecked = stamp } }
             await MainActor.run {
                 self.busy = false
-                if let off { self.offVendors = off }
+                if let probed {
+                    self.canOffer = true
+                    self.offVendors = Set(probed.map(\.target))
+                } else {
+                    self.canOffer = false
+                    self.offVendors = []
+                }
                 switch result {
                 case .success(let readings):
                     self.problem = nil

@@ -36,6 +36,25 @@ struct SettingsView: View {
                     }
                 }
             }
+            Section {
+                if model.canOffer {
+                    ForEach(Tile.neverOffer(off: model.offVendors,
+                                            vendors: model.readings.values.map(\.vendor)), id: \.vendor) { row in
+                        HStack {
+                            Toggle("", isOn: Binding(get: { row.off },
+                                                     set: { v in model.offer(row.vendor, v) }))
+                                .labelsHidden()
+                            Text(Tile.vendorName(row.vendor))
+                            if !row.accountHere { Text("no account here").foregroundStyle(.secondary) }
+                            Spacer()
+                        }
+                    }
+                }
+            } header: {
+                Text("Never offer")
+            } footer: {
+                neverOfferFooter
+            }
             Section("General") {
                 Toggle("Open at login", isOn: Binding(get: { state.atLogin }, set: setLogin))
                 if let e = state.loginError { Text(e).font(.caption).foregroundStyle(.red) }
@@ -48,6 +67,23 @@ struct SettingsView: View {
         // opens as a bare title bar.
         .frame(width: 460, height: 520)
         .onAppear { state.path = model.customPath }
+    }
+
+    /// Never offer vs the Accounts toggles above (hidden ≠ never spent), the binary the app
+    /// would write through, and the two ways the section cannot work.
+    @ViewBuilder private var neverOfferFooter: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            if let p = model.offerProblem {
+                Text(p).foregroundStyle(.red)
+            }
+            if model.canOffer {
+                Text("Off = no choice here spends the vendor; usage is still tracked. The Accounts toggles above only hide a tile.")
+                Text("Flips run through \(model.offerPath).")
+            } else {
+                Text("Needs an unlimited that answers `off --json` — upgrade with `uv tool install --force unlimited`.")
+            }
+        }
+        .font(.caption)
     }
 
     private var ordered: [Tile] {
