@@ -65,6 +65,15 @@ class Project(unittest.TestCase):
         self.assertAlmostEqual(lo, 0.463, places=3)  # the three busy days, half-lives back
         self.assertAlmostEqual(hi, 0.7)
 
+    def test_a_forecast_never_falls_below_a_reading_newer_than_the_stored_sample(self):
+        # Stored samples are thinned to one per window/SAMPLES, so the newest can trail the reading
+        # being shown: the forecast extends from the reading, not from the stale sample.
+        late = RESET - timedelta(minutes=13)
+        h = history((late - timedelta(minutes=41), 0.92), (late - timedelta(minutes=20), 0.93))
+        p = proj(h, late, 0.94)
+        self.assertGreaterEqual(p["at_reset"][0], 0.94)
+        self.assertEqual(p["samples"], 2)
+
     def test_one_reading_gives_only_the_average_pace(self):
         p = proj(history((NOW, 0.4)), NOW, 0.4)
         self.assertEqual(p["at_reset"], [0.7, 0.7])
