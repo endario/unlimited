@@ -207,8 +207,9 @@ def _history(past: list[dict], resets: datetime, window: timedelta, x: float, u:
     return _quantile(ends, ws, 0.25), _quantile(ends, ws, 0.75), run_out, eta, strength
 
 
-def project(entry: object, l: dict) -> dict | None:
-    """The projection for limit `l` from its stored history, or None where there is too little."""
+def project(entry: object, l: dict, taken: datetime | None = None) -> dict | None:
+    """The projection for limit `l` from its stored history, or None where there is too little.
+    `l` read at `taken` is the newest point when the stored samples, thinned, trail it."""
     if not _trackable(l):
         return None
     samples, past = _entry(entry)
@@ -218,6 +219,9 @@ def project(entry: object, l: dict) -> dict | None:
     pts = [(t, u) for t, u, at in samples if abs(at - resets) < SAME_WINDOW and t >= start]
     if not pts:
         return None
+    stored = len(pts)
+    if taken is not None and pts[-1][0] < taken < resets:
+        pts.append((taken, l["used_at_least"]))
     t, u = pts[-1]
     left = (resets - t).total_seconds()
     if left <= 0 or t - start < window / MIN_SPAN:
@@ -240,10 +244,11 @@ def project(entry: object, l: dict) -> dict | None:
     return {"at_reset": [round(lo, 4), round(hi, 4)], "recent_at_reset": round(now_pace, 4),
             "exhausts_at": iso(exhausts),
             "run_out": round(run_out, 3) if run_out is not None else None,
-            "samples": len(pts), "past_windows": len(past), "since": iso(pts[0][0])}
+            "samples": stored, "past_windows": len(past), "since": iso(pts[0][0])}
 
 
 def attach(r: dict, history: dict) -> dict:
     """`r` with a `projection` on each limit (None where there is none)."""
-    return dict(r, limits=[dict(l, projection=project(history.get(_key(r.get("account"), l.get("name"))), l))
+    taken = moment(r.get("taken_at"))
+    return dict(r, limits=[dict(l, projection=project(history.get(_key(r.get("account"), l.get("name"))), l, taken))
                            for l in r.get("limits", [])])
