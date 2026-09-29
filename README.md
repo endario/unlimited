@@ -109,7 +109,7 @@ cd macos && make app && open .build/Unlimited.app
         "scope": null,
         "projection": {
           "at_reset": [0.873, 0.9436],
-          "recent_at_reset": 0.9436,
+          "recent_at_reset": 0.7771,
           "exhausts_at": null,
           "run_out": 0.164,
           "samples": 2,
