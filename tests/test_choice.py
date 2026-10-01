@@ -237,7 +237,7 @@ class Choose(unittest.TestCase):
         with mock.patch.dict(os.environ, {"XDG_CONFIG_HOME": home, "XDG_STATE_HOME": state}), redirect_stdout(buf):
             self.assertEqual(cli.main(["choose", "--tier", "heavy", "--candidates", "glm,codex",
                                        "--quota", "glm=0.2,codex=0.9", "--deadline", "900", "--vendors", "any",
-                                       "--json"]), 0)
+                                       "--temperature", "0", "--json"]), 0)
         got = json.loads(buf.getvalue())
         self.assertEqual(got["candidates"][got["pick"]]["provider"], "glm")
         buf = io.StringIO()
