@@ -62,8 +62,8 @@ class Routes(unittest.TestCase):
         self.assertEqual({r["vendor"] for r in c.routes(NOW) if r["provider"] == "codex"}, {"azure"})
 
     def test_the_one_vendor_view_never_pairs_a_tier_with_another_vendors_usage(self):
-        c = load('schema = 2\n[[offerings]]\nid = "sol-elsewhere"\nmodel = "gpt-6-sol"\nvendor = "azure"\n'
-                 '[[offerings]]\nid = "gpt-6-sol"\nmodel = "gpt-6-sol"\nvendor = "openai"\nuntil = 2020-01-01\n')
+        c = load('schema = 2\n[[offerings]]\nid = "sol-elsewhere"\nmodel = "gpt-6-1-sol"\nvendor = "azure"\n'
+                 '[[offerings]]\nid = "gpt-6.1-sol"\nmodel = "gpt-6-1-sol"\nvendor = "openai"\nuntil = 2020-01-01\n')
         view = c.to_json(NOW)["providers"]["codex"]
         self.assertEqual((view["usage"], view.get("heavy")), ("openai", None), view)
 
@@ -72,8 +72,8 @@ class Routes(unittest.TestCase):
         self.assertEqual(c.to_json(NOW)["providers"]["codex"]["launcher"], "mine")
 
     def test_model_answers_as_the_view_does(self):
-        c = load('schema = 2\n[[offerings]]\nid = "sol-elsewhere"\nmodel = "gpt-6-sol"\nvendor = "azure"\n'
-                 '[[offerings]]\nid = "gpt-6-sol"\nmodel = "gpt-6-sol"\nvendor = "openai"\nuntil = 2020-01-01\n')
+        c = load('schema = 2\n[[offerings]]\nid = "sol-elsewhere"\nmodel = "gpt-6-1-sol"\nvendor = "azure"\n'
+                 '[[offerings]]\nid = "gpt-6.1-sol"\nmodel = "gpt-6-1-sol"\nvendor = "openai"\nuntil = 2020-01-01\n')
         self.assertIsNone(c.model("codex", "heavy", NOW))
         self.assertEqual(c.model("codex", "standard", NOW), c.to_json(NOW)["providers"]["codex"]["standard"])
 

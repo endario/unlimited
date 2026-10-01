@@ -28,12 +28,12 @@ class Catalog(unittest.TestCase):
 
     def test_the_shipped_catalog_loads_from_the_package_without_a_local_file(self):
         c = self.load()
-        self.assertEqual(c.model("codex", "heavy"), "gpt-6-sol")
+        self.assertEqual(c.model("codex", "heavy"), "gpt-6.1-sol")
         self.assertIsNone(c.model("grok", "heavy"))
 
     def test_a_local_provider_key_replaces_only_that_key(self):
         c = self.load('schema = 1\n[providers.codex]\nstandard = "gpt-7"\n')
-        self.assertEqual((c.model("codex", "standard"), c.model("codex", "heavy")), ("gpt-7", "gpt-6-sol"))
+        self.assertEqual((c.model("codex", "standard"), c.model("codex", "heavy")), ("gpt-7", "gpt-6.1-sol"))
 
     def test_a_local_promotions_list_replaces_the_shipped_one_whole(self):
         c = self.load('schema = 1\npromotions = []\n')
@@ -45,7 +45,7 @@ class Catalog(unittest.TestCase):
                       '[[promotions]]\nprovider = "stealth"\nmodel = "s-promo"\ntiers = ["heavy"]\n')
         got = [(x.provider, x.model, x.promoted) for x in c.candidates("heavy", NOW)]
         self.assertEqual(got, [("meta", "m-promo", True), ("stealth", "s-promo", True),
-                               ("codex", "gpt-6-sol", False), ("claude", "opus", False), ("glm", "glm-5.3", False)])
+                               ("codex", "gpt-6.1-sol", False), ("claude", "opus", False), ("glm", "glm-5.3", False)])
 
     def test_a_promotion_is_live_through_the_end_of_its_day_in_utc_and_forever_without_one(self):
         c = self.load('schema = 1\n'
@@ -409,7 +409,7 @@ class Cli(unittest.TestCase):
                          {"state": "excluded", "reason": "off", "until": None})
 
     def test_one_providers_model_or_exit_1_when_it_has_none_at_the_tier(self):
-        self.assertEqual(self.run_models("--provider", "codex", "--tier", "heavy")[:2], (0, "gpt-6-sol\n"))
+        self.assertEqual(self.run_models("--provider", "codex", "--tier", "heavy")[:2], (0, "gpt-6.1-sol\n"))
         self.assertEqual(self.run_models("--provider", "grok", "--tier", "heavy")[:2], (1, ""))
 
     def test_the_whole_catalog_carries_providers_and_only_live_promotions(self):
@@ -424,7 +424,7 @@ class Cli(unittest.TestCase):
     def test_json_lists_candidates_and_a_broken_catalog_exits_2(self):
         import json
         code, out, _ = self.run_models("--tier", "heavy", "--json")
-        self.assertEqual((code, json.loads(out)[0]), (0, {"provider": "codex", "model": "gpt-6-sol", "promoted": False}))
+        self.assertEqual((code, json.loads(out)[0]), (0, {"provider": "codex", "model": "gpt-6.1-sol", "promoted": False}))
         code, out, err = self.run_models("--json", local="schema = 3\n")
         self.assertEqual((code, out), (2, ""))
         self.assertIn("catalog", err)
