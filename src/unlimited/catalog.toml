@@ -19,7 +19,7 @@ tie_preference = ["meta", "deepseek", "stealth"]
 provider = "codex"
 tiers = ["standard"]
 
-[models.gpt-6-sol]
+[models.gpt-6-1-sol]
 provider = "codex"
 tiers = ["heavy"]
 
@@ -69,8 +69,8 @@ model = "gpt-6-luna"
 vendor = "openai"
 
 [[offerings]]
-id = "gpt-6-sol"
-model = "gpt-6-sol"
+id = "gpt-6.1-sol"
+model = "gpt-6-1-sol"
 vendor = "openai"
 
 [[offerings]]
