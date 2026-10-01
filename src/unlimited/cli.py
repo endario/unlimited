@@ -397,7 +397,7 @@ examples:
   unlimited off                                         # what is off
   unlimited off commandcode --for 12h --why "overloaded"
   unlimited off zai --account claude-glm-2              # one account, not the vendor
-  unlimited off codex:gpt-6-sol
+  unlimited off claude:opus
   unlimited on commandcode""")
     of.add_argument("target", nargs="?", metavar="TARGET", help="what to switch off (omit to list)")
     of.add_argument("--account", metavar="NAME",
