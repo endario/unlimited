@@ -298,6 +298,10 @@ class Cli(unittest.TestCase):
                 return cli.main(list(args)), out.getvalue()
         def candidates():
             return [x["provider"] for x in json.loads(run("models", "--json")[1])]
+        # A promotion of its own: the shipped ones lapse on a date, and this is not about them.
+        (home / "unlimited").mkdir()
+        (home / "unlimited" / "catalog.toml").write_text(
+            'schema = 1\n[[promotions]]\nprovider = "stealth"\nmodel = "open"\ntiers = ["standard"]\n')
         self.assertIn("stealth", candidates())
         self.assertEqual(run("off", "stealth", "--for", "1d", "--why", "slow")[0], 0)
         self.assertNotIn("stealth", candidates())
