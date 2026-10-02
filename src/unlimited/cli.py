@@ -82,12 +82,7 @@ def _switch(a) -> int:
                   + (f"  ({x['why']})" if x.get("why") else ""))
         return 0
     account = getattr(a, "account", None)
-    provider, _, model = a.target.partition(":")
-    routes = [cat.route(o["id"]) for o in cat.offerings]
-    pairs = {(r["provider"], x) for r in routes for x in (r["id"], r["model"])}
-    names = {x for r in routes for x in (r["provider"], r["model"], r["vendor"], r["id"])}
-    known = ((provider, model) in pairs if model else provider in names or provider in REGISTRY) \
-        if account is None else provider in REGISTRY and not model
+    known = catalog.target_known(cat, a.target, account=account)
     if not known:
         why = (f"unlimited: --account applies only to a usage vendor ({', '.join(sorted(REGISTRY))})"
                if account is not None else
@@ -215,8 +210,53 @@ def _cards(a) -> int:
     return 0
 
 
+def _incentive(a) -> int:
+    from . import catalog, incentives
+    now = datetime.now(timezone.utc)
+    try:
+        cat = catalog.load()
+        if a.target is None:
+            if a.factor is not None:
+                raise ValueError("FACTOR needs TARGET")
+            groups = incentives.read(now=now)
+            if a.json:
+                json.dump(groups, sys.stdout)
+            else:
+                for group in groups:
+                    print(f"{group['target']:<48} {group['multiplier']:g}x")
+            return 0
+        if not incentives.valid_target(cat, a.target):
+            raise ValueError(f"{a.target}: not a provider, model, offering, usage vendor or provider:model pair in the catalog")
+        if a.factor is None:
+            raise ValueError("TARGET needs FACTOR")
+        account = incentives.account_context(cat, a.target, a.account)
+        if a.factor == "off":
+            groups = incentives.clear_incentive(cat, a.target, account=account, now=now)
+        else:
+            factor = incentives.parse_multiplier(a.factor)
+            readings = None
+            if a.for_ is None:
+                # Reset expiry needs live account windows; an explicit duration never reads a vendor.
+                vendors = {cat._route(o)["vendor"] for o in cat.offerings
+                           if a.target in cat.route_names(cat._route(o))}
+                readings = []
+                for vendor in sorted(vendors):
+                    if vendor in REGISTRY:
+                        readings += cache.through(REGISTRY[vendor], max_age=300,
+                                                  clock=lambda: datetime.now(timezone.utc), get=transport.get)
+            incentives.set_incentive(cat, a.target, factor, now=now, duration=a.for_, account=account,
+                                     readings=readings)
+            groups = incentives.read(now=now)
+    except (catalog.CatalogError, ValueError) as e:
+        print(f"unlimited: {e}", file=sys.stderr)
+        return 2 if isinstance(e, catalog.CatalogError) else 1
+    if a.json:
+        json.dump(groups, sys.stdout)
+    return 0
+
+
 def _choose(a) -> int:
-    from . import catalog, choice, outcomes
+    from . import catalog, choice, incentives, outcomes
     now = datetime.now(timezone.utc)
     try:
         cat = catalog.load()
@@ -232,6 +272,15 @@ def _choose(a) -> int:
             if not eq:
                 raise ValueError(f"--prefer {x!r}: expected <name>=<minutes>")
             prefer[name] = float(m)
+        accounts = {}
+        for x in a.account or []:
+            offering, eq, identity = x.partition("=")
+            if not eq or not offering or not identity:
+                raise ValueError(f"--account {x!r}: expected OFFERING=ACCOUNT")
+            if cat.route(offering) is None:
+                raise ValueError(f"--account {offering!r}: not an offering id in the catalog")
+            accounts[offering] = incentives.account_binding(cat, offering, identity)
+        groups = incentives.read(now=now)
     except (catalog.CatalogError, ValueError) as e:
         print(f"unlimited: {e}", file=sys.stderr)
         return 2
@@ -244,7 +293,7 @@ def _choose(a) -> int:
                             quota=quota, deadline=a.deadline, now=now, temperature=a.temperature,
                             quota_weight=a.quota_weight, task=a.task, meta=dict(a.meta or []),
                             exclude=dict(x.partition("=")[::2] for x in a.exclude.split(",") if x),
-                            prefer=prefer,
+                            prefer=prefer, incentives=groups, accounts=accounts,
                             vendors=(None if a.vendors == "any" else choice.vendors_here(cat) if a.vendors is None
                                      else {v for v in a.vendors.split(",") if v}))
     except ValueError as e:
@@ -253,6 +302,8 @@ def _choose(a) -> int:
     if got is None:
         print(f"unlimited: no candidate has a model at {a.tier}", file=sys.stderr)
         return 1
+    if got["incentives_unresolved"]:
+        print("unlimited: incentives need account bindings: " + ", ".join(got["incentives_unresolved"]), file=sys.stderr)
     json.dump(got, sys.stdout)
     return 0
 
@@ -413,6 +464,15 @@ examples:
     on.add_argument("target", metavar="TARGET", help="exactly as it was switched off")
     on.add_argument("--account", metavar="NAME", help="exactly as it was switched off")
     on.add_argument("--json", action="store_true", help="a JSON array of what is off (after any change)")
+    inc = add("incentive", "encourage or discourage a catalog target here", """\
+A positive multiplier divides a route's expected time cost: 10 encourages it and 0.1 discourages
+it without making it unavailable. Without --for, expiry is the latest relevant reset on each
+account affected at activation. `off` removes this exact target/account scope; omit TARGET to list.""")
+    inc.add_argument("target", nargs="?", metavar="TARGET", help="provider, model, offering, usage vendor or PROVIDER:MODEL")
+    inc.add_argument("factor", nargs="?", metavar="FACTOR", help="positive multiplier, or off to clear TARGET")
+    inc.add_argument("--account", metavar="NAME", help="one account id or identity name")
+    inc.add_argument("--for", dest="for_", type=_duration, metavar="DURATION", help="explicit expiry")
+    inc.add_argument("--json", action="store_true", help="JSON activation groups")
     ch = add("choose", "rank the candidates for a task by expected cost; logged", f"""\
 Of the candidates the caller allows, which to use now, and in what order to fall back. A caller
 usually passes --tier, --candidates, --deadline and --quota; the rest is rarely needed. Launch
@@ -470,6 +530,8 @@ exit status: 0 decided; 1 no named candidate is live at the tier; 2 bad input.""
                          "above 1 = runs out), keyed by offering id (that route), or by provider (its routes "
                          "on its usual vendor); each limit's projection.at_reset in `unlimited read` is one; a "
                          "candidate without one is priced as at the limit")
+    ch.add_argument("--account", action="append", metavar="OFFERING=ACCOUNT",
+                    help="account identity the caller will launch for this offering; repeatable")
     ch.add_argument("--exclude", default="", metavar="ID[=REASON],...",
                     help="optional: offering ids the caller rules out; a reason is recorded, never "
                          "read")
@@ -570,6 +632,8 @@ def main(argv: list[str] | None = None) -> int:
         return _models(a)
     if a.cmd in ("off", "on"):
         return _switch(a)
+    if a.cmd == "incentive":
+        return _incentive(a)
     if a.cmd == "attempt":
         return _attempt(a)
     if a.cmd == "outcomes":
@@ -591,6 +655,14 @@ def main(argv: list[str] | None = None) -> int:
     for v in getattr(a, "vendor", None) or sorted(REGISTRY):
         out += cache.through(REGISTRY[v], max_age=a.max_age,
                              clock=lambda: datetime.now(timezone.utc), get=transport.get)
+    if a.cmd in (None, "status", "read"):
+        from . import catalog, incentives
+        try:
+            out = incentives.overlay(out, catalog.load(), incentives.read(now=datetime.now(timezone.utc)),
+                                     datetime.now(timezone.utc))
+        except catalog.CatalogError as e:
+            print(f"unlimited: {e}", file=sys.stderr)
+            return 2
     if a.cmd == "verdict":
         from .verdict import verdict
         now = datetime.now(timezone.utc)

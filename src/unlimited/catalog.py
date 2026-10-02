@@ -3,16 +3,17 @@ The shipped `catalog.toml` is overridden by $XDG_CONFIG_HOME/unlimited/catalog.t
 
 from __future__ import annotations
 
-import fcntl
 import json
 import math
 import os
 import tomllib
-from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import date, datetime, timezone
 from importlib import resources
 from pathlib import Path
+
+from .state import flock as _flock
+from .state import write_json
 
 SCHEMA = 2
 # A card's prices, USD per million tokens.
@@ -79,25 +80,9 @@ def read_switches(path: Path | None = None) -> list[dict]:
     return off
 
 
-@contextmanager
-def _flock(path: Path):
-    """The switches' lock, held by every writer across its whole read-modify-write."""
-    path.parent.mkdir(parents=True, exist_ok=True)
-    fd = os.open(path.with_name("switches.lock"), os.O_WRONLY | os.O_CREAT, 0o600)
-    try:
-        fcntl.flock(fd, fcntl.LOCK_EX)
-        yield
-    finally:
-        os.close(fd)
-
-
 def _write(off: list[dict], path: Path) -> None:
-    tmp = path.with_suffix(".tmp")
-    fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)  # holds free-text --why
-    os.fchmod(fd, 0o600)  # the open's mode applies only when it creates the file
-    with os.fdopen(fd, "w") as f:
-        f.write(json.dumps({"off": off}, indent=1) + "\n")
-    os.replace(tmp, path)
+    """Keep the established switches shape through the generic state writer."""
+    write_json({"off": off}, path, indent=1)
 
 
 def write_switches(off: list[dict], path: Path | None = None) -> None:
@@ -325,8 +310,21 @@ def _check(c: dict) -> None:
         raise CatalogError("tie_preference: known providers only")
 
 
+def target_known(cat: "Catalog", target: str, *, account: str | None = None) -> bool:
+    """Whether the CLI may name this catalog target; account scope is usage-vendor-only."""
+    from .adapters import REGISTRY
+    provider, separator, model = target.partition(":")
+    routes = [cat._route(offering) for offering in cat.offerings]
+    if account is not None:
+        return provider in REGISTRY and not separator
+    pairs = {(route["provider"], name) for route in routes for name in (route["id"], route["model"])}
+    names = {name for route in routes for name in (route["provider"], route["model"], route["vendor"], route["id"])}
+    return (provider, model) in pairs if separator else provider in names or provider in REGISTRY
+
+
 class Catalog:
-    def __init__(self, data: dict, off: list[dict] | None = None):
+    def __init__(self, data: dict, off: list[dict] | None = None, local: Path | None = None):
+        self.local = local
         self.tiers: list[str] = data["tiers"]
         self.models: dict[str, dict] = data.get("models", {})
         self.offerings: list[dict] = data.get("offerings", [])
@@ -342,9 +340,13 @@ class Catalog:
         return {"id": o["id"], "provider": m["provider"], "model": o["model"], "vendor": o["vendor"],
                 "tiers": m["tiers"], "free": o.get("free", False), "debit": o.get("debit", 1)}
 
+    def route_names(self, r: dict) -> set[str]:
+        """Every catalog target spelling for a route, shared by route policy consumers."""
+        return {r["provider"], r["model"], r["vendor"], r["id"], f"{r['provider']}:{r['model']}",
+                f"{r['provider']}:{r['id']}"}
+
     def _blocked_route(self, r: dict, now: datetime) -> bool:
-        names = {r["provider"], r["model"], r["vendor"], r["id"], f"{r['provider']}:{r['model']}",
-                 f"{r['provider']}:{r['id']}"}
+        names = self.route_names(r)
         if names & self.banned:
             return True
         for x in self.off:
@@ -460,4 +462,4 @@ def load(path: Path | None = None, switches: Path | None = None) -> Catalog:
     else:
         data = _merge(shipped, _parse(text, str(path)))
     _check(data)
-    return Catalog(data, read_switches(switches or switches_path(path)))
+    return Catalog(data, read_switches(switches or switches_path(path)), path)
