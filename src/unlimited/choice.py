@@ -14,7 +14,8 @@ from collections.abc import Collection
 from datetime import datetime
 
 from . import outcomes
-from .catalog import Catalog
+from .catalog import Catalog, live
+from .identity import names as identity_names
 
 SCORED = ("ok", "timeout", "error", "unavailable")  # the outcomes an attempt given to rank may have
 KAPPA = 5.0  # quota price steepness: 1 / (1 + exp(−κ(ρ − 1)))
@@ -47,9 +48,26 @@ def named(cat: Catalog, tier: str, names: list[str], now: datetime) -> list[dict
     return list(out.values())
 
 
+def _time_cost(p: float, t_ok: float, t_fail: float, t_next: float, multiplier: float) -> float:
+    """Expected raw route time, discounted or inflated by live steering only."""
+    value = ((1 - p) * t_ok + p * (t_fail + t_next)) / multiplier
+    if not math.isfinite(value):
+        raise ValueError("incentive produces a non-finite time cost")
+    return value
+
+
+def _account_off(cat: Catalog, candidate: dict, accounts: dict[str, object] | None, now: datetime) -> bool:
+    """An account switch excludes only a route explicitly bound to that account."""
+    route = cat.route(candidate["model"])
+    bound = identity_names((accounts or {}).get(candidate["model"]))
+    return route is not None and bool(bound) and any(
+        live(switch, now) and switch.get("account") in bound and switch["target"] in cat.route_names(route)
+        for switch in cat.off if switch.get("account") is not None)
+
+
 def score(cands: list[dict], quota: dict[str, float], stats: dict, deadline: float,
           prefer: list[str], quota_weight: float = QUOTA_WEIGHT, lean: dict[str, float] | None = None,
-          var: float = 0.25) -> list[dict]:
+          var: float = 0.25, factors: dict[str, float] | None = None) -> list[dict]:
     """Each candidate with its `rho`, `pi`, `p`, `t_ok`, `t_fail`, `t_next` (minutes), `preference`
     (minutes off its cost: the catalog's tie preference and the caller's `lean` for its route id),
     expected cost `e`, and the evidence behind `p` and `t_ok`: `ok` and `fail` (decayed weights),
@@ -77,7 +95,11 @@ def score(cands: list[dict], quota: dict[str, float], stats: dict, deadline: flo
         c["t_next"] = t_next = statistics.median(others) if others else c["t_ok"]
         tie = PREFER * (len(prefer) - prefer.index(c["provider"])) / len(prefer) if c["provider"] in prefer else 0.0
         c["preference"] = tie + (lean or {}).get(c["model"], 0.0)
-        c["e"] = (1 - c["p"]) * c["t_ok"] + c["p"] * (c["t_fail"] + t_next) + quota_weight * c["pi"] - c["preference"]
+        c["multiplier"] = multiplier = (factors or {}).get(c["model"], 1.0)
+        if not (isinstance(multiplier, (int, float)) and not isinstance(multiplier, bool)
+                and math.isfinite(multiplier) and multiplier > 0):
+            raise ValueError("incentive multiplier must be a positive finite number")
+        c["e"] = _time_cost(c["p"], c["t_ok"], c["t_fail"], t_next, multiplier) + quota_weight * c["pi"] - c["preference"]
     return out
 
 
@@ -90,7 +112,8 @@ def drawn(scored: list[dict], quota_weight: float, rng: random.Random) -> list[f
         p = rng.betavariate(outcomes.A0 + c["fail"], outcomes.B0 + c["ok"])
         mu = rng.gauss(c["mu"], math.sqrt(c["var"] / (outcomes.N0 + c["ok"])))
         t_ok = math.exp(mu + c["var"] / 2) / 60
-        out.append((1 - p) * t_ok + p * (c["t_fail"] + c["t_next"]) + quota_weight * c["pi"] - c["preference"])
+        out.append(_time_cost(p, t_ok, c["t_fail"], c["t_next"], c.get("multiplier", 1.0))
+                   + quota_weight * c["pi"] - c["preference"])
     return out
 
 
@@ -123,9 +146,11 @@ def order(scored: list[dict], temperature: float | None, rng: random.Random, quo
         c["prob"] = w / sum(ws)
     left, out = list(range(len(scored))), []
     while left:
-        r, acc = rng.random() * sum(ws[i] for i in left), 0.0
+        low = min(scored[i]["e"] for i in left)
+        remaining = {i: math.exp(-(scored[i]["e"] - low) / temperature) for i in left}
+        r, acc = rng.random() * sum(remaining.values()), 0.0
         for i in left:
-            acc += ws[i]
+            acc += remaining[i]
             if r < acc:
                 break
         out.append(i)
@@ -151,7 +176,8 @@ def rank(cat: Catalog, *, tier: str, candidates: list[str], attempts: list[dict]
          deadline: float, now: datetime, temperature: float | None = None, quota_weight: float = QUOTA_WEIGHT,
          task: str | None = None, meta: dict | None = None,
          exclude: dict[str, str] | None = None, vendors: Collection[str] | None = None,
-         prefer: dict[str, float] | None = None, seed: int | None = None) -> dict | None:
+         prefer: dict[str, float] | None = None, seed: int | None = None,
+         incentives: list[dict] | None = None, accounts: dict[str, object] | None = None) -> dict | None:
     """The decision over `attempts` (as `outcomes.attempts` gives them), reading and writing
     nothing: the whole request, every candidate scored, `order` (indices, the order to try) and
     `pick` (its first). None when no named candidate is live. `exclude` maps a route's id to the
@@ -187,7 +213,8 @@ def rank(cat: Catalog, *, tier: str, candidates: list[str], attempts: list[dict]
             raise ValueError(f"prefer {name}: minutes must be a finite number")
     exclude = exclude or {}
     cands = [c for c in named(cat, tier, candidates, now)
-             if c["model"] not in exclude and (vendors is None or c["vendor"] in vendors)]
+             if c["model"] not in exclude and not _account_off(cat, c, accounts, now)
+             and (vendors is None or c["vendor"] in vendors)]
     if not cands:
         return None
     lean, used = {}, set()
@@ -197,19 +224,26 @@ def rank(cat: Catalog, *, tier: str, candidates: list[str], attempts: list[dict]
         name = next((n for n in names if n in prefer), None)
         if name is not None:
             lean[c["model"]] = prefer[name]
+    from .incentives import resolve
+    resolved = resolve(cat, incentives, accounts, now, {candidate["model"] for candidate in cands})
     scored = score(cands, quota, outcomes.stats(attempts, now), deadline, cat.tie_preference, quota_weight, lean,
-                   outcomes.spread(attempts, now))
+                   outcomes.spread(attempts, now), resolved.factors)
     if seed is None:
         seed = random.randrange(1 << 32)
     tried = order(scored, temperature, random.Random(seed), quota_weight)
     request = {"tier": tier, "candidates": candidates, "quota": quota, "deadline": deadline,
                "temperature": temperature, "quota_weight": quota_weight, "task": task, "meta": meta or {},
                "exclude": exclude, "vendors": None if vendors is None else sorted(vendors), "prefer": prefer}
+    if incentives is not None:
+        request["incentives"] = incentives
+    if accounts is not None:
+        request["accounts"] = accounts
     return {"v": outcomes.VERSION, "type": "decision", "decision": uuid.uuid4().hex[:16], "at": now.isoformat(),
             "request": request,
             "policy": "thompson" if temperature is None else "best" if temperature == 0 else "softmax",
             "seed": seed, "candidates": scored, "order": tried,
             "pick": tried[0], "prefer_unmatched": sorted(set(prefer) - used), "attempts_unknown": sum(unknown.values()),
+            "incentives_unresolved": resolved.unresolved,
             "routes_unknown": [{"provider": p, "model": m, "attempts": n} for (p, m), n in sorted(unknown.items(), key=str)]}
 
 
@@ -217,12 +251,18 @@ def choose(cat: Catalog, *, tier: str, candidates: list[str], quota: dict[str, f
            now: datetime, temperature: float | None = None, quota_weight: float = QUOTA_WEIGHT,
            task: str | None = None, meta: dict | None = None, exclude: dict[str, str] | None = None,
            vendors: Collection[str] | None = None, prefer: dict[str, float] | None = None,
-           seed: int | None = None, log=None) -> dict | None:
+           seed: int | None = None, log=None, incentives: list[dict] | None = None,
+           accounts: dict[str, object] | None = None) -> dict | None:
     """`rank` over unlimited's attempt log, the decision appended to it."""
+    if incentives is None:
+        from . import incentives as policy
+        loaded = policy.read(policy.incentives_path(cat.local), now)
+        incentives = loaded or None
     records, _ = outcomes.read(log)
     decision = rank(cat, tier=tier, candidates=candidates, attempts=outcomes.attempts(records, now), quota=quota,
                     deadline=deadline, now=now, temperature=temperature, quota_weight=quota_weight, task=task,
-                    meta=meta, exclude=exclude, vendors=vendors, prefer=prefer, seed=seed)
+                    meta=meta, exclude=exclude, vendors=vendors, prefer=prefer, seed=seed,
+                    incentives=incentives, accounts=accounts)
     if decision is not None:
         outcomes.append(decision, log)
     return decision

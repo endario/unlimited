@@ -10,6 +10,7 @@ from __future__ import annotations
 import math
 from datetime import datetime, timedelta
 
+from .identity import ordered_names
 from .schema import moment
 
 # The least fraction of a window the paced figure and the score divide by: a window that has only
@@ -105,9 +106,7 @@ def verdict(reading: object, *, model_scope: str | None, now: datetime, work: ti
     `until` and no window."""
     if isinstance(reading, dict):
         vendor = reading.get("vendor")
-        ids = [vendor] + [f"{vendor}/{x}" for x in
-                          [reading.get("account")] + list(reading.get("names") or [])
-                          if isinstance(x, str) and x]
+        ids = [vendor] + [f"{vendor}/{x}" for x in ordered_names(reading)]
         hit = next((k for k in ids if k in (off or {})), None)
         if hit is not None:
             return {"state": "excluded", "reason": "off", "until": (off or {})[hit]}

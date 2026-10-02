@@ -47,7 +47,7 @@ per line, appended under an exclusive lock, each with a `type`:
 |---|---|---|
 | `start` | `unlimited attempt start` | `attempt` (id), `at`, `provider`, `model`, `offering` (the route's id, when not `model`), `effort`, `account`, `decision` (the choice it carries out, if any), `deadline` (seconds), `task`, `meta` |
 | `end` | `unlimited attempt end ID` | `attempt`, `at`, `outcome` (`ok`, `timeout`, `error`, `unavailable`, `abandoned`), `tokens` (`in`, `out`, `cache`), `meta` |
-| `decision` | `unlimited choose` | `decision` (id), `at`, `request` (everything asked, below), `policy`, `seed`, `candidates` (each scored, with its odds), `order`, `pick`, `prefer_unmatched`, `attempts_unknown`, `routes_unknown` |
+| `decision` | `unlimited choose` | `decision` (id), `at`, `request` (everything asked, below), `policy`, `seed`, `candidates` (each scored, with its odds), `order`, `pick`, `prefer_unmatched`, `attempts_unknown`, `routes_unknown`, `incentives_unresolved` |
 
 `task` and `meta` are the caller's: a label and string key/value pairs, recorded for later analysis,
 never read. No prompt or content is recorded unless a caller puts it in `meta`.
@@ -89,7 +89,17 @@ appended to it.
   `attempts_unknown` counts those naming no route of the catalog, and `routes_unknown` names each
   such provider and model or offering with its count.
 - `vendors`: None (every vendor) unless given; `choice.vendors_here(cat)` is this machine's.
-- `seed`: replays a decision's order.
+- `seed`: replays a decision's order when the original request and decision time are supplied.
+- `incentives`: explicit activation groups from `unlimited.incentives.read`, applied to time cost;
+  absent means neutral in pure `rank`. `choose` reads local groups beside its catalog unless this
+  argument is supplied; `[]` suppresses local steering.
+- `accounts`: offering ID to account ID/name, or to `{"account": ID, "names": [ALIAS, ...]}`.
+  It identifies what the caller will launch, not an account to choose. Use the same account's
+  projection in `quota`. Account-scoped or reset-bound settings without this context are listed
+  in `incentives_unresolved`; a known sibling account is not an unresolved setting.
+
+The decision logs supplied policy and account bindings. Replay with that snapshot, the original
+`now` and the logged seed, rather than current local settings.
 
 For each candidate, over the attempts with weight `w = 2^(−age / 12 h)`:
 
@@ -112,7 +122,12 @@ the limit, so between two such routes of one model the one debiting less wins.
 
 **Expected cost**, in minutes:
 
-    E = (1 − p)·T_ok + p·(T_fail + T_next) + quota_weight·π − preference
+    E = ((1 − p)·T_ok + p·(T_fail + T_next)) / multiplier + quota_weight·π − preference
+
+`multiplier` is the resolved operator incentive, default 1. It changes the time component in both
+deterministic scoring and Thompson draws, leaving observations, quota price and preference
+unchanged. Overlaps override rather than compound: explicit account, offering, model, provider,
+then vendor; a neutral `1x` override suppresses a broader incentive until it expires or is removed.
 
 `T_next` is the median `T_ok` of the other candidates (a failure costs the next attempt too), so `E`
 depends on the set; the log records the whole set. `preference` is up to 1 minute for providers in

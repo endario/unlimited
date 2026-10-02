@@ -40,8 +40,80 @@ public struct Runner: Sendable {
     /// (`on` of a switch that is not off); the caller treats it as "already there", any other
     /// failure as a problem.
     public func setOffer(_ target: String, account: String? = nil, off: Bool, timeout: TimeInterval = 15) throws {
-        try runCaptured((off ? ["off"] : ["on"]) + [target] + (account.map { ["--account", $0] } ?? []),
-                        timeout: timeout)
+        _ = try runCaptured((off ? ["off"] : ["on"]) + [target] + (account.map { ["--account", $0] } ?? []),
+                            timeout: timeout)
+    }
+
+    /// Stored activation groups, used as a feature probe: successful JSON is the CLI capability.
+    public func incentives(timeout: TimeInterval = 10) throws -> [Incentive] {
+        try Self.decodeIncentives(run(["incentive", "--json"], timeout: timeout))
+    }
+
+    public static func decodeIncentives(_ data: Data) throws -> [Incentive] {
+        try JSONDecoder().decode([Incentive].self, from: data)
+    }
+
+    public struct Incentive: Decodable, Sendable, Equatable, Identifiable {
+        public let target: String
+        public let account: String?
+        public let multiplier: Double
+        public let activatedAt: Date
+        public let until: Date?
+        public let bindings: [Binding]
+        public var id: String { "\(target)|\(account ?? "")|\(activatedAt.timeIntervalSince1970)" }
+
+        public struct Binding: Decodable, Sendable, Equatable, Identifiable {
+            public let vendor: String
+            public let account: String
+            public let names: [String]
+            public let until: Date
+            public var id: String { "\(vendor)|\(account)|\(until.timeIntervalSince1970)" }
+
+            enum CodingKeys: String, CodingKey { case vendor, account, names, until }
+            public init(from decoder: Decoder) throws {
+                let c = try decoder.container(keyedBy: CodingKeys.self)
+                vendor = try c.decode(String.self, forKey: .vendor)
+                account = try c.decode(String.self, forKey: .account)
+                names = try c.decodeIfPresent([String].self, forKey: .names) ?? []
+                let value = try c.decode(String.self, forKey: .until)
+                guard let date = parseISO(value) else {
+                    throw DecodingError.dataCorruptedError(forKey: .until, in: c, debugDescription: value)
+                }
+                until = date
+            }
+        }
+
+        enum CodingKeys: String, CodingKey { case target, account, multiplier, activatedAt = "activated_at", until, bindings }
+        public init(from decoder: Decoder) throws {
+            let c = try decoder.container(keyedBy: CodingKeys.self)
+            target = try c.decode(String.self, forKey: .target)
+            account = try c.decodeIfPresent(String.self, forKey: .account)
+            multiplier = try c.decode(Double.self, forKey: .multiplier)
+            activatedAt = try Self.date(c, key: .activatedAt)
+            until = try c.decodeIfPresent(String.self, forKey: .until).flatMap(parseISO)
+            bindings = try c.decodeIfPresent([Binding].self, forKey: .bindings) ?? []
+        }
+
+        private static func date(_ c: KeyedDecodingContainer<CodingKeys>, key: CodingKeys) throws -> Date {
+            let value = try c.decode(String.self, forKey: key)
+            guard let date = parseISO(value) else {
+                throw DecodingError.dataCorruptedError(forKey: key, in: c, debugDescription: value)
+            }
+            return date
+        }
+    }
+
+    public static func incentiveArguments(target: String, multiplier: String, account: String? = nil,
+                                          duration: String? = nil) -> [String] {
+        ["incentive", target, multiplier] + (account.map { ["--account", $0] } ?? [])
+            + (duration.map { ["--for", $0] } ?? [])
+    }
+
+    /// Apply or remove an incentive exclusively through the CLI; no local policy file is touched.
+    public func setIncentive(_ target: String, multiplier: String, account: String? = nil,
+                             duration: String? = nil, timeout: TimeInterval = 45) throws {
+        _ = try runCaptured(Self.incentiveArguments(target: target, multiplier: multiplier, account: account, duration: duration),
+                            timeout: timeout)
     }
 
     /// A cold read asks every vendor in turn; the timeout leaves room for a slow one.

@@ -74,3 +74,20 @@ offerable. A name that is both a provider and a usage vendor
 (`commandcode`) does both. Kept in `switches.json` beside the local catalog; a write holds
 `switches.lock` beside it across the whole read-modify-write. A banned model is permanent until
 the file changes; a switch is for a while.
+
+## Incentives
+
+`unlimited incentive TARGET MULTIPLIER [--account NAME] [--for DURATION]` uses the same target
+syntax without removing a route. A positive finite multiplier divides its time cost: above one
+encourages, below one discourages. Quota cost is unchanged. Settings are machine-local in
+`incentives.json` beside the catalog, with locked atomic updates independent of switches.
+
+Omitting `--for` captures the latest upcoming usage-window reset for each affected account;
+those expiry timestamps do not move with later readings. An explicit duration overrides reset
+expiry and needs no vendor read. Missing reset information requires a duration. List active
+settings with `incentive --json`; remove an exact scope with `incentive TARGET off`. Account
+IDs and known identity aliases identify the same account scope.
+
+A reading's `steering.settings` lists active applicable settings, including overridden ones;
+`steering.routes` lists effective winners with concrete expiry timestamps. Ranking receives
+explicit account bindings for account-scoped or reset-bound settings; see [choice.md](choice.md).

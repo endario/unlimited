@@ -42,6 +42,8 @@ public struct Tile: Identifiable, Equatable, Sendable {
     public let dimmed: Bool
     public var health: Health = .normal
     public var alternate: Alternate?
+    /// Live route steering, summarized without collapsing opposing route winners.
+    public var indicator: SteeringIndicator?
     /// The vendor's account to use next: marked only where a vendor has more than one.
     public var best = false
     /// The vendor is switched off here (`unlimited off`): tracked, never offered.
@@ -52,14 +54,14 @@ public struct Tile: Identifiable, Equatable, Sendable {
     public var elapsed: Double?
 
     public init(id: String, label: String, value: Value, dimmed: Bool, health: Health = .normal,
-                alternate: Alternate? = nil, best: Bool = false) {
-        (self.id, self.label, self.value, self.dimmed, self.health, self.alternate, self.best) =
-            (id, label, value, dimmed, health, alternate, best)
+                alternate: Alternate? = nil, best: Bool = false, indicator: SteeringIndicator? = nil) {
+        (self.id, self.label, self.value, self.dimmed, self.health, self.alternate, self.best, self.indicator) =
+            (id, label, value, dimmed, health, alternate, best, indicator)
     }
 
     /// The same tile under another label.
     public func labelled(_ label: String) -> Tile {
-        var t = Tile(id: id, label: label, value: value, dimmed: dimmed, health: health, alternate: alternate, best: best)
+        var t = Tile(id: id, label: label, value: value, dimmed: dimmed, health: health, alternate: alternate, best: best, indicator: indicator)
         t.off = off
         t.heading = heading
         t.elapsed = elapsed
@@ -223,8 +225,10 @@ public struct Tile: Identifiable, Equatable, Sendable {
             Alternate(role: $0.role ?? "", value: $0.usedAtLeast.map { .percent(Int(($0 * 100).rounded())) } ?? .unknown,
                       health: $0.health(now: now))
         } : nil
+        let steering = SteeringIndicator(routes: r.steering.routes, now: now)
         var tile = Tile(id: id, label: label(r), value: value, dimmed: throttled || !usable,
-                        health: usable ? r.primary?.health(now: now) ?? .normal : .normal, alternate: alt)
+                        health: usable ? r.primary?.health(now: now) ?? .normal : .normal, alternate: alt,
+                        indicator: steering.count == 0 ? nil : steering)
         // Where it is heading, if the forecast is trusted yet; else how much is used so far.
         tile.heading = r.primary.flatMap { w in
             w.projection.flatMap { w.trusted($0, now: now) ? $0.atReset.last : nil } ?? w.usedAtLeast

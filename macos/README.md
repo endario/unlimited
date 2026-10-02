@@ -8,6 +8,13 @@ no vendor, and writes only through the CLI (`unlimited off`/`on`). It needs `unl
 later in `~/.local/bin`, `/opt/homebrew/bin` or `/usr/local/bin` (0.1.1 or later for the
 switching; an older CLI simply loses the greying).
 
+With unlimited 0.1.10, Settings can encourage or discourage vendors, accounts, models and routes.
+Until reset is the default; an explicit duration overrides it. A green upward or red downward
+vertical fast-forward glyph beside the account name has single, double or triple stacked heads:
+`10x` and `0.1x` use triple heads; `1x` has no glyph. Help gives the route, multiplier and expiry.
+Clear removes the selected scope, so an inherited setting may apply again. Steering is local to
+this machine, and the quota-room underline is independent of it.
+
 ```
 make test     # Swift Testing, under Command Line Tools
 make app      # .build/Unlimited.app, ad-hoc signed

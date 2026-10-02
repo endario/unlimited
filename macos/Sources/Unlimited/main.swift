@@ -44,8 +44,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
         // The pointer on screen: the current event can belong to the popover's own window.
         guard let button = item.button, let window = button.window else { return }
         let x = button.convert(window.convertPoint(fromScreen: NSEvent.mouseLocation), from: nil).x
-        let hit = Tile.at(x, in: model.tiles, width: TileView.width, spacing: StripView.spacing,
-                          padding: StripView.padding)
+        let layout = StripLayout(tiles: model.tiles, spacing: Double(StripView.spacing), padding: Double(StripView.padding))
+        let hit = layout.tile(at: Double(x))
         if popover.isShown {
             if hit?.id == model.selected { return popover.performClose(nil) }
             model.selected = hit?.id
@@ -60,9 +60,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
 
     /// The selected tile, in the button's coordinates.
     private func rect(of button: NSStatusBarButton) -> NSRect {
-        let i = model.tiles.firstIndex { $0.id == model.selected } ?? 0
-        let x = StripView.padding + CGFloat(i) * (TileView.width + StripView.spacing)
-        return NSRect(x: x, y: 0, width: TileView.width, height: button.bounds.height)
+        let selected = model.tiles.first { $0.id == model.selected } ?? model.tiles.first
+        let layout = StripLayout(tiles: model.tiles, spacing: Double(StripView.spacing), padding: Double(StripView.padding))
+        let rect = selected.map(layout.rect(of:)) ?? .init(x: Double(StripView.padding), width: Double(TileView.width))
+        return NSRect(x: rect.x, y: 0, width: rect.width, height: button.bounds.height)
     }
 
     private func anchor(_ button: NSStatusBarButton) {
