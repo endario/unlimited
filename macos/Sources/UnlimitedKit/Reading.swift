@@ -11,6 +11,8 @@ public struct Reading: Decodable, Sendable {
     public let limits: [Limit]
     /// Absent before unlimited 0.0.21.
     public let names: [String]
+    /// Absent on CLI releases before manual steering.
+    public let steering: Steering
 
     public static func decode(_ data: Data) throws -> [Reading] {
         let d = JSONDecoder()
@@ -35,7 +37,7 @@ public struct Reading: Decodable, Sendable {
     public let credits: Credits?
 
     enum CodingKeys: String, CodingKey {
-        case schema, vendor, account, takenAt, status, why, retryUntil, limits, names, plan, credits
+        case schema, vendor, account, takenAt, status, why, retryUntil, limits, names, plan, credits, steering
     }
 
     public init(from decoder: Decoder) throws {
@@ -49,6 +51,7 @@ public struct Reading: Decodable, Sendable {
         retryUntil = try c.decodeIfPresent(Date.self, forKey: .retryUntil)
         limits = try c.decodeIfPresent([Limit].self, forKey: .limits) ?? []
         names = try c.decodeIfPresent([String].self, forKey: .names) ?? []
+        steering = try c.decodeIfPresent(Steering.self, forKey: .steering) ?? Steering()
         plan = try c.decodeIfPresent(String.self, forKey: .plan)
         credits = try c.decodeIfPresent(Credits.self, forKey: .credits)
     }

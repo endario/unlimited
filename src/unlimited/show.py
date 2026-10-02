@@ -83,6 +83,22 @@ def _credits(c: dict, taken: datetime | None, now: datetime, color: bool) -> str
     return f"  {'credits':<15} {bar}" + " · ".join(p for p in parts if p) + stale
 
 
+def _steering(reading: dict, color: bool, now: datetime | None = None) -> str:
+    """The strongest live encouragement and discouragement, without inventing a net factor."""
+    factors = [r.get("multiplier") for r in reading.get("steering", {}).get("routes", [])
+               if now is None or (moment(r.get("until")) is not None and moment(r["until"]) > now)]
+    up = max((x for x in factors if isinstance(x, (int, float)) and x > 1), default=None)
+    down = min((x for x in factors if isinstance(x, (int, float)) and 0 < x < 1), default=None)
+    marks = []
+    for factor, glyph, code in ((up, "▲", "32"), (down, "▼", "31")):
+        if factor is None:
+            continue
+        strength = max(factor, 1 / factor)
+        text = glyph * (3 if strength >= 10 else 2 if strength >= 5 else 1)
+        marks.append(f"\033[{code}m{text}\033[0m" if color else text)
+    return "".join(marks)
+
+
 def render(readings: list[dict], now: datetime, *, color: bool = False, all_limits: bool = False) -> str:
     label = lambda r: ", ".join(r.get("names") or [])
     lines = []
@@ -97,7 +113,9 @@ def render(readings: list[dict], now: datetime, *, color: bool = False, all_limi
         if r.get("status") == "ok" and wait and wait > now:
             notes.append(f"throttled: next read in {_until(wait, now)}")
         plan = _plan(r)
-        lines.append(f"{vendor}" + (f" {plan}" if plan else "") + f" · {who}" + (f"  ({', '.join(notes)})" if notes else ""))
+        indicator = _steering(r, color, now)
+        lines.append(f"{vendor}" + (f" {plan}" if plan else "") + f" · {who}" + (f" {indicator}" if indicator else "")
+                     + (f"  ({', '.join(notes)})" if notes else ""))
         if r.get("status") != "ok":
             until = moment(r.get("retry_until"))
             lines.append(_paint(f"  not read: {r.get('why') or r.get('status')}"

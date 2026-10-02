@@ -30,6 +30,9 @@ extension Tile.Alternate {
 
 struct TileView: View {
     static let width: CGFloat = 26
+    static func width(of tile: Tile) -> CGFloat {
+        CGFloat(StripLayout(tiles: [tile], spacing: 0, padding: 0).width(of: tile))
+    }
     let tile: Tile
     /// The account the open popover shows.
     var focused = false
@@ -40,9 +43,13 @@ struct TileView: View {
     var body: some View {
         let showAlt = alternating && tile.alternate != nil && !reduceMotion
         VStack(spacing: -0.5) {
-            Text(tile.label)
-                .font(.system(size: 8, weight: .medium, design: .monospaced))
-                .underline(tile.best, color: .primary.opacity(0.7))
+            HStack(spacing: 1) {
+                Text(tile.label)
+                    .font(.system(size: 8, weight: .medium, design: .monospaced))
+                    .underline(tile.best, color: .primary.opacity(0.7))
+                    .help(tile.best ? "Underline: best account by quota room, not steering" : "Account label")
+                SteeringIndicatorView(indicator: tile.indicator)
+            }
             ZStack {
                 Text(tile.value.text)
                     // A figure wears its health colour; the glyphs that stand for no reading
@@ -70,7 +77,7 @@ struct TileView: View {
         // Ghosted, not recoloured: an unusable or switched-off tile keeps its exact colours
         // and drops to half transparency.
         .opacity(tile.dimmed || tile.off ? 0.45 : 1)
-        .frame(width: Self.width, height: 22)
+        .frame(width: Self.width(of: tile), height: 22)
         // The week's time so far, filling upward to the reset.
         .overlay(alignment: .trailing) {
             if let e = tile.elapsed {
