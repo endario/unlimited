@@ -153,6 +153,8 @@ route drops out of `models` and `--catalog` like a ban. The switches live in
 
 ## Manual steering
 
+![Vertical steering indicators](docs/img/incentives.png)
+
 ```sh
 unlimited incentive openai 10x                         # until each account's latest quota reset
 unlimited incentive openai 0.1x --account ACCOUNT --for 12h
@@ -160,7 +162,7 @@ unlimited incentive openai off --account ACCOUNT
 unlimited incentive --json
 ```
 
-A multiplier above one encourages a target; below one discourages it. It divides expected time
+A multiplier above one encourages a target; below one discourages it (minimum `1e-6`). It divides expected time
 cost, not quota cost. Targets use the same names as `off`; `--account` narrows a usage vendor to
 one account. Without `--for`, expiry is captured from each affected account's latest upcoming
 quota reset; an explicit duration takes precedence. If reset information is unavailable, supply

@@ -223,7 +223,10 @@ def _incentive(a) -> int:
                 json.dump(groups, sys.stdout)
             else:
                 for group in groups:
-                    print(f"{group['target']:<48} {group['multiplier']:g}x")
+                    target = group["target"] + (f"/{group['account']}" if group.get("account") else "")
+                    expiry = (group.get("until") or ", ".join(
+                        f"{b['vendor']}/{b['account']} until {b['until']}" for b in group.get("bindings", [])))
+                    print(f"{target:<48} {group['multiplier']:g}x  {expiry}")
             return 0
         if a.factor is None:
             raise ValueError("TARGET needs FACTOR")
@@ -246,8 +249,11 @@ def _incentive(a) -> int:
                     if vendor in REGISTRY:
                         readings += cache.through(REGISTRY[vendor], max_age=300,
                                                   clock=lambda: datetime.now(timezone.utc), get=transport.get)
-            incentives.set_incentive(cat, a.target, factor, now=now, duration=a.for_, account=account,
-                                     readings=readings)
+            saved = incentives.set_incentive(cat, a.target, factor, now=now, duration=a.for_, account=account,
+                                            readings=readings)
+            if saved.get("bindings") is not None or saved.get("account") is not None:
+                print("unlimited: account-bound steering needs choose --account OFFERING=ACCOUNT "
+                      "(or rank accounts=); this scope is not applied without a binding", file=sys.stderr)
             groups = incentives.read(now=now)
     except (catalog.CatalogError, ValueError) as e:
         print(f"unlimited: {e}", file=sys.stderr)

@@ -124,7 +124,7 @@ struct SettingsView: View {
                         .accessibilityLabel("Clear")
                     if model.steeringPending { ProgressView().controlSize(.small) }
                 }
-                Text("Local to this machine. Clear removes this scope; inherited settings may still apply.")
+                Text("Local to this machine. Reset/account steering needs choose --account OFFERING=ACCOUNT (or rank accounts=). Clear removes this scope; inherited settings may still apply.")
                     .font(.caption).foregroundStyle(.secondary)
                 ForEach(Array(model.incentives.enumerated()), id: \.offset) { _, group in
                     HStack {

@@ -15,6 +15,7 @@ from .identity import names as _identity
 from .state import flock, write_json
 
 ROLES = frozenset({"session", "weekly", "weekly_model", "month", "extra"})
+MIN_MULTIPLIER = 1e-6  # smaller factors can overflow ordinary time costs
 
 
 @dataclass(frozen=True)
@@ -34,8 +35,8 @@ def _number(value: object) -> bool:
 
 
 def _factor(value: object) -> float:
-    if not (_number(value) and value > 0):
-        raise ValueError("multiplier must be a positive finite number")
+    if not (_number(value) and value >= MIN_MULTIPLIER):
+        raise ValueError("multiplier must be finite and at least 1e-6")
     return float(value)
 
 
@@ -46,7 +47,7 @@ def parse_multiplier(text: str) -> float:
     try:
         return _factor(float(text))
     except (TypeError, ValueError):
-        raise ValueError("FACTOR must be a positive finite number or off") from None
+        raise ValueError("FACTOR must be finite and at least 1e-6, or off") from None
 
 
 def _reading_identity(reading: dict) -> set[str]:
@@ -56,7 +57,7 @@ def _reading_identity(reading: dict) -> set[str]:
 def _valid(group: object) -> bool:
     if not isinstance(group, dict) or not isinstance(group.get("target"), str) or not group["target"]:
         return False
-    if not _number(group.get("multiplier")) or group["multiplier"] <= 0:
+    if not _number(group.get("multiplier")) or group["multiplier"] < MIN_MULTIPLIER:
         return False
     if moment(group.get("activated_at")) is None:
         return False

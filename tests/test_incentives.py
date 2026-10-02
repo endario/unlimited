@@ -305,6 +305,13 @@ class Incentives(unittest.TestCase):
             self.assertEqual(cli.main(["read", "--vendor", "openai", "--json"]), 0)
         self.assertEqual(json.loads(output.getvalue())[0]["account"], "a")
 
+    def test_a_tiny_multiplier_is_refused_before_it_can_strand_choice(self):
+        path = incentives.incentives_path(self.local)
+        for factor in (1e-310, 1e-12):
+            with self.assertRaises(ValueError):
+                incentives.set_incentive(self.cat, "glm", factor, now=NOW, duration=timedelta(hours=1), path=path)
+        self.assertFalse(path.exists())
+
     def test_a_reused_alias_does_not_inherit_another_accounts_reset_binding(self):
         group = {"target": "openai", "multiplier": 10, "activated_at": NOW.isoformat(), "bindings": [
             {"vendor": "openai", "account": "old", "names": ["primary"], "until": "2026-10-03T12:00:00+00:00"}]}

@@ -4,7 +4,7 @@ Source: https://github.com/endario/unlimited/issues/156
 
 ## Behavior
 
-An operator can encourage or discourage a vendor, model, offering or account with a positive finite multiplier. Divide the route's whole expected-time component by that factor; leave quota price, observations and caller preference unchanged. Apply the same arithmetic to deterministic costs and Thompson draws. Keep the fallback estimate based on raw durations.
+An operator can encourage or discourage a vendor, model, offering or account with a finite multiplier of at least `1e-6`. Divide the route's whole expected-time component by that factor; leave quota price, observations and caller preference unchanged. Apply the same arithmetic to deterministic costs and Thompson draws. Keep the fallback estimate based on raw durations.
 
 Without `--for`, capture each affected account's latest upcoming usage-window reset. An explicit duration overrides reset expiry. Do not renew frozen timestamps as windows roll over. Refuse incomplete reset activation before writing; an unopened zero-usage window does not invalidate a known future window. Exclude auxiliary/tool counters and severity duplicates.
 

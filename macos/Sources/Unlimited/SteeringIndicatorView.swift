@@ -7,8 +7,8 @@ struct SteeringIndicatorView: View {
     var body: some View {
         if let indicator {
             HStack(spacing: 2) {
-                if let up = indicator.up { mark(up, down: false, color: .green) }
-                if let down = indicator.down { mark(down, down: true, color: .red) }
+                if let up = indicator.up { mark(up, down: false, color: Health.underUsed.color) }
+                if let down = indicator.down { mark(down, down: true, color: Health.red.color) }
             }
             .fixedSize()
             .help(indicator.tooltip)

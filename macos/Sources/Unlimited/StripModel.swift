@@ -52,6 +52,7 @@ final class StripModel: ObservableObject {
                     self.offSwitches = probed
                     self.redraw()
                 }
+                self.refresh(maxAge: 86_400)
             }
         }
     }
@@ -86,7 +87,7 @@ final class StripModel: ObservableObject {
                 await MainActor.run {
                     if self.publication.accepts(seq) { self.incentives = groups }
                 }
-                let readings = try runner.read()
+                let readings = try runner.read(maxAge: 86_400)
                 await MainActor.run {
                     guard self.publication.finish(seq) else { return }
                     self.steeringPending = false
@@ -207,7 +208,10 @@ final class StripModel: ObservableObject {
             await MainActor.run {
                 self.busy = false
                 // A later mutation owns every published facet of the reading, including badges.
-                guard self.publication.accepts(seq) else { return }
+                guard self.publication.accepts(seq) else {
+                    self.refresh(maxAge: 86_400)
+                    return
+                }
                 if let probed {
                     self.canOffer = true
                     self.offSwitches = probed
