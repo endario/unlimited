@@ -34,6 +34,7 @@ struct PopoverView: View {
         HStack(alignment: .center, spacing: 6) {
             Text(([Tile.vendorName(t.vendor)] + r.names).joined(separator: " · "))
                 .font(.callout).foregroundStyle(.secondary).help("The account shown: pick another on the strip")
+            SteeringIndicatorView(indicator: t.indicator)
             Spacer()
             // The star is drawn taller than the rectangles beside it: 11.25pt medium matches their ink height and stroke.
             if t.best { Image(systemName: "star").font(.system(size: 11.25, weight: .medium)).help("Best pick") }
@@ -66,7 +67,7 @@ struct PopoverView: View {
             Button { model.refresh(maxAge: 0) } label: { Image(systemName: "arrow.clockwise") }
                 .buttonStyle(.plain).help("Read now")
             Button { model.closePopover(); SettingsWindow.show(model) } label: { Image(systemName: "gearshape") }
-                .buttonStyle(.plain).help("Settings")
+                .buttonStyle(.plain).help("Settings").accessibilityLabel("Settings")
             Button { NSApp.terminate(nil) } label: { Image(systemName: "power") }
                 .buttonStyle(.plain).help("Quit")
         }

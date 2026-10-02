@@ -83,9 +83,10 @@ def _credits(c: dict, taken: datetime | None, now: datetime, color: bool) -> str
     return f"  {'credits':<15} {bar}" + " · ".join(p for p in parts if p) + stale
 
 
-def _steering(reading: dict, color: bool) -> str:
+def _steering(reading: dict, color: bool, now: datetime | None = None) -> str:
     """The strongest live encouragement and discouragement, without inventing a net factor."""
-    factors = [r.get("multiplier") for r in reading.get("steering", {}).get("routes", [])]
+    factors = [r.get("multiplier") for r in reading.get("steering", {}).get("routes", [])
+               if now is None or (moment(r.get("until")) is not None and moment(r["until"]) > now)]
     up = max((x for x in factors if isinstance(x, (int, float)) and x > 1), default=None)
     down = min((x for x in factors if isinstance(x, (int, float)) and 0 < x < 1), default=None)
     marks = []
@@ -112,7 +113,7 @@ def render(readings: list[dict], now: datetime, *, color: bool = False, all_limi
         if r.get("status") == "ok" and wait and wait > now:
             notes.append(f"throttled: next read in {_until(wait, now)}")
         plan = _plan(r)
-        indicator = _steering(r, color)
+        indicator = _steering(r, color, now)
         lines.append(f"{vendor}" + (f" {plan}" if plan else "") + f" · {who}" + (f" {indicator}" if indicator else "")
                      + (f"  ({', '.join(notes)})" if notes else ""))
         if r.get("status") != "ok":

@@ -450,7 +450,7 @@ def moment_utc(v: object) -> datetime | None:
     return t if t.tzinfo else t.replace(tzinfo=timezone.utc)
 
 
-def load(path: Path | None = None, switches: Path | None = None) -> Catalog:
+def load_metadata(path: Path | None = None) -> Catalog:
     shipped = _parse(resources.files(__package__).joinpath("catalog.toml").read_text(), "shipped catalog")
     path = path or local_path()
     try:
@@ -462,4 +462,10 @@ def load(path: Path | None = None, switches: Path | None = None) -> Catalog:
     else:
         data = _merge(shipped, _parse(text, str(path)))
     _check(data)
-    return Catalog(data, read_switches(switches or switches_path(path)), path)
+    return Catalog(data, local=path)
+
+
+def load(path: Path | None = None, switches: Path | None = None) -> Catalog:
+    cat = load_metadata(path)
+    cat.off = read_switches(switches or switches_path(cat.local))
+    return cat

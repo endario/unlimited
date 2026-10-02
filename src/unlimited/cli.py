@@ -225,20 +225,22 @@ def _incentive(a) -> int:
                 for group in groups:
                     print(f"{group['target']:<48} {group['multiplier']:g}x")
             return 0
-        if not incentives.valid_target(cat, a.target):
-            raise ValueError(f"{a.target}: not a provider, model, offering, usage vendor or provider:model pair in the catalog")
         if a.factor is None:
             raise ValueError("TARGET needs FACTOR")
         account = incentives.account_context(cat, a.target, a.account)
         if a.factor == "off":
             groups = incentives.clear_incentive(cat, a.target, account=account, now=now)
         else:
+            if not incentives.valid_target(cat, a.target):
+                raise ValueError(f"{a.target}: not a provider, model, offering, usage vendor or provider:model pair in the catalog")
             factor = incentives.parse_multiplier(a.factor)
             readings = None
             if a.for_ is None:
                 # Reset expiry needs live account windows; an explicit duration never reads a vendor.
                 vendors = {cat._route(o)["vendor"] for o in cat.offerings
                            if a.target in cat.route_names(cat._route(o))}
+                if a.target in REGISTRY:
+                    vendors.add(a.target)
                 readings = []
                 for vendor in sorted(vendors):
                     if vendor in REGISTRY:
@@ -323,6 +325,8 @@ VENDOR_HELP = "only this vendor, repeatable (default: every vendor)"
 FILES = """files:
   ~/.config/unlimited/catalog.toml   this machine's catalog additions (docs/catalog.md); optional
   ~/.config/unlimited/switches.json  what `unlimited off` switched off here
+  ~/.config/unlimited/incentives.json
+                                     operator multipliers and their expiry
   ~/.local/state/unlimited/decisions.jsonl
                                      the attempt and decision log (docs/choice.md)
   ~/.cache/unlimited/                readings, their history, and refreshed Grok tokens
@@ -480,7 +484,7 @@ candidates[pick]; if it cannot run, the next index in order; record each use wit
 `attempt start --decision ID` and `attempt end`, which is what the next choice learns from.
 
 Each candidate route is scored by its expected cost in minutes, from this machine's attempt log:
-  E = (1 − p)·T_ok + p·(T_fail + T_next) + quota_weight·debit·π(ρ) − preference
+  E = ((1 − p)·T_ok + p·(T_fail + T_next)) / multiplier + quota_weight·debit·π(ρ) − preference
 p is its recent failure rate, T_ok and T_fail how long it takes to succeed or fail (a hang costs
 --deadline), T_next what a retry elsewhere costs, π(ρ) = 1 / (1 + exp(−5(ρ − 1))) the price of
 spending an account projected to reach ρ of its limit by reset (0.5 at the limit, never past 1;
@@ -658,11 +662,13 @@ def main(argv: list[str] | None = None) -> int:
     if a.cmd in (None, "status", "read"):
         from . import catalog, incentives
         try:
-            out = incentives.overlay(out, catalog.load(), incentives.read(now=datetime.now(timezone.utc)),
-                                     datetime.now(timezone.utc))
+            now = datetime.now(timezone.utc)
+            groups = incentives.read(now=now)
+            out = (incentives.overlay(out, catalog.load_metadata(), groups, now) if groups else
+                   [dict(r, steering={"settings": [], "routes": []}) for r in out])
         except catalog.CatalogError as e:
-            print(f"unlimited: {e}", file=sys.stderr)
-            return 2
+            print(f"unlimited: steering: {e}", file=sys.stderr)
+            out = [dict(r, steering={"settings": [], "routes": [], "error": str(e)}) for r in out]
     if a.cmd == "verdict":
         from .verdict import verdict
         now = datetime.now(timezone.utc)

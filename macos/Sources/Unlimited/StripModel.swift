@@ -17,8 +17,12 @@ final class StripModel: ObservableObject {
     @Published var offerProblem: String?
     /// The binary a flip runs through, for Settings to show.
     var offerPath: String { runner?.binary.path ?? "unlimited" }
-    /// A probe taken before a flip landed must not overwrite the flip's fresher state.
-    private var switchSeq = 0
+    /// The steering command is available only after its JSON list probe succeeds.
+    @Published private(set) var canSteer = false
+    @Published var steeringProblem: String?
+    @Published private(set) var steeringPending = false
+    @Published private(set) var incentives: [Runner.Incentive] = []
+    private var publication = SteeringPublicationFence()
 
     /// The switches' keys, as the strip marks tiles: each vendor, or `vendor/account`.
     var offKeys: Set<String> {
@@ -28,9 +32,8 @@ final class StripModel: ObservableObject {
     /// Flip a switch through the CLI, then re-read the list as the source of truth. A refused
     /// `on` (the switch was not off) is fine; anything else surfaces its message.
     func offer(_ target: String, account: String? = nil, _ off: Bool) {
-        guard let runner else { return }
-        switchSeq += 1  // at the start: a probe taken before this flip is now the stale one
-        let seq = switchSeq
+        guard let runner, let seq = publication.beginCommand() else { return }
+        steeringPending = true
         Task.detached {
             var problem: String?
             do { try runner.setOffer(target, account: account, off: off) }
@@ -41,11 +44,70 @@ final class StripModel: ObservableObject {
             catch { problem = "unlimited could not be run" }
             let probed = try? runner.switches()
             await MainActor.run {
+                guard self.publication.finish(seq) else { return }
+                self.steeringPending = false
                 self.offerProblem = problem
-                if let probed, seq == self.switchSeq {
+                if let probed {
                     self.canOffer = true
                     self.offSwitches = probed
                     self.redraw()
+                }
+            }
+        }
+    }
+
+    /// One steering write at a time prevents duplicate clicks from racing the CLI. Its succeeding
+    /// read is the authority that publishes the new overlay.
+    func steer(target: String, multiplier: String, account: String? = nil, duration: String? = nil) {
+        guard let runner, canSteer, let seq = publication.beginCommand() else { return }
+        steeringPending = true
+        steeringProblem = nil
+        Task.detached {
+            do {
+                try runner.setIncentive(target, multiplier: multiplier, account: account, duration: duration)
+            } catch Runner.RunError.exit(_, stderr: let stderr) {
+                await MainActor.run {
+                    guard self.publication.finish(seq) else { return }
+                    self.steeringPending = false
+                    self.steeringProblem = String(stderr.split(separator: "\n").first ?? "unlimited could not update steering")
+                }
+                return
+            } catch {
+                await MainActor.run {
+                    guard self.publication.finish(seq) else { return }
+                    self.steeringPending = false
+                    self.steeringProblem = "unlimited could not update steering"
+                }
+                return
+            }
+
+            do {
+                let groups = try runner.incentives()
+                await MainActor.run {
+                    if self.publication.accepts(seq) { self.incentives = groups }
+                }
+                let readings = try runner.read()
+                await MainActor.run {
+                    guard self.publication.finish(seq) else { return }
+                    self.steeringPending = false
+                    self.problem = nil
+                    self.lastRead = readings
+                    self.readings = Dictionary(readings.map { ("\($0.vendor)/\($0.account ?? "")", $0) },
+                                               uniquingKeysWith: { a, _ in a })
+                    self.launches = self.readings.compactMapValues { Launch.resolve(names: $0.names) }
+                    self.redraw()
+                }
+            } catch Runner.RunError.exit(_, stderr: let stderr) {
+                await MainActor.run {
+                    guard self.publication.finish(seq) else { return }
+                    self.steeringPending = false
+                    self.steeringProblem = "Saved, but steering refresh failed: " + String(stderr.split(separator: "\n").first ?? "unlimited could not be read")
+                }
+            } catch {
+                await MainActor.run {
+                    guard self.publication.finish(seq) else { return }
+                    self.steeringPending = false
+                    self.steeringProblem = "Saved, but steering refresh failed"
                 }
             }
         }
@@ -92,6 +154,7 @@ final class StripModel: ObservableObject {
         if tiles.isEmpty { tiles = [.waiting] }
         save()
         pace()
+        scheduleExpiry()
     }
 
     private func save() {
@@ -109,6 +172,7 @@ final class StripModel: ObservableObject {
     private var runner: Runner?
     private var busy = false
     private var timer: Timer?
+    private var expiryTimer: Timer?
     private var versionChecked: Date?
 
     func start() {
@@ -123,14 +187,13 @@ final class StripModel: ObservableObject {
     }
 
     func refresh(maxAge: Int? = nil) {
-        guard !busy else { return }
+        guard !busy, !publication.pending else { return }
         let custom = customPath
         runner = runner ?? (custom.isEmpty ? Runner.locate()  // installed after launch: found on the next tick
                                            : Runner(binary: URL(filePath: (custom as NSString).expandingTildeInPath)))
         guard let runner else { return fail("unlimited not found in ~/.local/bin, /opt/homebrew/bin or /usr/local/bin") }
+        guard let seq = publication.beginRead() else { return }
         busy = true
-        switchSeq += 1  // the newest probe owns the truth: anything still in flight is stale
-        let seq = switchSeq
         // The version is checked again only when the binary is replaced (an upgrade).
         let stamp = (try? FileManager.default.attributesOfItem(atPath: runner.binary.resolvingSymlinksInPath().path))?[.modificationDate] as? Date
         let checked = stamp != nil && stamp == versionChecked
@@ -139,19 +202,21 @@ final class StripModel: ObservableObject {
             let result: Result<[Reading], Error> = recent ? Result { try runner.read(maxAge: maxAge) } : .failure(Problem.tooOld)
             // A probe that fails (an older CLI, a file it refuses) means no greying, not a fault.
             let probed = recent ? try? runner.switches() : nil
+            let steering = recent ? try? runner.incentives() : nil
             await MainActor.run { if recent { self.versionChecked = stamp } }
             await MainActor.run {
                 self.busy = false
-                // Only the newest-started probe or flip owns the truth.
-                if seq == self.switchSeq {
-                    if let probed {
-                        self.canOffer = true
-                        self.offSwitches = probed
-                    } else {
-                        self.canOffer = false
-                        self.offSwitches = []
-                    }
+                // A later mutation owns every published facet of the reading, including badges.
+                guard self.publication.accepts(seq) else { return }
+                if let probed {
+                    self.canOffer = true
+                    self.offSwitches = probed
+                } else {
+                    self.canOffer = false
+                    self.offSwitches = []
                 }
+                self.canSteer = steering != nil
+                self.incentives = steering ?? []
                 switch result {
                 case .success(let readings):
                     self.problem = nil
@@ -170,6 +235,22 @@ final class StripModel: ObservableObject {
                 }
             }
         }
+    }
+
+    private func scheduleExpiry() {
+        expiryTimer?.invalidate()
+        let now = Date()
+        let next = lastRead.flatMap { reading in
+            (reading.steering.settings.map(\.until) + reading.steering.routes.map(\.until)).filter { $0 > now }
+        }.min()
+        guard let next else { expiryTimer = nil; return }
+        expiryTimer = Timer(fire: next, interval: 0, repeats: false) { [weak self] _ in
+            Task { @MainActor in
+                self?.redraw()  // immediate badge removal never waits for a vendor fetch
+                self?.refresh(maxAge: 86_400)  // cached overlay reconciles an inherited winner
+            }
+        }
+        RunLoop.main.add(expiryTimer!, forMode: .common)
     }
 
     private func pace() {

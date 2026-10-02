@@ -146,9 +146,11 @@ def order(scored: list[dict], temperature: float | None, rng: random.Random, quo
         c["prob"] = w / sum(ws)
     left, out = list(range(len(scored))), []
     while left:
-        r, acc = rng.random() * sum(ws[i] for i in left), 0.0
+        low = min(scored[i]["e"] for i in left)
+        remaining = {i: math.exp(-(scored[i]["e"] - low) / temperature) for i in left}
+        r, acc = rng.random() * sum(remaining.values()), 0.0
         for i in left:
-            acc += ws[i]
+            acc += remaining[i]
             if r < acc:
                 break
         out.append(i)

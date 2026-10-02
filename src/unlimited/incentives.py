@@ -60,6 +60,8 @@ def _valid(group: object) -> bool:
         return False
     if moment(group.get("activated_at")) is None:
         return False
+    if group.get("account") is not None and not (isinstance(group["account"], str) and group["account"].strip()):
+        return False
     until = group.get("until")
     bindings = group.get("bindings")
     if (until is None) == (bindings is None):
@@ -70,7 +72,7 @@ def _valid(group: object) -> bool:
     return isinstance(bindings, list) and bool(bindings) and all(
         isinstance(b, dict) and isinstance(b.get("vendor"), str) and bool(b["vendor"])
         and isinstance(b.get("account"), str) and bool(b["account"])
-        and isinstance(b.get("names", []), list) and all(isinstance(name, str) and name for name in b["names"])
+        and isinstance(b.get("names", []), list) and all(isinstance(name, str) and name for name in b.get("names", []))
         and moment(b.get("until")) is not None for b in bindings)
 
 
@@ -94,9 +96,20 @@ def _live(group: dict, now: datetime) -> bool:
     return any(moment(binding["until"]) > now for binding in group["bindings"])
 
 
+def _current(groups: list[dict], now: datetime) -> list[dict]:
+    out = []
+    for group in groups:
+        if not _live(group, now):
+            continue
+        if group.get("bindings") is not None:
+            group = dict(group, bindings=[b for b in group["bindings"] if moment(b["until"]) > now])
+        out.append(group)
+    return out
+
+
 def read(path: Path | None = None, now: datetime | None = None) -> list[dict]:
     now = now or datetime.now().astimezone()
-    return [group for group in _load(path or incentives_path()) if _live(group, now)]
+    return _current(_load(path or incentives_path()), now)
 
 
 def write(groups: list[dict], path: Path | None = None) -> None:
@@ -108,6 +121,14 @@ def write(groups: list[dict], path: Path | None = None) -> None:
 
 
 def _specificity(cat: Catalog, route: dict, target: str) -> int | None:
+    offering = cat.route(target)
+    if offering is None and ":" in target:
+        provider, _, name = target.partition(":")
+        candidate = cat.route(name)
+        if candidate is not None and candidate["provider"] == provider:
+            offering = candidate
+    if offering is not None:
+        return 4 if route["id"] == offering["id"] else None
     if target not in cat.route_names(route):
         return None
     if target in (route["id"], f"{route['provider']}:{route['id']}"):
@@ -123,7 +144,8 @@ def valid_target(cat: Catalog, target: str) -> bool:
     return target_known(cat, target)
 
 
-def _group_identity(group: dict, route: dict, bound: set[str], now: datetime) -> tuple[set[str] | None, datetime | None]:
+def _group_identity(group: dict, route: dict, bound: set[str], now: datetime,
+                    canonical: str | None = None) -> tuple[set[str] | None, datetime | None]:
     if group.get("until") is not None:
         until = moment(group["until"])
         return (_identity(group.get("account")) if group.get("account") is not None else set(), until)
@@ -131,7 +153,10 @@ def _group_identity(group: dict, route: dict, bound: set[str], now: datetime) ->
         if binding["vendor"] != route["vendor"]:
             continue
         names = {binding["account"], *[x for x in binding.get("names", []) if isinstance(x, str)]}
-        if bound & names:
+        if group.get("account") is not None and group["account"] not in names:
+            continue
+        matched = canonical == binding["account"] if canonical is not None else bool(bound & names)
+        if matched:
             return names, moment(binding["until"])
     return None, None
 
@@ -157,7 +182,9 @@ def resolve(cat: Catalog, groups: list[dict] | None, accounts: dict[str, object]
             specificity = _specificity(cat, route, group["target"])
             if specificity is None:
                 continue
-            needed, until = _group_identity(group, route, bound, now)
+            identity = accounts.get(route["id"])
+            canonical = identity.get("account") if isinstance(identity, dict) else None
+            needed, until = _group_identity(group, route, bound, now, canonical)
             if until is None or until <= now:
                 if not bound and group.get("bindings") and any(b["vendor"] == route["vendor"] and moment(b["until"]) > now
                                                           for b in group["bindings"]):
@@ -220,7 +247,10 @@ def _scope_key(cat: Catalog, target: str) -> tuple[int, tuple[str, ...] | str]:
 
 
 def _same_scope(cat: Catalog, a: dict, target: str, account: str | None) -> bool:
-    return a.get("account") == account and _scope_key(cat, a["target"]) == _scope_key(cat, target)
+    selected = a.get("account")
+    same_account = selected == account or (selected is not None and account is not None and any(
+        b["account"] == selected and account in _identity(b) for b in a.get("bindings", [])))
+    return same_account and _scope_key(cat, a["target"]) == _scope_key(cat, target)
 
 
 def account_context(cat: Catalog, target: str, account: str | None) -> str | None:
@@ -232,15 +262,19 @@ def account_context(cat: Catalog, target: str, account: str | None) -> str | Non
                if _specificity(cat, cat._route(offering), target) is not None}
     if target in REGISTRY:
         vendors.add(target)
+    matches = set()
     for vendor in vendors:
         try:
             known = REGISTRY[vendor].names()
         except Exception:
             continue
-        for canonical, aliases in known.items():
-            if account == canonical or account in aliases:
-                return canonical
-    return account
+        if account in known:
+            matches.add(account)
+        else:
+            matches.update(canonical for canonical, aliases in known.items() if account in aliases)
+    if len(matches) > 1:
+        raise ValueError(f"{account}: ambiguous account identity; use its account id")
+    return next(iter(matches), account)
 
 
 def account_binding(cat: Catalog, offering: str, account: str) -> dict:
@@ -253,9 +287,12 @@ def account_binding(cat: Catalog, offering: str, account: str) -> dict:
         known = REGISTRY[route["vendor"]].names()
     except Exception:
         known = {}
-    for canonical, aliases in known.items():
-        if account == canonical or account in aliases:
-            return {"account": canonical, "names": aliases}
+    matches = [account] if account in known else [canonical for canonical, aliases in known.items() if account in aliases]
+    if len(matches) > 1:
+        raise ValueError(f"{account}: ambiguous account identity; use its account id")
+    if matches:
+        canonical = matches[0]
+        return {"account": canonical, "names": known[canonical]}
     return {"account": account, "names": []}
 
 
@@ -265,10 +302,15 @@ def set_incentive(cat: Catalog, target: str, multiplier: object, *, now: datetim
     multiplier = _factor(multiplier)
     if not valid_target(cat, target):
         raise ValueError(f"{target}: not a catalog target")
-    if account is not None and not account.strip():
+    if account is not None and not (isinstance(account, str) and account.strip()):
         raise ValueError("--account needs an account id or name")
-    path = path or incentives_path()
+    if duration is not None and duration <= timedelta(0):
+        raise ValueError("duration must be positive")
+    path = path or incentives_path(cat.local)
     route_vendors = {cat._route(o)["vendor"] for o in cat.offerings if _specificity(cat, cat._route(o), target) is not None}
+    from .adapters import REGISTRY
+    if target in REGISTRY:
+        route_vendors.add(target)
     if duration is not None:
         group = {"target": target, **({"account": account} if account else {}), "multiplier": multiplier,
                  "activated_at": now.isoformat(), "until": (now + duration).isoformat()}
@@ -288,19 +330,25 @@ def set_incentive(cat: Catalog, target: str, multiplier: object, *, now: datetim
                              "until": reset.isoformat()})
         if not bindings:
             raise ValueError("no affected account has a usable reset; use --for")
+        if account is not None:
+            if len(bindings) != 1:
+                raise ValueError("account identity is ambiguous")
+            account = bindings[0]["account"]
         group = {"target": target, **({"account": account} if account else {}), "multiplier": multiplier,
                  "activated_at": now.isoformat(), "bindings": bindings}
+    if not _valid(group):
+        raise ValueError("invalid incentive state")
     with flock(path):
-        old = [x for x in _load(path) if _live(x, now)]
+        old = _current(_load(path), now)
         groups = [x for x in old if not _same_scope(cat, x, target, account)] + [group]
         write_json({"incentives": groups}, path, indent=1)
     return group
 
 
 def clear_incentive(cat: Catalog, target: str, *, account: str | None, now: datetime, path: Path | None = None) -> list[dict]:
-    path = path or incentives_path()
+    path = path or incentives_path(cat.local)
     with flock(path):
-        old = [x for x in _load(path) if _live(x, now)]
+        old = _current(_load(path), now)
         groups = [x for x in old if not _same_scope(cat, x, target, account)]
         if len(groups) == len(old):
             raise ValueError(f"{target}: not steered here")
@@ -323,11 +371,15 @@ def overlay(readings: list[dict], cat: Catalog, groups: list[dict], now: datetim
         for group in groups:
             if not _valid(group) or not _live(group, now):
                 continue
-            for route in (route for route in (cat._route(offering) for offering in cat.offerings) if route["id"] in account):
-                if _specificity(cat, route, group["target"]) is None:
+            contexts = [route for route in (cat._route(offering) for offering in cat.offerings) if route["id"] in account]
+            if not contexts and group["target"] == reading.get("vendor"):
+                contexts = [{"vendor": reading["vendor"]}]
+            for route in contexts:
+                if "id" in route and _specificity(cat, route, group["target"]) is None:
                     continue
-                needed, until = _group_identity(group, route, _identity(account[route["id"]]), now)
-                if until is not None and until > now and (not needed or needed & _identity(account[route["id"]])):
+                bound = _reading_identity(reading)
+                needed, until = _group_identity(group, route, bound, now, reading.get("account"))
+                if until is not None and until > now and (not needed or needed & bound):
                     setting = {"target": group["target"], "account": group.get("account"),
                                "multiplier": group["multiplier"], "until": until.isoformat()}
                     if setting not in settings:

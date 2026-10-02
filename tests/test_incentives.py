@@ -3,7 +3,13 @@
 from __future__ import annotations
 
 import math
+import io
+import json
+import os
+import random
 import unittest
+from contextlib import redirect_stdout, redirect_stderr
+from unittest import mock
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
@@ -178,6 +184,8 @@ class Incentives(unittest.TestCase):
         sibling = choice.rank(self.cat, tier="heavy", candidates=["codex"], attempts=[], quota={}, deadline=900,
                               now=NOW, temperature=0, incentives=policy, accounts={"gpt-6.1-sol": "b"})
         self.assertIsNone(blocked)
+        self.assertIsNotNone(sibling)
+        self.assertEqual(sibling["candidates"][0]["multiplier"], 10)
 
     def test_overlay_keeps_live_steering_for_a_vendor_switched_off_from_choice(self):
         self.cat.off = [{"target": "openai"}]
@@ -187,5 +195,126 @@ class Incentives(unittest.TestCase):
         self.assertTrue(incentives.overlay([reading], self.cat, policy, NOW)[0]["steering"]["routes"])
         self.assertIsNone(choice.rank(self.cat, tier="heavy", candidates=["codex"], attempts=[], quota={}, deadline=900,
                                        now=NOW, temperature=0, incentives=policy))
+
+    def test_reset_bindings_without_aliases_decode_without_a_key_error(self):
+        group = {"target": "openai", "multiplier": 10, "activated_at": NOW.isoformat(), "bindings": [
+            {"vendor": "openai", "account": "a", "until": "2026-10-03T12:00:00+00:00"}]}
+        path = incentives.incentives_path(self.local)
+        incentives.write([group], path)
+        self.assertEqual(incentives.read(path, NOW)[0]["bindings"][0]["account"], "a")
+
+    def test_reset_group_rejects_a_boolean_account_selector(self):
+        group = {"target": "openai", "account": True, "multiplier": 10, "activated_at": NOW.isoformat(), "bindings": [
+            {"vendor": "openai", "account": "a", "names": [], "until": "2026-10-03T12:00:00+00:00"}]}
+        with self.assertRaises(ValueError):
+            incentives.write([group], incentives.incentives_path(self.local))
+
+    def test_expired_account_bindings_drop_from_reads_and_the_next_write(self):
+        group = {"target": "openai", "multiplier": 10, "activated_at": NOW.isoformat(), "bindings": [
+            {"vendor": "openai", "account": "a", "names": [], "until": "2026-10-02T11:00:00+00:00"},
+            {"vendor": "openai", "account": "b", "names": [], "until": "2026-10-03T12:00:00+00:00"}]}
+        path = incentives.incentives_path(self.local)
+        incentives.write([group], path)
+        self.assertEqual([b["account"] for b in incentives.read(path, NOW)[0]["bindings"]], ["b"])
+        incentives.set_incentive(self.cat, "glm", 2, now=NOW, duration=timedelta(hours=1), path=path)
+        self.assertEqual([b["account"] for b in incentives.read(path, NOW)[0]["bindings"]], ["b"])
+
+    def test_public_activation_normalizes_a_reading_alias_for_clear_by_id(self):
+        reading = {"vendor": "openai", "account": "a", "names": ["primary"], "status": "ok", "limits": [
+            {"role": "weekly", "window_minutes": 10080, "resets_at": "2026-10-03T12:00:00+00:00"}]}
+        path = incentives.incentives_path(self.local)
+        group = incentives.set_incentive(self.cat, "openai", 10, account="primary", now=NOW, readings=[reading], path=path)
+        self.assertEqual(group["account"], "a")
+        self.assertEqual(incentives.clear_incentive(self.cat, "openai", account="a", now=NOW, path=path), [])
+
+    def test_registered_vendor_without_offerings_can_expire_at_its_account_reset(self):
+        cat = catalog.Catalog({"tiers": ["standard"], "models": {}, "offerings": []})
+        reading = {"vendor": "neuralwatt", "account": "a", "names": [], "status": "ok", "limits": [
+            {"role": "weekly", "window_minutes": 10080, "resets_at": "2026-10-03T12:00:00+00:00"}]}
+        group = incentives.set_incentive(cat, "neuralwatt", 2, now=NOW, readings=[reading],
+                                         path=incentives.incentives_path(self.local))
+        self.assertEqual(group["bindings"][0]["account"], "a")
+        self.assertEqual(incentives.overlay([reading], cat, [group], NOW)[0]["steering"]["settings"][0]["multiplier"], 2)
+
+    def test_cli_reads_a_registered_vendor_even_without_catalog_offerings(self):
+        import io
+        import os
+        from contextlib import redirect_stdout, redirect_stderr
+        from unittest import mock
+        from unlimited import cli
+        cat = catalog.Catalog({"tiers": ["standard"], "models": {}, "offerings": []})
+        reading = {"vendor": "neuralwatt", "account": "a", "names": [], "status": "ok", "limits": [
+            {"role": "weekly", "window_minutes": 10080, "resets_at": "2026-10-03T12:00:00+00:00"}]}
+        with mock.patch.dict(os.environ, {"XDG_CONFIG_HOME": scratch.mkdtemp()}), \
+                mock.patch.object(catalog, "load", return_value=cat), \
+                mock.patch.object(cli.cache, "through", return_value=[reading]), \
+                mock.patch.object(cli, "datetime") as clock, redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()):
+            clock.now.return_value = NOW
+            self.assertEqual(cli.main(["incentive", "neuralwatt", "2x", "--json"]), 0)
+
+    def test_mutation_defaults_to_the_custom_catalog_policy_file(self):
+        with mock.patch.dict(os.environ, {"XDG_CONFIG_HOME": scratch.mkdtemp()}):
+            incentives.set_incentive(self.cat, "glm", 10, now=NOW, duration=timedelta(hours=1))
+            got = choice.choose(self.cat, tier="heavy", candidates=["glm"], quota={}, deadline=900,
+                                now=NOW, temperature=0, log=Path(scratch.mkdtemp()) / "d.jsonl")
+            self.assertEqual(got["candidates"][0]["multiplier"], 10)
+            self.assertEqual(incentives.clear_incentive(self.cat, "glm", account=None, now=NOW), [])
+
+    def test_ambiguous_local_alias_is_refused_for_activation_and_binding(self):
+        from unlimited.adapters import REGISTRY
+        adapter = mock.Mock(names=mock.Mock(return_value={"a": ["shared"], "b": ["shared"]}))
+        with mock.patch.dict(REGISTRY, {"openai": adapter}):
+            for call in (lambda: incentives.account_context(self.cat, "openai", "shared"),
+                         lambda: incentives.account_binding(self.cat, "gpt-6.1-sol", "shared")):
+                with self.assertRaises(ValueError):
+                    call()
+
+    def test_offering_scope_does_not_leak_to_a_sibling_using_its_model_name(self):
+        cat = catalog.Catalog({"tiers": ["standard"], "models": {"sonnet": {"provider": "claude", "tiers": ["standard"]}},
+                               "offerings": [{"id": "sonnet", "model": "sonnet", "vendor": "anthropic"},
+                                             {"id": "reseller/sonnet", "model": "sonnet", "vendor": "opencode"}]})
+        group = {"target": "sonnet", "multiplier": .1, "activated_at": NOW.isoformat(),
+                 "until": (NOW + timedelta(hours=1)).isoformat()}
+        resolved = incentives.resolve(cat, [group], {}, NOW)
+        self.assertEqual(resolved.factors["sonnet"], .1)
+        self.assertEqual(resolved.factors["reseller/sonnet"], 1)
+
+    def test_softmax_rebases_fallback_weights_after_a_dominant_first_pick(self):
+        scored = [{"e": 0}, {"e": 1000}, {"e": 2000}]
+        self.assertEqual(choice.order(scored, 1, random.Random(42)), [0, 1, 2])
+
+    def test_cli_can_clear_a_stored_scope_no_longer_in_the_catalog(self):
+        from unlimited import cli
+        with mock.patch.dict(os.environ, {"XDG_CONFIG_HOME": scratch.mkdtemp()}), \
+                mock.patch.object(catalog, "load", return_value=catalog.Catalog({"tiers": ["standard"]})), \
+                mock.patch.object(cli, "datetime") as clock, redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()):
+            clock.now.return_value = NOW
+            incentives.write([{"target": "retired-route", "multiplier": 2, "activated_at": NOW.isoformat(),
+                               "until": (NOW + timedelta(hours=1)).isoformat()}])
+            self.assertEqual(cli.main(["incentive", "retired-route", "off", "--json"]), 0)
+            self.assertEqual(incentives.read(now=NOW), [])
+
+    def test_tracking_without_incentives_does_not_require_a_valid_catalog(self):
+        from unlimited import cli
+        reading = {"schema": 1, "vendor": "openai", "account": "a", "status": "ok", "limits": []}
+        output = io.StringIO()
+        with mock.patch.object(catalog, "load", side_effect=catalog.CatalogError("broken")), \
+                mock.patch.object(incentives, "read", return_value=[]), \
+                mock.patch.object(cli.cache, "through", return_value=[reading]), \
+                redirect_stdout(output), redirect_stderr(io.StringIO()):
+            self.assertEqual(cli.main(["read", "--vendor", "openai", "--json"]), 0)
+        self.assertEqual(json.loads(output.getvalue())[0]["account"], "a")
+
+    def test_a_reused_alias_does_not_inherit_another_accounts_reset_binding(self):
+        group = {"target": "openai", "multiplier": 10, "activated_at": NOW.isoformat(), "bindings": [
+            {"vendor": "openai", "account": "old", "names": ["primary"], "until": "2026-10-03T12:00:00+00:00"}]}
+        context = {"gpt-6.1-sol": {"account": "new", "names": ["primary"]}}
+        resolved = incentives.resolve(self.cat, [group], context, NOW)
+        self.assertEqual(resolved.factors["gpt-6.1-sol"], 1)
+
+    def test_terminal_render_hides_an_expired_route_winner(self):
+        reading = {"vendor": "openai", "account": "a", "status": "ok", "limits": [],
+                   "steering": {"routes": [{"multiplier": 10, "until": (NOW + timedelta(hours=1)).isoformat()}]}}
+        self.assertNotIn("▲", show.render([reading], NOW + timedelta(hours=2)))
 
 

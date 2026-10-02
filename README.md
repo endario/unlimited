@@ -51,7 +51,10 @@ Click a tile for its account's windows. On each bar, the line is where an even p
 now, ▼ is where today's pace reaches by the reset and ▲ is the forecast. Below it: 🔥 when it
 runs out, 🎲 the chance it does, ↻ when it resets and 📈 the forecast. A forecast in a thinner
 weight rests on this window alone, before past windows back it. Click another tile to switch
-accounts. Settings relabels, hides and reorders tiles.
+accounts. Settings relabels, hides and reorders tiles. Its steering controls apply an incentive
+until reset or for a chosen duration. Beside an account name, a compact green upward or red
+downward fast-forward icon shows encouragement or discouragement; its stacked arrowheads
+increase with strength. The underline remains a quota-room recommendation, not a steering score.
 
 The app reads no credential and calls no vendor: it runs `unlimited read --json`. To build it,
 with Command Line Tools only:
@@ -147,6 +150,26 @@ a name no account here answers to is accepted and simply matches nothing).
 `unlimited off` lists what is off, `unlimited off --json` as a JSON array. A target with a catalog
 route drops out of `models` and `--catalog` like a ban. The switches live in
 `~/.config/unlimited/switches.json`.
+
+## Manual steering
+
+```sh
+unlimited incentive openai 10x                         # until each account's latest quota reset
+unlimited incentive openai 0.1x --account ACCOUNT --for 12h
+unlimited incentive openai off --account ACCOUNT
+unlimited incentive --json
+```
+
+A multiplier above one encourages a target; below one discourages it. It divides expected time
+cost, not quota cost. Targets use the same names as `off`; `--account` narrows a usage vendor to
+one account. Without `--for`, expiry is captured from each affected account's latest upcoming
+quota reset; an explicit duration takes precedence. If reset information is unavailable, supply
+`--for`. `off` removes that steering scope, so inherited settings may apply again.
+
+Account-bound steering needs `choose --account OFFERING=ACCOUNT` for the account the caller
+will launch; keep it aligned with that route's `--quota`. Missing account context is reported as
+`incentives_unresolved`, not guessed. A reading's optional `steering` object exposes active
+settings and resolved route multipliers separately from vendor usage facts.
 
 ## Outcomes
 
