@@ -114,6 +114,17 @@ class Statusline(Base):
         got = cache.through(codex, max_age=300, clock=lambda: NOW + timedelta(seconds=60), get=None)[0]
         self.assertEqual([l["role"] for l in got["limits"]], ["session", "weekly"])
 
+    def test_a_session_spending_a_token_from_its_environment_is_not_labelled_with_its_directory(self):
+        # The directory says who signed in there; a token in the environment says who is spending.
+        # Labelled by the directory, one account's windows were filed under another's.
+        d = self.signed_in(".claude-account3")
+        for var in ("CLAUDE_CODE_OAUTH_TOKEN", "CLAUDE_CODE_OAUTH_TOKEN_FILE_DESCRIPTOR", "ANTHROPIC_AUTH_TOKEN", "ANTHROPIC_API_KEY"):
+            with self.subTest(var=var), mock.patch.dict(os.environ, {"CLAUDE_CONFIG_DIR": str(d), var: "x"}):
+                self.assertIsNone(anthropic.capture({"rate_limits": RL}, NOW))
+        self.assertEqual(anthropic.local(NOW), [])
+        with mock.patch.dict(os.environ, {"CLAUDE_CONFIG_DIR": str(d), "CLAUDE_CODE_OAUTH_TOKEN": ""}):
+            self.assertIsNotNone(anthropic.capture({"rate_limits": RL}, NOW), "an empty variable overrides nothing")
+
     def test_capture_without_rate_limits_writes_nothing_and_the_cli_stays_silent(self):
         d = self.signed_in(".claude-account2")
         out = io.StringIO()
