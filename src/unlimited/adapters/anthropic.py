@@ -296,8 +296,7 @@ OVERRIDES = ("CLAUDE_CODE_OAUTH_TOKEN", "CLAUDE_CODE_OAUTH_TOKEN_FILE_DESCRIPTOR
 
 def capture(payload: dict, now: datetime) -> dict | None:
     """Save the statusline's `rate_limits` for the account this Claude Code runs as. Returns the
-    reading written, or None when the payload has none (API-key sign-in, or before the first
-    response)."""
+    reading written, or None."""
     rl = payload.get("rate_limits") if isinstance(payload, dict) else None
     # A credential in the environment decides who Claude Code spends, whatever the directory says
     # was signed in there, so the directory cannot name the account these windows are for.
