@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import base64
 import io
 import json
 import os
@@ -819,6 +820,250 @@ class LastGood(Base):
         got = cache.through(self.adapter(("refused", "http-401")), max_age=300,
                             clock=lambda: NOW + timedelta(minutes=10), get=None)[0]
         self.assertEqual((got["status"], got["why"]), ("refused", "http-401"))
+
+
+class OpenAIRequestBinding(Base):
+    AUTH_CLAIM = "https://api.openai.com/auth"
+    TOKEN = "fixture-openai-access-secret"
+    BODY = {"account_id": "workspace-a", "plan_type": "fixture-a",
+            "rate_limit": {"allowed": True, "limit_reached": False,
+                           "primary_window": {"used_percent": 17, "limit_window_seconds": 18000,
+                                              "reset_at": int((NOW + timedelta(hours=2)).timestamp())},
+                           "secondary_window": None}}
+
+    def setUp(self):
+        super().setUp()
+        self.codex = self.tmp / "codex"
+        self.codex.mkdir()
+        p = mock.patch.dict(os.environ, {"CODEX_HOME": str(self.codex)})
+        p.start()
+        self.addCleanup(p.stop)
+
+    @staticmethod
+    def jwt(payload):
+        part = base64.urlsafe_b64encode(json.dumps(payload).encode()).decode().rstrip("=")
+        return f"header.{part}.signature"
+
+    def auth(self, tokens):
+        (self.codex / "auth.json").write_text(json.dumps(
+            {"tokens": {"access_token": self.TOKEN, **tokens}}))
+
+    def cred(self, account="workspace-a", **secret):
+        return Credential(account, {"access_token": self.TOKEN, "account_id": "workspace-a", **secret})
+
+    def assert_neutral(self, got, why):
+        self.assertEqual((got["status"], got["why"], got["limits"], got["plan"], got["credits"]),
+                         ("unread", why, [], None, None))
+        self.assertIsNone(got["retry_until"])
+
+    def test_missing_null_or_empty_selection_uses_stored_id_token_account(self):
+        id_token = self.jwt({self.AUTH_CLAIM: {"chatgpt_account_id": "workspace-a"}})
+        for selected in ({}, {"account_id": None}, {"account_id": ""}):
+            with self.subTest(selected=selected):
+                self.auth(dict(selected, id_token=id_token))
+                [cred] = openai.discover()
+                self.assertEqual((cred.account, cred.secret["account_id"]), ("workspace-a", "workspace-a"))
+                self.assertEqual(cred.secret["access_token"], self.TOKEN)
+                self.assertNotIn("id_token", cred.secret)
+
+    def test_explicit_workspace_wins_over_creation_time_id_token_metadata(self):
+        for id_token in (None, "invalid", self.jwt({self.AUTH_CLAIM: {"chatgpt_account_id": "workspace-b"}})):
+            with self.subTest(id_token=id_token):
+                self.auth({"account_id": "workspace-a", "id_token": id_token})
+                [cred] = openai.discover()
+                self.assertEqual((cred.account, cred.secret["account_id"]), ("workspace-a", "workspace-a"))
+
+    def test_invalid_nonempty_selection_is_not_repaired_from_id_token(self):
+        for selected in (False, 7, [], {}, " workspace-a", "workspace-a ", "workspace\ta",
+                         "workspace\na", "workspace\ra", "workspace\x00a", "workspace\x7fa", "工作区"):
+            with self.subTest(selected=selected):
+                self.auth({"account_id": selected, "id_token": self.jwt(
+                    {self.AUTH_CLAIM: {"chatgpt_account_id": "workspace-a"}})})
+                self.assertEqual(openai.discover(), [])
+
+    def test_missing_or_malformed_id_metadata_does_not_infer_an_account(self):
+        malformed = (None, "", 12, {}, "not-jwt", "header.!.signature", "header._w.signature",
+                     "header.é.signature", "header.ey.signature", self.jwt([]), self.jwt(None),
+                     self.jwt({"sub": "workspace-a", "email": "workspace-a", "chatgpt_account_id": "workspace-a"}),
+                     self.jwt({self.AUTH_CLAIM: []}), self.jwt({self.AUTH_CLAIM: None}))
+        malformed += tuple(self.jwt({self.AUTH_CLAIM: {"chatgpt_account_id": bad}})
+                           for bad in (None, "", False, 1, [], {}, " a", "a ", "a\n", "é"))
+        for id_token in malformed:
+            with self.subTest(id_token=id_token):
+                self.auth({"id_token": id_token})
+                self.assertEqual(openai.discover(), [])
+        self.auth({"access_token": self.jwt({self.AUTH_CLAIM: {"chatgpt_account_id": "workspace-a"}})})
+        self.assertEqual(openai.discover(), [], "only the stored ID token supplies account fallback")
+
+    def test_default_home_discovery_is_unchanged(self):
+        default = self.home / ".codex"
+        default.mkdir()
+        (default / "auth.json").write_text(json.dumps({"tokens": {
+            "account_id": "workspace-a", "access_token": self.TOKEN}}))
+        with mock.patch.dict(os.environ):
+            os.environ.pop("CODEX_HOME", None)
+            [cred] = openai.discover()
+        self.assertEqual(cred.account, "workspace-a")
+
+    def test_invalid_direct_account_header_pair_makes_no_request(self):
+        bad = (None, "", False, 1, [], {}, " a", "a ", "a\t", "a\n", "a\r", "a\x00", "a\x7f", "é")
+        for value in bad:
+            for cred in (self.cred(value), self.cred(account_id=value)):
+                with self.subTest(account=cred.account, header=value):
+                    got = openai.read(cred, NOW, self.up(Answer(self.BODY, 200, None)))
+                    self.assert_neutral(got, "invalid-account")
+                    self.assertEqual(self.calls, [])
+        got = openai.read(Credential("workspace-a", {"access_token": self.TOKEN}), NOW,
+                          self.up(Answer(self.BODY, 200, None)))
+        self.assert_neutral(got, "invalid-account")
+        self.assertEqual(self.calls, [])
+
+    def test_direct_workspace_label_must_equal_requested_header(self):
+        got = openai.read(self.cred("workspace-b"), NOW, self.up(Answer(self.BODY, 200, None)))
+        self.assert_neutral(got, "credential-account-mismatch")
+        self.assertEqual(self.calls, [])
+
+    def test_unusable_direct_tokens_make_no_request(self):
+        for secret in ({}, {"access_token": None}, {"access_token": ""}, {"access_token": 7},
+                       {"access_token": []}, {"access_token": {}}, {"access_token": " "},
+                       {"access_token": " token"}, {"access_token": "token "}, {"access_token": "to ken"},
+                       {"access_token": "to\nken"}, {"access_token": "to\x7fken"}, {"access_token": "令牌"}):
+            with self.subTest(secret=secret):
+                got = openai.read(Credential("workspace-a", {"account_id": "workspace-a", **secret}), NOW,
+                                  self.up(Answer(self.BODY, 200, None)))
+                self.assert_neutral(got, "no-credential")
+                self.assertEqual(self.calls, [])
+
+    def test_expired_access_token_is_not_sent_or_refreshed(self):
+        for expires in (NOW - timedelta(seconds=1), NOW):
+            with self.subTest(expires=expires):
+                token = self.jwt({"exp": expires.timestamp()})
+                got = openai.read(self.cred(access_token=token), NOW, self.up(Answer(self.BODY, 200, None)))
+                self.assert_neutral(got, "credential-expired")
+                self.assertEqual(self.calls, [])
+
+    def test_expiry_keeps_the_existing_permissive_payload_decode(self):
+        token = self.jwt({"exp": (NOW - timedelta(seconds=1)).timestamp()})
+        token = token.replace(".signature", "!!!!.signature")
+        got = openai.read(self.cred(access_token=token), NOW, self.up(Answer(self.BODY, 200, None)))
+        self.assert_neutral(got, "credential-expired")
+        self.assertEqual(self.calls, [])
+
+    def test_unknown_expiry_and_future_token_keep_existing_request_behavior(self):
+        for payload in (None, [], {"exp": "soon"}, {"exp": 10**100}, {"exp": (NOW + timedelta(hours=1)).timestamp()}):
+            with self.subTest(payload=payload):
+                got = openai.read(self.cred(access_token=self.jwt(payload)), NOW,
+                                  self.up(Answer(self.BODY, 200, None)))
+                self.assertEqual((got["status"], got["account"]), ("ok", "workspace-a"))
+        for token in (self.TOKEN, "header.!.signature", "header._w.signature", "header.ey.signature"):
+            with self.subTest(token=token):
+                got = openai.read(self.cred(access_token=token), NOW, self.up(Answer(self.BODY, 200, None)))
+                self.assertEqual(got["status"], "ok")
+
+    def test_matching_absent_or_null_echo_keeps_explicit_header_compatibility(self):
+        for echo in ({}, {"account_id": None}, {"account_id": "workspace-a"}):
+            with self.subTest(echo=echo):
+                body = {k: v for k, v in self.BODY.items() if k != "account_id"}
+                def get(url, headers, now):
+                    self.assertEqual((url, headers, now), (openai.URL, {
+                        "Authorization": f"Bearer {self.TOKEN}", "ChatGPT-Account-Id": "workspace-a"}, NOW))
+                    return Answer(dict(body, **echo), 200, None)
+                got = openai.read(self.cred(), NOW, get)
+                self.assertEqual((got["status"], got["account"], got["plan"], got["limits"][0]["used_at_least"]),
+                                 ("ok", "workspace-a", "fixture-a", .17))
+
+    def test_echo_mismatch_is_rejected_before_limits_or_plan_translation(self):
+        class Body(dict):
+            def get(self, key, default=None):
+                if key != "account_id":
+                    raise AssertionError("translated rejected response")
+                return super().get(key, default)
+        body = Body(self.BODY, account_id="workspace-b", rate_limit=[], plan_type="wrong-plan")
+        got = openai.read(self.cred(), NOW, self.up(Answer(body, 200, None)))
+        self.assert_neutral(got, "response-account-mismatch")
+        self.assertEqual(got["account"], "workspace-a")
+
+    def test_malformed_nonnull_echo_is_rejected_before_translation(self):
+        for echo in ("", False, 1, [], {}, " workspace-a", "workspace-a ", "a\n", "a\x7f", "é"):
+            with self.subTest(echo=echo), \
+                 mock.patch.object(openai, "limits", side_effect=AssertionError("translated rejected response")):
+                got = openai.read(self.cred(), NOW,
+                                  self.up(Answer(dict(self.BODY, account_id=echo), 200, None)))
+                self.assert_neutral(got, "response-account-invalid")
+
+    def test_request_uses_a_detached_secret_snapshot(self):
+        cred = self.cred()
+        def get(url, headers, now):
+            cred.secret.update(access_token="changed-token-secret", account_id="workspace-b")
+            self.assertEqual(headers, {"Authorization": f"Bearer {self.TOKEN}",
+                                       "ChatGPT-Account-Id": "workspace-a"})
+            return Answer(self.BODY, 200, None)
+        got = openai.read(cred, NOW, get)
+        self.assertEqual((got["status"], got["account"], got["limits"][0]["used_at_least"]),
+                         ("ok", "workspace-a", .17))
+
+    def test_transport_failures_keep_the_existing_bounded_diagnostic(self):
+        until = NOW + timedelta(minutes=5)
+        got = openai.read(self.cred(), NOW, self.up(Answer(None, 429, "http-429", until)))
+        self.assertEqual((got["account"], got["status"], got["why"], got["retry_until"], got["limits"]),
+                         ("workspace-a", "refused", "http-429", until.isoformat(), []))
+
+    def test_diagnostics_and_cache_do_not_serialize_secrets_or_rejected_response_material(self):
+        id_token = self.jwt({self.AUTH_CLAIM: {"chatgpt_account_id": "workspace-a"},
+                             "email": "private-email-marker", "sub": "private-sub-marker"})
+        self.auth({"id_token": id_token})
+        [cred] = openai.discover()
+        directory = self.tmp / "binding-cache"
+        response = dict(self.BODY, account_id=f"{self.tmp}\nprivate-echo-marker", plan_type="private-plan-marker")
+        adapter = SimpleNamespace(VENDOR="openai", discover=lambda: [cred], read=openai.read)
+        got = cache.through(adapter, max_age=0, clock=lambda: NOW,
+                            get=self.up(Answer(response, 200, None)), directory=directory)
+        invalid = openai.read(self.cred(f"{self.tmp}\ninvalid-account-marker"), NOW,
+                              self.up(Answer(self.BODY, 200, None)))
+        dumped = json.dumps([got, invalid]) + repr(cred) + (directory / "openai.json").read_text()
+        for secret in (self.TOKEN, id_token, str(self.tmp), "private-email-marker", "private-sub-marker",
+                       "private-echo-marker", "private-plan-marker", "invalid-account-marker"):
+            self.assertNotIn(secret, dumped)
+
+    def test_due_response_account_rejection_replaces_prior_fact_without_adding_samples(self):
+        cred = self.cred()
+        adapter = SimpleNamespace(VENDOR="openai", discover=lambda: [cred], read=openai.read, role=openai.role)
+        for echo, why in (("workspace-b", "response-account-mismatch"), ([], "response-account-invalid")):
+            for have_history in (False, True):
+                with self.subTest(echo=echo, history=have_history):
+                    directory = self.tmp / f"cache-{why}-{have_history}"
+                    cache.through(adapter, max_age=300, clock=lambda: NOW,
+                                  get=self.up(Answer(self.BODY, 200, None)), directory=directory)
+                    path = directory / "openai.json"
+                    prior = json.loads(path.read_text())
+                    self.assertEqual(prior["readings"][0]["limits"][0]["used_at_least"], .17)
+                    if not have_history:
+                        prior["history"] = {}
+                        path.write_text(json.dumps(prior))
+                    before = prior["history"]
+                    calls_before = len(self.calls)
+                    rejected = dict(self.BODY, account_id=echo, plan_type="wrong-plan",
+                                    rate_limit={"primary_window": {"used_percent": 83, "limit_window_seconds": 18000,
+                                                                   "reset_at": int((NOW + timedelta(hours=2)).timestamp())}})
+                    [got] = cache.through(adapter, max_age=300, clock=lambda: NOW + timedelta(minutes=10),
+                                          get=self.up(Answer(rejected, 200, None)), directory=directory)
+                    self.assertEqual(len(self.calls), calls_before + 1, "the read must actually be due")
+                    self.assert_neutral(got, why)
+                    self.assertNotIn(got["why"], cache.TRANSIENT)
+                    after = json.loads(path.read_text())
+                    self.assertEqual(after["history"], before)
+                    self.assert_neutral(after["readings"][0], why)
+
+    def test_fresh_workspace_cache_still_bypasses_binding_checks_as_a_known_limitation(self):
+        cred = self.cred()
+        adapter = SimpleNamespace(VENDOR="openai", discover=lambda: [cred], read=openai.read)
+        directory = self.tmp / "fresh-cache"
+        cache.through(adapter, max_age=300, clock=lambda: NOW,
+                      get=self.up(Answer(self.BODY, 200, None)), directory=directory)
+        [got] = cache.through(adapter, max_age=300, clock=lambda: NOW + timedelta(seconds=60),
+                              get=self.up(Answer(dict(self.BODY, account_id="workspace-b"), 200, None)),
+                              directory=directory)
+        self.assertEqual((len(self.calls), got["status"], got["limits"][0]["used_at_least"]), (1, "ok", .17))
 
 
 class CodexSessionLog(Base):

@@ -19,6 +19,23 @@ def _home() -> Path:
     return Path(os.environ.get("CODEX_HOME") or Path.home() / ".codex")
 
 
+def _jwt_payload(token: object) -> dict | None:
+    # Metadata decoding only; this does not verify the token's signature.
+    if not isinstance(token, str) or token.count(".") != 2:
+        return None
+    part = token.split(".")[1]
+    try:
+        payload = json.loads(base64.urlsafe_b64decode(part + "=" * (-len(part) % 4)))
+    except ValueError:
+        return None
+    return payload if isinstance(payload, dict) else None
+
+
+def _account_id(value: object) -> bool:
+    return (isinstance(value, str) and bool(value) and value == value.strip()
+            and all(32 <= ord(c) < 127 for c in value))
+
+
 def discover() -> list[Credential]:
     try:
         got = json.loads((_home() / "auth.json").read_text())
@@ -28,18 +45,21 @@ def discover() -> list[Credential]:
     if not (isinstance(tokens, dict) and isinstance(tokens.get("access_token"), str)):
         return []
     who = tokens.get("account_id")
-    return [Credential(who if isinstance(who, str) and who else None,
-                       {"access_token": tokens["access_token"], "account_id": who or ""})]
+    if who is None or who == "":
+        payload = _jwt_payload(tokens.get("id_token")) or {}
+        auth = payload.get("https://api.openai.com/auth")
+        who = auth.get("chatgpt_account_id") if isinstance(auth, dict) else None
+    if not _account_id(who):
+        return []
+    return [Credential(who, {"access_token": tokens["access_token"], "account_id": who})]
 
 
 def _jwt_expiry(token: str) -> datetime | None:
-    if token.count(".") != 2:
-        return None
-    part = token.split(".")[1]
+    payload = _jwt_payload(token)
+    exp = payload.get("exp") if payload is not None else None
     try:
-        exp = json.loads(base64.urlsafe_b64decode(part + "=" * (-len(part) % 4))).get("exp")
         return datetime.fromtimestamp(exp, tz=timezone.utc) if isinstance(exp, (int, float)) else None
-    except (ValueError, TypeError, AttributeError, OSError, OverflowError):
+    except (ValueError, TypeError, OSError, OverflowError):
         return None
 
 
@@ -82,17 +102,29 @@ def limits(body: dict, now: datetime) -> list[dict]:
 
 
 def read(cred: Credential, now: datetime, get) -> dict:
-    token = cred.secret["access_token"]
+    account, secret = cred.account, dict(cred.secret)
+    account_id, token = secret.get("account_id"), secret.get("access_token")
+    if not (_account_id(account) and _account_id(account_id)):
+        return reading(VENDOR, account if _account_id(account) else None, now, UNREAD, why="invalid-account")
+    if account != account_id:
+        return reading(VENDOR, account, now, UNREAD, why="credential-account-mismatch")
+    if not (isinstance(token, str) and token and all(32 < ord(c) < 127 for c in token)):
+        return reading(VENDOR, account, now, UNREAD, why="no-credential")
     expires = _jwt_expiry(token)
     if expires is not None and expires <= now:
         # Codex refreshes its own token on its next run; unlimited never writes auth.json.
-        return reading(VENDOR, cred.account, now, UNREAD, why="credential-expired")
-    ans = get(URL, {"Authorization": f"Bearer {token}",
-                    "ChatGPT-Account-Id": str(cred.secret["account_id"])}, now)
+        return reading(VENDOR, account, now, UNREAD, why="credential-expired")
+    ans = get(URL, {"Authorization": f"Bearer {token}", "ChatGPT-Account-Id": account_id}, now)
     if ans.body is None:
-        return failed(VENDOR, cred.account, now, ans)
+        return failed(VENDOR, account, now, ans)
+    echoed = ans.body.get("account_id")
+    if echoed is not None:
+        if not _account_id(echoed):
+            return reading(VENDOR, account, now, UNREAD, why="response-account-invalid")
+        if echoed != account_id:
+            return reading(VENDOR, account, now, UNREAD, why="response-account-mismatch")
     plan = ans.body.get("plan_type")
-    return reading(VENDOR, cred.account, now, OK, limits=limits(ans.body, now),
+    return reading(VENDOR, account, now, OK, limits=limits(ans.body, now),
                    plan=plan if isinstance(plan, str) else None)
 
 
