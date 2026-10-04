@@ -25,11 +25,16 @@ ZAI_SECRET = "fixture-secret-zai-key"
 NEURALWATT_SECRET = "fixture-secret-neuralwatt-key"
 
 # Shapes as answered on 2026-09-18, identities removed.
-WHAM = {"plan_type": "prolite",
+WHAM = {"account_id": "acct-fixture", "plan_type": "prolite",
         "rate_limit": {"allowed": True, "limit_reached": False,
                        "primary_window": {"used_percent": 44, "limit_window_seconds": 604800,
                                           "reset_at": int((NOW + timedelta(days=4)).timestamp())},
                        "secondary_window": None}}
+WHAM_OTHER = {"account_id": "acct-other", "plan_type": "fixture-other",
+              "rate_limit": {"allowed": True, "limit_reached": False,
+                             "primary_window": {"used_percent": 83, "limit_window_seconds": 604800,
+                                                "reset_at": int((NOW + timedelta(days=4)).timestamp())},
+                             "secondary_window": None}}
 QUOTA = {"code": 200, "success": True, "data": {"level": "max", "limits": [
     {"type": "CREDIT_LIMIT", "unit": 3, "number": 5, "usage": 28000, "currentValue": 4195,
      "nextResetTime": int((NOW + timedelta(hours=3)).timestamp() * 1000)},
@@ -51,10 +56,15 @@ class Upstream:
         with self._lock:
             self.calls.append(url)
         time.sleep(self.delay)
+        if url == openai.URL:
+            assert headers["Authorization"] == f"Bearer {OPENAI_SECRET}"
+            body = {"acct-fixture": WHAM, "acct-other": WHAM_OTHER}[headers["ChatGPT-Account-Id"]]
+        else:
+            body = QUOTA
         if self.refuse:
             return Answer(None, self.refuse, f"http-{self.refuse}",
                           now + self.retry_after if self.retry_after else None)
-        return Answer(WHAM if url == openai.URL else QUOTA, 200, None)
+        return Answer(body, 200, None)
 
 
 class Contract(unittest.TestCase):
@@ -116,11 +126,14 @@ class Contract(unittest.TestCase):
         self.assertEqual(len(self.up.calls), 2)
 
     def test_a_different_sign_in_is_read_afresh_and_the_old_account_is_not_served(self):
-        self.read(openai)
+        [first] = self.read(openai)
+        self.assertEqual((first["account"], first["plan"], first["limits"][0]["used_at_least"]),
+                         ("acct-fixture", "prolite", .44))
         (self.tmp / "codex" / "auth.json").write_text(json.dumps(
             {"tokens": {"access_token": OPENAI_SECRET, "account_id": "acct-other"}}))
-        got = self.read(openai)
-        self.assertEqual(([r["account"] for r in got], len(self.up.calls)), (["acct-other"], 2))
+        [second] = self.read(openai)
+        self.assertEqual((second["account"], second["plan"], second["limits"][0]["used_at_least"], len(self.up.calls)),
+                         ("acct-other", "fixture-other", .83, 2))
 
     def test_a_window_past_its_reset_has_no_used_figure_even_from_cache(self):
         self.read(zai)
