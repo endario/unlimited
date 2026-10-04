@@ -449,6 +449,33 @@ class VerdictPolicyCli(unittest.TestCase):
             code = cli.main(["verdict", "--work", "600", "--json", *args])
         return code, out.getvalue(), err.getvalue()
 
+    def test_invalid_verdict_durations_fail_before_reads_even_without_accounts(self):
+        cases = [("--work", value) for value in
+                 ("inf", "-inf", "nan", "1e300", "1e12", "-1", "-1e-9")]
+        cases += [("--max-age", value) for value in
+                  ("inf", "-inf", "nan", "1e300", "-1", "-1e-9")]
+        valid_readings = self.readings
+        for empty in (False, True):
+            self.readings = [] if empty else valid_readings
+            for flag, value in cases:
+                with self.subTest(flag=flag, value=value, empty=empty):
+                    self.read_cache.reset_mock()
+                    code, text, err = self.run_cli("--vendor", "openai", f"{flag}={value}")
+                    self.assertEqual((code, text), (2, ""))
+                    self.assertIn(flag, err)
+                    self.read_cache.assert_not_called()
+
+    def test_zero_and_fractional_verdict_durations_remain_supported(self):
+        for work, age in ((0, 0), (.25, .5), (600.25, 300.5)):
+            with self.subTest(work=work, age=age):
+                code, text, _ = self.run_cli("--vendor", "openai", f"--work={work}", f"--max-age={age}")
+                self.assertEqual(code, 0)
+                (got,) = json.loads(text)
+                expected = verdict(self.readings[0], model_scope=None, now=NOW,
+                                   work=timedelta(seconds=work), max_age=timedelta(seconds=age), off={})
+                self.assertEqual({k: v for k, v in got["verdict"].items() if k != "preference"}, expected)
+                self.assertEqual(got["verdict"]["state"], "ranked")
+
     def test_annotation_and_preference_use_the_validation_catalog_snapshot(self):
         changed = copy.deepcopy(self.cat_data)
         changed["models"]["model-a"]["provider"] = "new-maker"
