@@ -187,6 +187,43 @@ do not include local exception paths. Unknown applicable targets appear in `unre
 being reinterpreted as vendor rules. Annotation alone does not change verdicts or add context input
 to route choice.
 
+## Context evaluation
+
+```text
+unlimited.incentives.evaluate_context(
+    cat: Catalog | None, context: dict | None, *, vendor: str,
+    account: str | None, offering: str | None, now: datetime,
+) -> dict
+```
+
+This pure evaluator interprets v1 settings with the receiver's catalog at the supplied time.
+An explicit offering must belong to the requested vendor. With `offering=None`, only
+vendor-targeted settings apply; model, provider and offering rules do not become vendor-wide.
+Selection uses the same identity, specificity, activation and source-order precedence as
+`resolve`, then bounds the selected factor to at most `1e6`. Settings retain requested factors
+of at least `1e-6`; display routes add `requested_multiplier` and `clamped=True` only when bounded.
+The display `routes` field is not evaluation input.
+
+The result contains `status` (`applied`, `neutral` or `unavailable`), `reason`, effective
+`multiplier`, `requested_multiplier`, selected `target`, `scope` (`vendor`, `provider`, `model`
+or `offering`), fixed `until`, `account_scoped`, `clamped` and `unresolved` target diagnostics.
+An explicit 1× winner is neutral with `reason=explicit-neutral` and retains its rule explanation;
+no live winner is neutral with `reason=no-live-rule` and null rule fields. A genuine clamp uses
+`reason=clamped` and preserves the requested value. Account scope means an explicit selector,
+not a reset binding.
+
+Unavailable policy has multiplier 1 and reason `missing-context`, `unsupported-version`,
+`policy-unavailable`, `invalid-context` or `catalog-unavailable`. Malformed settings invalidate
+the context rather than partially applying it. Unknown additive fields are ignored; unsupported
+semantic versions are not evaluated. Unknown targets are diagnosed, not reinterpreted.
+Well-formed vendor/account conflicts raise `ValueError` independently of policy validity, as do
+bad offering/vendor requests when a catalog is supplied. A null account header permits only
+unbound settings; a separately supplied account does not turn them into scoped policy.
+
+A nullable catalog permits policy-failure handling and neutral empty settings with no offering.
+Otherwise evaluation requires catalog metadata; it does not load or synthesize a catalog.
+This API does not add context inputs to `rank`/`choose` or policy weighting to verdicts.
+
 ## Cards
 
 `unlimited cards` shows, per route (a provider's model), the vendor's published figures from the
