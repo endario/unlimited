@@ -3,9 +3,14 @@ vendor stop and the monthly bucket."""
 
 from __future__ import annotations
 
+import copy
+import json
+import math
+import sys
 import unittest
 from datetime import datetime, timedelta, timezone
 
+from unlimited import catalog, choice, incentives
 from unlimited.verdict import verdict
 
 NOW = datetime(2026, 9, 24, 8, 0, tzinfo=timezone.utc)
@@ -164,6 +169,208 @@ class Scope(unittest.TestCase):
     def test_a_stale_reading_is_unread(self):
         old = reading(window("codex", 0.1, WEEK, 3000), taken=NOW - timedelta(minutes=6))
         self.assertEqual(v(old), {"state": "unread", "reason": "stale"})
+
+
+class Preference(unittest.TestCase):
+    def setUp(self):
+        self.cat = catalog.Catalog({
+            "tiers": ["standard"],
+            "models": {"m": {"provider": "p", "tiers": ["standard"]}},
+            "offerings": [{"id": "o", "model": "m", "vendor": "openai"}],
+        })
+
+    def context(self, factor=1.0, *, target="openai", account="a", until=None):
+        return {"v": 1, "vendor": "openai", "account": account,
+                "observed_at": NOW.isoformat(), "settings": [
+                    {"target": target, "multiplier": factor, "activated_at": NOW.isoformat(),
+                     "until": (until or NOW + HOUR).isoformat()}]}
+
+    def policy(self, context, *, offering="o", now=NOW):
+        return incentives.evaluate_context(
+            self.cat, context, vendor="openai", account="a", offering=offering, now=now)
+
+    def test_omitted_and_none_preserve_the_raw_ranked_dictionary(self):
+        for tier, forecast, exhausts, score in ((0, .1, None, 1.8), (1, 1.2, NOW + 2 * HOUR, 2.0)):
+            with self.subTest(tier=tier):
+                r = reading(window("codex", .05, WEEK, WEEK / 2,
+                                   at_reset=(forecast, forecast), exhausts=exhausts))
+                r["steering"] = self.context(10)
+                expected = {"window": "codex", "used": .05, "at_reset": [forecast, forecast], "paced": False,
+                            "resets_at": (NOW + timedelta(minutes=WEEK / 2)).isoformat(),
+                            "exhausts_at": exhausts.isoformat() if exhausts else None,
+                            "exhausts_by": "codex" if exhausts else None,
+                            "runway": 7200.0 if exhausts else None,
+                            "binding": ["codex"], "state": "ranked", "tier": tier, "score": score}
+                self.assertEqual(v(r), expected)
+                self.assertEqual(v(r, policy=None), expected)
+                self.assertEqual(json.dumps(v(r)), json.dumps(v(r, policy=None)))
+
+    def test_preference_is_additive_and_does_not_mutate_inputs(self):
+        r = reading(window("codex", .05, WEEK, WEEK / 2, at_reset=(.1, .1)))
+        context = self.context(10)
+        context["settings"][0]["account"] = "a"
+        policy = {**self.policy(context), "base_score": -1, "effective_score": -1}
+        self.assertIs(policy["account_scoped"], True)
+        self.assertEqual((policy["target"], policy["scope"], policy["until"]),
+                         ("openai", "vendor", (NOW + HOUR).isoformat()))
+        before = copy.deepcopy((r, policy))
+        raw = v(r)
+        weighted = v(r, policy=policy)
+        self.assertEqual({k: x for k, x in weighted.items() if k != "preference"}, raw)
+        self.assertEqual(weighted["preference"],
+                         {**policy, "base_score": 1.8, "effective_score": 18.0})
+        self.assertEqual((r, policy), before)
+
+    def test_empty_expired_and_unavailable_policy_keep_usable_quota(self):
+        good = self.context()
+        cases = [
+            ({**good, "settings": []}, "neutral", "no-live-rule"),
+            (self.context(10, until=NOW), "neutral", "no-live-rule"),
+            (good, "neutral", "explicit-neutral"),
+            (None, "unavailable", "missing-context"),
+            ({**good, "v": 999}, "unavailable", "unsupported-version"),
+            ({**good, "error": "source policy unreadable"}, "unavailable", "policy-unavailable"),
+            ({**good, "settings": "broken"}, "unavailable", "invalid-context"),
+        ]
+        r = reading(window("codex", .05, WEEK, WEEK / 2, at_reset=(.1, .1)))
+        raw = v(r)
+        for context, status, reason in cases:
+            with self.subTest(reason=reason):
+                policy = self.policy(context)
+                weighted = v(r, policy=policy)
+                self.assertEqual({k: x for k, x in weighted.items() if k != "preference"}, raw)
+                pref = weighted["preference"]
+                self.assertEqual((pref["status"], pref["reason"], pref["multiplier"]),
+                                 (status, reason, 1.0))
+                self.assertEqual(pref["effective_score"].hex(), raw["score"].hex())
+        unavailable = incentives.evaluate_context(
+            None, good, vendor="openai", account="a", offering=None, now=NOW)
+        self.assertEqual(unavailable["reason"], "catalog-unavailable")
+        self.assertEqual(v(r, policy=unavailable)["preference"]["effective_score"], 1.8)
+
+    def test_different_source_policies_promote_and_discourage_before_reduction(self):
+        rows = [
+            reading(window("codex", .05, WEEK, WEEK / 2, at_reset=(.1, .1))),
+            reading(window("codex", .05, WEEK, WEEK / 14, at_reset=(.4, .4))),
+        ]
+        plain = [v(r, policy=self.policy(self.context())) for r in rows]
+        strict = lambda vs: min(range(len(vs)), key=lambda i:
+                               (vs[i]["tier"], -vs[i]["preference"]["effective_score"]))
+        # This demonstrates SDK quantities, not a new product account-selector API.
+        self.assertEqual(min(range(len(rows)), key=lambda i: plain[i]["at_reset"][1]), 0)
+        self.assertEqual(strict(plain), 1)
+        encouraged = [v(rows[0], policy=self.policy(self.context(10))), plain[1]]
+        self.assertEqual(strict(encouraged), 0)
+        discouraged = [plain[0], v(rows[1], policy=self.policy(self.context(.1)))]
+        self.assertEqual(strict(discouraged), 0)
+        for got, raw in zip(encouraged, plain):
+            self.assertEqual(got["at_reset"], raw["at_reset"])
+        same_account = rows[0]
+        source_a = v(same_account, policy=self.policy(self.context(10)))
+        source_b = v(same_account, policy=self.policy(self.context(.1)))
+        self.assertEqual(source_a["preference"]["multiplier"], 10)
+        self.assertEqual(source_b["preference"]["multiplier"], .1)
+        shared = [v(r, policy=self.policy(self.context(5))) for r in rows]
+        self.assertEqual(strict(shared), strict(plain))
+        self.assertEqual(strict([plain[0], copy.deepcopy(plain[0])]), 0)
+
+    def test_policy_does_not_cross_tiers_or_add_preference_to_nonranked_verdicts(self):
+        strong = self.policy(self.context(sys.float_info.max))
+        weak = self.policy(self.context(1e-6))
+        calm = reading(window("codex", .05, WEEK, WEEK / 2, at_reset=(.9, .9)))
+        risky = reading(window("codex", .05, WEEK, WEEK / 2, at_reset=(1.2, 1.2),
+                               exhausts=NOW + 2 * HOUR))
+        ranked = [v(calm, policy=weak), v(risky, policy=strong)]
+        self.assertEqual([x["tier"] for x in ranked], [0, 1])
+        self.assertGreater(ranked[1]["preference"]["effective_score"],
+                           ranked[0]["preference"]["effective_score"])
+        self.assertEqual(min(range(2), key=lambda i:
+                             (ranked[i]["tier"], -ranked[i]["preference"]["effective_score"])), 0)
+        cases = [
+            (None, {}),
+            (reading(status="refused"), {}),
+            (reading(window("codex", .05, WEEK, 100), taken=NOW - timedelta(minutes=6)), {}),
+            (reading(window("codex", 1, WEEK, 100)), {}),
+            (reading(window("codex", .2, WEEK, 100, held=True, held_why="limit_reached")), {}),
+            (risky, {"work": 3 * HOUR}),
+            (calm, {"off": {"openai/a": None}}),
+        ]
+        for r, kw in cases:
+            with self.subTest(reading=r, options=kw):
+                raw = v(r, **kw)
+                self.assertIn(raw["state"], ("unread", "excluded"))
+                self.assertEqual(v(r, policy=None, **kw), raw)
+                self.assertEqual(v(r, policy=strong, **kw), raw)
+                self.assertNotIn("preference", v(r, policy=strong, **kw))
+        scoped = reading(window("codex", .05, WEEK, 100, at_reset=(.2, .2)),
+                         window("model_week", 1, WEEK, 100, role="weekly_model", scope="X"))
+        self.assertEqual(v(scoped, scope="X", policy=strong)["state"], "excluded")
+        self.assertEqual(v(scoped, scope="Y", policy=strong)["state"], "ranked")
+
+    def test_clamped_actual_scores_are_finite_and_zero_stays_zero(self):
+        cap = self.policy(self.context(sys.float_info.max))
+        tier_zero = reading(window("codex", 0, WEEK, 1, at_reset=(0, 0)))
+        far = window("month", .05, 43200, 100, role="month", at_reset=(1.2, 1.2))
+        far["resets_at"] = datetime.max.replace(tzinfo=timezone.utc).isoformat()
+        for r in (tier_zero, reading(far)):
+            with self.subTest(reading=r):
+                got = v(r, policy=cap)
+                self.assertEqual(got["state"], "ranked")
+                self.assertTrue(math.isfinite(got["preference"]["effective_score"]))
+                self.assertEqual(got["preference"]["effective_score"], got["score"] * 1e6)
+                json.dumps(got, allow_nan=False)
+        zero_window = window("codex", .05, WEEK, WEEK / 2,
+                             at_reset=(1, 1), exhausts=NOW + HOUR)
+        zero_window["projection"]["exhausts_at"] = NOW.isoformat()
+        got = v(reading(zero_window), work=timedelta(0), policy=cap)
+        self.assertEqual(got["score"], 0.0)
+        self.assertEqual(got["preference"]["effective_score"], 0.0)
+
+    def test_explicit_neutral_preserves_adjacent_raw_band_comparisons(self):
+        r = reading(window("codex", .05, WEEK, WEEK / 2, at_reset=(.1, .1)))
+        raw = v(r)
+        weighted = v(r, policy=self.policy(self.context()))
+        best = raw["score"]
+        effective = weighted["preference"]["effective_score"]
+        boundary = best - .1 * abs(best)
+        effective_boundary = effective - .1 * abs(effective)
+        self.assertEqual(effective.hex(), best.hex())
+        outcomes = []
+        for candidate in (math.nextafter(boundary, -math.inf), boundary,
+                          math.nextafter(boundary, math.inf)):
+            outcomes.append(candidate >= effective_boundary)
+            self.assertEqual(candidate >= effective_boundary, candidate >= boundary)
+        self.assertEqual(outcomes, [False, True, True])
+
+    def test_route_and_verdict_use_the_same_effective_factor_with_raw_quota(self):
+        context = self.context(sys.float_info.max, target="o")
+        policy = self.policy(context)
+        r = reading(window("codex", .05, WEEK, WEEK / 2, at_reset=(.1, .1)))
+        weighted = v(r, policy=policy)
+        self.assertEqual((weighted["preference"]["scope"], weighted["preference"]["target"]), ("offering", "o"))
+        unspecified = v(r, policy=self.policy(context, offering=None))
+        self.assertEqual((unspecified["preference"]["multiplier"], unspecified["preference"]["effective_score"],
+                          unspecified["preference"]["reason"]), (1.0, 1.8, "no-live-rule"))
+        quota = {"o": weighted["at_reset"][1]}
+        args = dict(tier="standard", candidates=["o"], attempts=[], quota=quota,
+                    deadline=900, now=NOW, seed=7, contexts={"o": context})
+        for temperature in (0, .5, None):
+            with self.subTest(temperature=temperature):
+                got = choice.rank(self.cat, temperature=temperature, **args)
+                candidate = got["candidates"][0]
+                self.assertEqual(candidate["multiplier"], policy["multiplier"])
+                self.assertEqual(candidate["rho"], v(r)["at_reset"][1])
+                self.assertEqual(candidate["pi"], choice.price(v(r)["at_reset"][1]))
+                for key in ("t_ok", "t_fail", "t_next", "e"):
+                    self.assertTrue(math.isfinite(candidate[key]))
+                neutral = self.context()
+                baseline = choice.rank(self.cat, temperature=temperature,
+                                       **{**args, "contexts": {"o": neutral}})
+                for key in ("rho", "pi", "p", "t_ok", "t_fail", "t_next", "preference"):
+                    self.assertEqual(candidate[key], baseline["candidates"][0][key])
+                again = choice.rank(self.cat, temperature=temperature, **args)
+                self.assertEqual(got["order"], again["order"])
+                self.assertEqual(got["candidates"], again["candidates"])
 
 
 class Cli(unittest.TestCase):

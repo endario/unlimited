@@ -15,7 +15,7 @@ Three parts, each usable on its own:
 ## 1. Verdict
 
 `unlimited verdict --work SECONDS [--model-scope M] [--max-age S] [--vendor V]... --json`, or
-`unlimited.verdict.verdict(reading, model_scope=, now=, work=, max_age=, starts=None, off=)`, over one
+`unlimited.verdict.verdict(reading, model_scope=, now=, work=, max_age=, starts=None, off=, policy=None)`, over one
 schema-1 reading:
 
 - `unread` (no reading, not ok, stale, an expected window missing or malformed),
@@ -37,6 +37,15 @@ only when its scope is `model_scope`; a limit with no role key always (missing d
 room). The scored window is a plan's monthly bucket where it enforces one, else its longest window up
 to a week. A limit reported `held` is the vendor's stop, except `overage`, where the account still
 runs. Ordering, tie rules and fallback are the caller's.
+
+An optional `policy=None` keyword accepts the resolved record from
+`unlimited.incentives.evaluate_context`. Omitted or null policy leaves the verdict unchanged.
+An explicit policy adds `preference` only to a ranked verdict: the policy-result fields plus
+`base_score` and `effective_score = score * multiplier`. `multiplier` is effective;
+`requested_multiplier` retains the request and `clamped`/`reason` explain a bound. Neutral and
+unavailable policy use multiplier 1. Raw score, tier, forecast and exclusions remain separate;
+compare tier before effective score. Resolve policy for the concrete source/account/offering
+before reducing alternatives, and pass raw projected use—not preference—to route quota pricing.
 
 ## 2. Attempt log
 

@@ -97,7 +97,7 @@ def _iso(t: datetime | None) -> str | None:
 
 def verdict(reading: object, *, model_scope: str | None, now: datetime, work: timedelta,
             max_age: timedelta, starts: datetime | None = None,
-            off: dict[str, str | None] | None = None) -> dict:
+            off: dict[str, str | None] | None = None, policy: dict | None = None) -> dict:
     """`unread`, `excluded` or `ranked` for `work` on `model_scope` starting at `starts`.
     `ranked` is advisory: it describes one reading and reserves nothing. `off` is the machine's
     policy (`catalog.off_policy(now)`), keyed by vendor for a whole-vendor switch or
@@ -168,5 +168,11 @@ def verdict(reading: object, *, model_scope: str | None, now: datetime, work: ti
     over = [w for w in live if w["hi"] >= 1 or w["exhausts"] is not None]
     if over:
         until = min(w["exhausts"] or w["resets"] for w in over)
-        return {**out, "state": "ranked", "tier": 1, "score": (until - now).total_seconds() / 3600}
-    return {**out, "state": "ranked", "tier": 0, "score": (1 - s["hi"]) / max(s["f"], FLOOR)}
+        tier, score = 1, (until - now).total_seconds() / 3600
+    else:
+        tier, score = 0, (1 - s["hi"]) / max(s["f"], FLOOR)
+    result = {**out, "state": "ranked", "tier": tier, "score": score}
+    if policy is not None:
+        result["preference"] = {**policy, "base_score": score,
+                                "effective_score": score * policy["multiplier"]}
+    return result
