@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+import fcntl
 import io
 import json
 import os
+import stat
 import unittest
 from contextlib import redirect_stderr, redirect_stdout
 from datetime import datetime, timedelta, timezone
@@ -86,6 +88,115 @@ class Log(unittest.TestCase):
             f.write('{"type": "start", "attem')
         got, bad = self.stats()
         self.assertEqual((("glm", "g") in got, bad), (True, 1))
+
+    def test_append_creates_private_history_under_a_public_umask(self):
+        self.p.parent.chmod(0o755)
+        p = self.p.parent / "unlimited" / self.p.name
+        record = {"v": 1, "type": "decision", "at": NOW.isoformat(),
+                  "request": {"task": "example", "accounts": {"route": "account"},
+                              "meta": {"job": "42", "nested": [1, {"label": "opaque"}]}},
+                  "candidates": [{"model": "route", "e": 1.5}], "order": [0], "pick": 0}
+        previous = os.umask(0o022)
+        try:
+            outcomes.append(record, p)
+        finally:
+            os.umask(previous)
+        self.assertEqual(outcomes.read(p), ([record], 0))
+        self.assertEqual(stat.S_IMODE(p.stat().st_mode), 0o600)
+        self.assertEqual(stat.S_IMODE(p.parent.stat().st_mode), 0o700)
+        self.assertEqual(stat.S_IMODE(p.parent.parent.stat().st_mode), 0o755)
+
+    def test_append_repairs_public_history_without_replacing_its_records(self):
+        original = '{"type": "start", "attempt": "a", "meta": {"job": "42"}}\n'
+        self.p.write_text(original)
+        self.p.chmod(0o644)
+        self.p.parent.chmod(0o755)
+        inode = self.p.stat().st_ino
+        record = {"type": "end", "attempt": "a", "outcome": "ok", "meta": {"result": ["opaque"]}}
+        previous = os.umask(0o022)
+        try:
+            outcomes.append(record, self.p)
+        finally:
+            os.umask(previous)
+        self.assertEqual(self.p.read_text(), original + json.dumps(record, separators=(",", ":")) + "\n")
+        self.assertEqual(outcomes.read(self.p), ([json.loads(original), record], 0))
+        self.assertEqual(self.p.stat().st_ino, inode)
+        self.assertEqual(stat.S_IMODE(self.p.stat().st_mode), 0o600)
+        self.assertEqual(stat.S_IMODE(self.p.parent.stat().st_mode), 0o755)
+
+    def test_compaction_repairs_public_history_and_preserves_full_retained_records(self):
+        old = {"type": "decision", "at": (NOW - timedelta(days=8)).isoformat(),
+               "request": {"meta": {"padding": "x" * outcomes.COMPACT_BYTES}}}
+        kept = [{"type": "start", "at": (NOW - MIN).isoformat(), "attempt": "a", "account": "account",
+                 "task": "example", "meta": {"nested": [1, {"job": "42"}]}},
+                {"type": "end", "at": NOW.isoformat(), "attempt": "a", "outcome": "ok",
+                 "tokens": {"in": 100, "out": 10}, "meta": {"result": "opaque"}}]
+        retained = "".join(json.dumps(r) + "\n" for r in kept)
+        self.p.write_text(json.dumps(old) + "\n" + retained)
+        self.p.chmod(0o644)
+        inode = self.p.stat().st_ino
+        self.assertGreater(self.p.stat().st_size, outcomes.COMPACT_BYTES)
+        previous = os.umask(0o022)
+        try:
+            outcomes.compact(NOW, self.p)
+        finally:
+            os.umask(previous)
+        self.assertEqual(self.p.read_text(), retained)
+        self.assertEqual(outcomes.read(self.p), (kept, 0))
+        self.assertEqual(self.p.stat().st_ino, inode)
+        self.assertEqual(stat.S_IMODE(self.p.stat().st_mode), 0o600)
+
+    def test_compaction_repairs_small_public_history_without_compacting_it(self):
+        original = json.dumps({"at": (NOW - timedelta(days=8)).isoformat(), "meta": {"job": "42"}}) + "\n"
+        self.p.write_text(original)
+        self.p.chmod(0o644)
+        self.assertLess(self.p.stat().st_size, outcomes.COMPACT_BYTES)
+        previous = os.umask(0o022)
+        try:
+            outcomes.compact(NOW, self.p)
+        finally:
+            os.umask(previous)
+        self.assertEqual(self.p.read_text(), original)
+        self.assertEqual(stat.S_IMODE(self.p.stat().st_mode), 0o600)
+
+    def test_history_is_private_and_exclusively_locked_while_processing_records(self):
+        record = {"at": NOW.isoformat(), "meta": {"job": "42"}}
+        serialized = json.dumps(record) + "\n"
+        for target, name, operation in ((outcomes.json, "dumps", lambda: outcomes.append(record, self.p)),
+                                        (outcomes, "_time", lambda: outcomes.compact(NOW, self.p))):
+            with self.subTest(operation=name):
+                self.p.write_text(serialized)
+                self.p.chmod(0o644)
+                original = getattr(target, name)
+
+                def checked(*args, **kwargs):
+                    self.assertEqual(stat.S_IMODE(self.p.stat().st_mode), 0o600)
+                    with open(self.p) as other:
+                        with self.assertRaises(BlockingIOError):
+                            fcntl.flock(other, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                    return original(*args, **kwargs)
+
+                with mock.patch.object(target, name, side_effect=checked), \
+                        mock.patch.object(outcomes, "COMPACT_BYTES", 0):
+                    operation()
+                with open(self.p) as other:
+                    fcntl.flock(other, fcntl.LOCK_EX | fcntl.LOCK_NB)
+
+    def test_permission_failure_closes_history_without_modifying_records(self):
+        original = json.dumps({"at": NOW.isoformat(), "meta": {"job": "42"}}) + "\n"
+        for operation in (lambda: outcomes.append({"meta": {"job": "43"}}, self.p),
+                          lambda: outcomes.compact(NOW, self.p)):
+            with self.subTest(operation=operation):
+                self.p.write_text(original)
+                self.p.chmod(0o644)
+                with mock.patch.object(outcomes.os, "fchmod", side_effect=PermissionError) as chmod, \
+                        mock.patch.object(outcomes, "COMPACT_BYTES", 0):
+                    with self.assertRaises(PermissionError):
+                        operation()
+                fd = chmod.call_args.args[0]
+                with self.assertRaises(OSError):
+                    os.fstat(fd)
+                self.assertEqual(self.p.read_text(), original)
 
     def test_compaction_drops_only_old_records(self):
         self.run_attempt("glm", "old", "ok", 4, timedelta(days=8))

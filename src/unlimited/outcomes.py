@@ -31,8 +31,10 @@ def path() -> Path:
 
 def append(record: dict, p: Path | None = None) -> None:
     p = p or path()
-    p.parent.mkdir(parents=True, exist_ok=True)
-    with open(p, "a") as f:
+    p.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+    fd = os.open(p, os.O_WRONLY | os.O_CREAT | os.O_APPEND, 0o600)
+    with os.fdopen(fd, "a") as f:
+        os.fchmod(f.fileno(), 0o600)
         fcntl.flock(f, fcntl.LOCK_EX)
         f.write(json.dumps(record, separators=(",", ":")) + "\n")
         f.flush()
@@ -63,11 +65,13 @@ def compact(now: datetime, p: Path | None = None) -> None:
     """Drop records older than KEEP, once the file is large enough to matter."""
     p = p or path()
     try:
-        if p.stat().st_size < COMPACT_BYTES:
-            return
+        f = open(p, "r+")
     except FileNotFoundError:
         return
-    with open(p, "r+") as f:
+    with f:
+        os.fchmod(f.fileno(), 0o600)
+        if os.fstat(f.fileno()).st_size < COMPACT_BYTES:
+            return
         fcntl.flock(f, fcntl.LOCK_EX)
         kept = []
         for line in f.read().splitlines():
