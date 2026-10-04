@@ -208,11 +208,14 @@ own vendor has no card shows another vendor's as a guideline only. Design:
 
 ## Verdicts
 
-`unlimited verdict --work SECONDS [--model-scope M] [--max-age S] [--vendor V]... --json` says, for
+`unlimited verdict --work SECONDS [--offering ID] [--model-scope M] [--max-age S] [--vendor V]... --json` says, for
 each account, whether it can take a unit of work of that length on that model family: `unread`,
 `excluded` (with the window that binds and when it lifts; or, for a vendor switched off here, when
-the switch lifts), or `ranked` (with a tier and a score). Advisory: it reserves nothing. Design:
-[docs/choice.md](docs/choice.md).
+the switch lifts), or `ranked` (with a tier and a score). Advisory: it reserves nothing.
+Each row adds local `steering`; ranked verdicts add `preference` while retaining raw quota fields.
+`--offering ID` evaluates policy for an actual route and, without `--vendor`, reads that route's
+usage vendor only. It is separate from the model-family limit selector `--model-scope`.
+Details and the canonical account handoff: [docs/choice.md](docs/choice.md#1-verdict).
 
 ## Credits
 

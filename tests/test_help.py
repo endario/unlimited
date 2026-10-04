@@ -38,5 +38,15 @@ class Help(unittest.TestCase):
                         p.parse_args(shlex.split(line)[1:])
 
 
+    def test_verdict_offering_is_separate_from_model_scope(self):
+        p = cli._parser()
+        a = p.parse_args(["verdict", "--work", "600", "--offering", "gpt-6.1-sol",
+                          "--model-scope", "Opus"])
+        self.assertEqual((a.offering, a.model_scope), ("gpt-6.1-sol", "Opus"))
+        sub = next(q for path, q in parsers(p) if path == ("verdict",))
+        self.assertIn("--offering", sub.format_help())
+        self.assertIn("model-family", sub.format_help())
+
+
 if __name__ == "__main__":
     unittest.main()

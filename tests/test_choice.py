@@ -7,12 +7,13 @@ import json
 import os
 import random
 import unittest
-from contextlib import redirect_stdout
+from contextlib import contextmanager, redirect_stderr, redirect_stdout
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
+from types import SimpleNamespace
 from unittest import mock
 
-from unlimited import catalog, choice, cli, outcomes
+from unlimited import catalog, choice, cli, incentives, outcomes
 
 import scratch
 
@@ -281,6 +282,73 @@ class Choose(unittest.TestCase):
         failing = mock.Mock(discover=mock.Mock(side_effect=OSError("unreadable")))
         with mock.patch.dict(REGISTRY, {v: failing for v in REGISTRY}):
             self.assertEqual(choice.vendors_here(cat), {o["vendor"] for o in cat.offerings})
+
+
+    @contextmanager
+    def local_policy_choice(self):
+        cat = catalog.Catalog({
+            "tiers": ["standard"],
+            "models": {"m": {"provider": "maker", "tiers": ["standard"]}},
+            "offerings": [{"id": "route-a", "model": "m", "vendor": "openai"}],
+        })
+        group = {"target": "openai", "account": "a", "multiplier": 10,
+                 "activated_at": NOW.isoformat(),
+                 "until": (NOW + timedelta(hours=1)).isoformat()}
+        adapter = SimpleNamespace(VENDOR="openai", names=lambda: {"a": ["alpha"], "b": ["beta"]})
+        args = ["choose", "--tier", "standard", "--candidates", "route-a", "--deadline", "600",
+                "--quota", "route-a=0.4", "--vendors", "any", "--temperature", "0", "--json"]
+        with mock.patch.dict(os.environ, {
+                 "HOME": scratch.mkdtemp(), "XDG_CONFIG_HOME": scratch.mkdtemp(),
+                 "XDG_CACHE_HOME": scratch.mkdtemp(), "XDG_STATE_HOME": scratch.mkdtemp(),
+             }, clear=True), \
+             mock.patch.object(catalog, "load", return_value=cat), \
+             mock.patch.dict(cli.REGISTRY, {"openai": adapter}, clear=True), \
+             mock.patch.object(incentives, "read", return_value=[group]), \
+             mock.patch.object(cli, "datetime") as clock:
+            clock.now.return_value = NOW
+            yield cat, args
+
+    def test_cli_choose_keeps_canonical_binding_and_local_account_policy(self):
+        with self.local_policy_choice() as (cat, args):
+            for identity in ("a", "alpha"):
+                out = io.StringIO()
+                with redirect_stdout(out):
+                    self.assertEqual(cli.main([*args, "--account", f"route-a={identity}"]), 0)
+                got = json.loads(out.getvalue())
+                self.assertEqual(got["request"]["accounts"]["route-a"],
+                                 {"account": "a", "names": ["alpha"]})
+                self.assertEqual(got["request"]["quota"], {"route-a": .4})
+                self.assertEqual(got["candidates"][0]["multiplier"], 10)
+                logged, bad = outcomes.read()
+                self.assertEqual(bad, 0)
+                self.assertEqual(logged[-1]["request"], got["request"])
+                self.assertEqual(got["candidates"][0]["rho"], .4)
+            cat.off = [{"target": "openai", "account": "alpha"}]
+            out = io.StringIO()
+            with redirect_stdout(out), redirect_stderr(io.StringIO()):
+                self.assertEqual(cli.main([*args, "--account", "route-a=a"]), 1)
+            self.assertEqual(out.getvalue(), "")
+            out = io.StringIO()
+            with redirect_stdout(out):
+                self.assertEqual(cli.main([*args, "--account", "route-a=b"]), 0)
+            sibling = json.loads(out.getvalue())
+            self.assertEqual(sibling["candidates"][0]["multiplier"], 1)
+
+    def test_cli_choose_without_binding_does_not_invent_account_policy(self):
+        with self.local_policy_choice() as (_, args):
+            out = io.StringIO()
+            with redirect_stdout(out):
+                self.assertEqual(cli.main(args), 0)
+            got = json.loads(out.getvalue())
+            self.assertEqual(got["candidates"][0]["multiplier"], 1)
+            self.assertIn("openai/a", got["incentives_unresolved"])
+
+    def test_cli_unknown_account_offering_is_refused_before_choice(self):
+        with self.local_policy_choice() as (_, args), \
+             mock.patch.object(choice, "choose") as choose_call, \
+             redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()):
+            self.assertEqual(cli.main([*args, "--account", "unknown=a"]), 2)
+        choose_call.assert_not_called()
 
 
 if __name__ == "__main__":
