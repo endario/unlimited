@@ -710,6 +710,11 @@ def main(argv: list[str] | None = None) -> int:
         from . import catalog, incentives
         from .verdict import verdict
         now = datetime.now(timezone.utc)
+        try:
+            off = catalog.off_policy(now)
+        except catalog.CatalogError as e:
+            print(f"unlimited: catalog: {e}", file=sys.stderr)
+            return 2
         errors = []
         if verdict_cat is None:
             try:
