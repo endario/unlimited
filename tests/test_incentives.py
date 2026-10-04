@@ -263,7 +263,11 @@ class Incentives(unittest.TestCase):
         group = incentives.set_incentive(cat, "neuralwatt", 2, now=NOW, readings=[reading],
                                          path=incentives.incentives_path(self.local))
         self.assertEqual(group["bindings"][0]["account"], "a")
-        self.assertEqual(incentives.overlay([reading], cat, [group], NOW)[0]["steering"]["settings"][0]["multiplier"], 2)
+        ctx = incentives.overlay([reading], cat, [group], NOW)[0]["steering"]
+        self.assertEqual(ctx["settings"][0]["multiplier"], 2)
+        self.assertEqual(ctx["settings"][0].get("activated_at"), NOW.isoformat())
+        self.assertEqual((ctx["vendor"], ctx["account"], ctx["routes"], ctx["unresolved"]),
+                         ("neuralwatt", "a", [], []))
 
     def test_cli_reads_a_registered_vendor_even_without_catalog_offerings(self):
         import io
@@ -328,11 +332,16 @@ class Incentives(unittest.TestCase):
         reading = {"schema": 1, "vendor": "openai", "account": "a", "status": "ok", "limits": []}
         output = io.StringIO()
         with mock.patch.object(catalog, "load", side_effect=catalog.CatalogError("broken")), \
+                mock.patch.object(catalog, "load_metadata", side_effect=AssertionError("empty policy needs no catalog")), \
                 mock.patch.object(incentives, "read", return_value=[]), \
                 mock.patch.object(cli.cache, "through", return_value=[reading]), \
                 redirect_stdout(output), redirect_stderr(io.StringIO()):
             self.assertEqual(cli.main(["read", "--vendor", "openai", "--json"]), 0)
-        self.assertEqual(json.loads(output.getvalue())[0]["account"], "a")
+        row = json.loads(output.getvalue())[0]
+        self.assertEqual(row["account"], "a")
+        self.assertEqual(row["steering"].get("account"), "a")
+        self.assertEqual(row["steering"]["settings"], [])
+        self.assertNotIn("error", row["steering"])
 
     def test_a_tiny_multiplier_is_refused_before_it_can_strand_choice(self):
         path = incentives.incentives_path(self.local)

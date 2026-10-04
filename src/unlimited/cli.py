@@ -666,15 +666,10 @@ def main(argv: list[str] | None = None) -> int:
         out += cache.through(REGISTRY[v], max_age=a.max_age,
                              clock=lambda: datetime.now(timezone.utc), get=transport.get)
     if a.cmd in (None, "status", "read"):
-        from . import catalog, incentives
-        try:
-            now = datetime.now(timezone.utc)
-            groups = incentives.read(now=now)
-            out = (incentives.overlay(out, catalog.load_metadata(), groups, now) if groups else
-                   [dict(r, steering={"settings": [], "routes": []}) for r in out])
-        except catalog.CatalogError as e:
-            print(f"unlimited: steering: {e}", file=sys.stderr)
-            out = [dict(r, steering={"settings": [], "routes": [], "error": str(e)}) for r in out]
+        from . import incentives
+        out, errors = incentives._annotate(out, now=datetime.now(timezone.utc))
+        if errors:
+            print("unlimited: steering: " + ", ".join(errors), file=sys.stderr)
     if a.cmd == "verdict":
         from .verdict import verdict
         now = datetime.now(timezone.utc)

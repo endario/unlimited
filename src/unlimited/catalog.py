@@ -317,6 +317,8 @@ def target_known(cat: "Catalog", target: str, *, account: str | None = None) -> 
     routes = [cat._route(offering) for offering in cat.offerings]
     if account is not None:
         return provider in REGISTRY and not separator
+    if cat.route(target) is not None:
+        return True
     pairs = {(route["provider"], name) for route in routes for name in (route["id"], route["model"])}
     names = {name for route in routes for name in (route["provider"], route["model"], route["vendor"], route["id"])}
     return (provider, model) in pairs if separator else provider in names or provider in REGISTRY
