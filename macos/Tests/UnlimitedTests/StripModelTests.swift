@@ -10,7 +10,7 @@ import UnlimitedKit
     let takenAt = Date(timeIntervalSince1970: 1_790_985_600)
     var now = takenAt.addingTimeInterval(Tile.staleAfter - 1)
     try cli.succeed(takenAt: takenAt, used: 0.42)
-    let model = StripModel(runner: Runner(binary: cli.binary), now: { now })
+    let model = StripModel(runner: Runner(binary: cli.binary), defaults: cli.defaults, now: { now })
     model.refresh()
     try await waitUntil { model.canSteer }
     #expect(model.tiles.first?.value == .percent(42))
@@ -45,7 +45,7 @@ import UnlimitedKit
     defer { cli.remove() }
     let takenAt = Date(timeIntervalSince1970: 1_790_985_600)
     try cli.succeed(takenAt: takenAt, used: 0.42)
-    let model = StripModel(runner: Runner(binary: cli.binary), now: { takenAt })
+    let model = StripModel(runner: Runner(binary: cli.binary), defaults: cli.defaults, now: { takenAt })
     model.refresh()
     try await waitUntil { model.canSteer }
 
@@ -63,11 +63,55 @@ import UnlimitedKit
     let cli = try UsageCLI()
     defer { cli.remove() }
     try cli.fail()
-    let model = StripModel(runner: Runner(binary: cli.binary))
+    let model = StripModel(runner: Runner(binary: cli.binary), defaults: cli.defaults)
     model.refresh()
     try await waitUntil { model.problem != nil }
     #expect(model.tiles == [.broken])
     #expect(model.readings.isEmpty)
+}
+
+@MainActor
+@Test func modelLoadsAndSavesPreferencesInItsFixtureSuite() throws {
+    let cli = try UsageCLI()
+    defer { cli.remove() }
+    let other = try UsageCLI()
+    defer { other.remove() }
+    var saved = Preferences()
+    saved.labels["openai/fixture"] = "OWN"
+    saved.order = ["openai/fixture"]
+    cli.defaults.set(try JSONEncoder().encode(saved), forKey: "preferences")
+
+    let model = StripModel(defaults: cli.defaults)
+    #expect(model.prefs == saved)
+    model.arrange { $0.rename("openai/fixture", to: "NEW") }
+    let persisted = try #require(cli.defaults.data(forKey: "preferences"))
+    #expect(try JSONDecoder().decode(Preferences.self, from: persisted).labels["openai/fixture"] == "NEW")
+    #expect(StripModel(defaults: cli.defaults).prefs.labels["openai/fixture"] == "NEW")
+    #expect(StripModel(defaults: other.defaults).prefs == Preferences())
+    #expect(other.defaults.data(forKey: "preferences") == nil)
+}
+
+@MainActor
+@Test func modelUsesItsFixtureCustomPathForRefreshAndReplacement() async throws {
+    let cli = try UsageCLI()
+    defer { cli.remove() }
+    let replacement = try UsageCLI()
+    defer { replacement.remove() }
+    let takenAt = Date(timeIntervalSince1970: 1_790_985_600)
+    try cli.succeed(takenAt: takenAt, used: 0.42)
+    try replacement.succeed(takenAt: takenAt, used: 0.71)
+    cli.defaults.set(cli.binary.path, forKey: "unlimitedPath")
+    let model = StripModel(runner: Runner(binary: cli.binary), defaults: cli.defaults, now: { takenAt })
+    #expect(model.customPath == cli.binary.path)
+    model.refresh()
+    try await waitUntil { model.tiles.first?.value == .percent(42) }
+
+    model.customPath = replacement.binary.path
+    try await waitUntil { model.tiles.first?.value == .percent(71) }
+    #expect(cli.defaults.string(forKey: "unlimitedPath") == replacement.binary.path)
+    #expect(model.customPath == replacement.binary.path)
+    #expect(StripModel(defaults: replacement.defaults).customPath.isEmpty)
+    #expect(replacement.defaults.string(forKey: "unlimitedPath") == nil)
 }
 
 @MainActor
@@ -81,11 +125,15 @@ private func waitUntil(_ condition: () -> Bool) async throws {
 
 private struct UsageCLI {
     let directory: URL
+    let suiteName: String
+    let defaults: UserDefaults
     var binary: URL { directory.appending(path: "unlimited") }
     private var failure: URL { directory.appending(path: "failure") }
     private var readings: URL { directory.appending(path: "readings.json") }
 
     init() throws {
+        suiteName = "unlimited-tests-\(UUID().uuidString)"
+        defaults = try #require(UserDefaults(suiteName: suiteName))
         directory = FileManager.default.temporaryDirectory.appending(path: "unlimited-163-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         try """
@@ -121,6 +169,7 @@ private struct UsageCLI {
     }
 
     func remove() {
+        defaults.removePersistentDomain(forName: suiteName)
         try? FileManager.default.removeItem(at: directory)
     }
 }

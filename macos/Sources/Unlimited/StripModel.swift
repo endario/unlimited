@@ -121,12 +121,12 @@ final class StripModel: ObservableObject {
     var closePopover: () -> Void = {}
     /// Every account as read, before the owner's hiding: what Settings lists.
     @Published private(set) var accounts: [Tile] = []
-    @Published private(set) var prefs: Preferences = StripModel.loadPrefs()
+    @Published private(set) var prefs: Preferences
 
     private static let prefsKey = "preferences", pathKey = "unlimitedPath"
 
-    private static func loadPrefs() -> Preferences {
-        UserDefaults.standard.data(forKey: prefsKey)
+    private static func loadPrefs(_ defaults: UserDefaults) -> Preferences {
+        defaults.data(forKey: prefsKey)
             .flatMap { try? JSONDecoder().decode(Preferences.self, from: $0) } ?? Preferences()
     }
 
@@ -138,9 +138,9 @@ final class StripModel: ObservableObject {
     }
 
     var customPath: String {
-        get { UserDefaults.standard.string(forKey: Self.pathKey) ?? "" }
+        get { defaults.string(forKey: Self.pathKey) ?? "" }
         set {
-            UserDefaults.standard.set(newValue, forKey: Self.pathKey)
+            defaults.set(newValue, forKey: Self.pathKey)
             runner = nil
             refresh()
         }
@@ -148,10 +148,13 @@ final class StripModel: ObservableObject {
 
     private var lastRead: [Reading] = []
     private let now: () -> Date
+    private let defaults: UserDefaults
 
-    init(runner: Runner? = nil, now: @escaping () -> Date = Date.init) {
+    init(runner: Runner? = nil, defaults: UserDefaults = .standard, now: @escaping () -> Date = Date.init) {
         self.runner = runner
+        self.defaults = defaults
         self.now = now
+        self.prefs = Self.loadPrefs(defaults)
     }
 
     private func redraw() {
@@ -165,7 +168,7 @@ final class StripModel: ObservableObject {
     }
 
     private func save() {
-        if let data = try? JSONEncoder().encode(prefs) { UserDefaults.standard.set(data, forKey: Self.prefsKey) }
+        if let data = try? JSONEncoder().encode(prefs) { defaults.set(data, forKey: Self.prefsKey) }
     }
     @Published private(set) var problem: String?
     /// The strip's phase: each weekly figure for `weeklyShown`, then any alternate window for
