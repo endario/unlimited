@@ -163,6 +163,30 @@ The seed is logged, so the order replays.
 A decayed average would pick much the same with less machinery; the Beta prior is kept because it
 says how far a few attempts should move a model, and because the logged `p` stays a probability.
 
+## Local policy annotation
+
+`unlimited.read(...)` returns quota facts only. To attach this machine's current advisory policy,
+use `unlimited.incentives.annotate(readings, now=...)` after reading; `read`/`status` CLI output uses
+the same path. Annotation is not written into the usage cache or projection history.
+
+Each reading's `steering` contains `v=1`, `vendor`, its canonical `account` (or null),
+`observed_at`, ordered `settings`, display `routes` and `unresolved` target names. Settings retain
+`target`, `multiplier`, `activated_at`, fixed `until` and a canonical explicit account selector
+(or null when unbound). Losing rules and neutral overrides remain in source order. Display routes
+are resolved from these settings; they are not policy inputs.
+
+Reset bindings flatten to the latest live expiry for the same vendor and canonical account,
+restricted by the original explicit selector when present. This horizon preserves the rule's
+lifetime; the raw resolver's first-live winner expiry can be earlier. Reading or forwarding does
+not renew it. Aliases, unrelated account bindings and credential fields are not included in
+`steering`. Null-account policy contains only unbound duration rules.
+
+An empty policy does not load catalog metadata. Policy/catalog loader failures retain quota facts
+and canonical identity, with `error=policy-unavailable` or `catalog-unavailable`; transported errors
+do not include local exception paths. Unknown applicable targets appear in `unresolved` without
+being reinterpreted as vendor rules. Annotation alone does not change verdicts or add context input
+to route choice.
+
 ## Cards
 
 `unlimited cards` shows, per route (a provider's model), the vendor's published figures from the
