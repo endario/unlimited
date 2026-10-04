@@ -2,7 +2,8 @@
 `unlimited models [--tier T] [--provider P] [--json]`,
 `unlimited off [TARGET [--for D] [--why W]]`, `unlimited on TARGET`,
 `unlimited attempt start|end ...`, `unlimited outcomes [--json]`, `unlimited choose ... --json`,
-`unlimited cards [--tier T] [--json]`, `unlimited verdict --work S [--model-scope M] --json`,
+`unlimited cards [--tier T] [--json]`,
+`unlimited verdict --work S [--offering ID] [--model-scope M] --json`,
 `unlimited capture claude-statusline`."""
 
 from __future__ import annotations
@@ -407,10 +408,13 @@ For each account, whether it can take a unit of work of --work seconds now: `unr
 reading), `excluded` (the vendor stopped it, a window is used up, one runs out before the work
 would finish, or the vendor is switched off here; with which window and when it lifts) or
 `ranked`, with a `tier` (0: no window
-projected past its limit; 1: one is, but after the work) and a `score` to order accounts by.
-Ordering, tie rules and fallback are the caller's. Details: {DOCS}/choice.md#1-verdict""", """\
-example:
-  unlimited verdict --vendor anthropic --work 900 --model-scope Opus --json""")
+projected past its limit; 1: one is, but after the work) and a raw quota `score`. Ranked results
+also include source-local `preference`; compare tiers before its effective score. Each row carries
+its annotated `steering` context. Ordering, tie rules and fallback are the caller's.
+Details: {DOCS}/choice.md#1-verdict""", """\
+examples:
+  unlimited verdict --vendor anthropic --work 900 --model-scope Opus --json
+  unlimited verdict --offering gpt-6.1-sol --work 900 --json""")
     vd.add_argument("--vendor", action="append", choices=sorted(REGISTRY), metavar="VENDOR",
                     help=VENDOR_HELP + f": {', '.join(sorted(REGISTRY))}")
     vd.add_argument("--work", type=float, required=True, metavar="SECONDS",
@@ -418,6 +422,9 @@ example:
     vd.add_argument("--model-scope", default=None, metavar="MODEL",
                     help="the model family the work runs, for limits scoped to one (e.g. Opus); "
                          "without it, model-scoped limits are left out")
+    vd.add_argument("--offering", default=None, metavar="ID",
+                    help="actual catalog offering id for local steering; without --vendor, reads its "
+                         "usage vendor only; distinct from the model-family limit scope")
     vd.add_argument("--max-age", type=float, default=300.0, metavar="SECONDS", help=READ_HELP)
     vd.add_argument("--json", action="store_true", help="JSON output (the only format; accepted for clarity)")
     m = add("models", "what each provider runs at a tier; the whole catalog with --catalog", f"""\
@@ -653,6 +660,8 @@ def main(argv: list[str] | None = None) -> int:
     if a.cmd == "cards":
         return _cards(a)
     off = None
+    verdict_cat = None
+    vendors = getattr(a, "vendor", None) or sorted(REGISTRY)
     if a.cmd == "verdict":
         # Before the reads: a broken switches file fails the command without waiting on a vendor.
         from . import catalog
@@ -661,8 +670,25 @@ def main(argv: list[str] | None = None) -> int:
         except catalog.CatalogError as e:
             print(f"unlimited: catalog: {e}", file=sys.stderr)
             return 2
+        if a.offering is not None:
+            try:
+                verdict_cat = catalog.load_metadata()
+            except (catalog.CatalogError, OSError, ValueError, TypeError, OverflowError):
+                print("unlimited: --offering: catalog-unavailable", file=sys.stderr)
+                return 2
+            route = verdict_cat.route(a.offering)
+            if route is None:
+                print(f"unlimited: --offering {a.offering!r}: not an offering id in the catalog", file=sys.stderr)
+                return 2
+            if route["vendor"] not in REGISTRY:
+                print(f"unlimited: --offering {a.offering!r}: usage vendor is not readable here", file=sys.stderr)
+                return 2
+            if a.vendor and any(v != route["vendor"] for v in a.vendor):
+                print(f"unlimited: --offering {a.offering!r}: --vendor must name {route['vendor']}", file=sys.stderr)
+                return 2
+            vendors = a.vendor or [route["vendor"]]
     out = []
-    for v in getattr(a, "vendor", None) or sorted(REGISTRY):
+    for v in vendors:
         out += cache.through(REGISTRY[v], max_age=a.max_age,
                              clock=lambda: datetime.now(timezone.utc), get=transport.get)
     if a.cmd in (None, "status", "read"):
@@ -671,11 +697,36 @@ def main(argv: list[str] | None = None) -> int:
         if errors:
             print("unlimited: steering: " + ", ".join(errors), file=sys.stderr)
     if a.cmd == "verdict":
+        from . import catalog, incentives
         from .verdict import verdict
         now = datetime.now(timezone.utc)
-        json.dump([{"vendor": r.get("vendor"), "account": r.get("account"), "names": r.get("names", []),
-                    "verdict": verdict(r, model_scope=a.model_scope, now=now, work=timedelta(seconds=a.work),
-                                       max_age=timedelta(seconds=a.max_age), off=off)} for r in out], sys.stdout)
+        out, errors = incentives._annotate(out, now=now)
+        if verdict_cat is None:
+            try:
+                verdict_cat = catalog.load_metadata()
+            except (catalog.CatalogError, OSError, ValueError, TypeError, OverflowError):
+                if "catalog-unavailable" not in errors:
+                    errors.append("catalog-unavailable")
+        if errors:
+            print("unlimited: steering: " + ", ".join(errors), file=sys.stderr)
+        try:
+            rows = []
+            for r in out:
+                policy = incentives.evaluate_context(
+                    verdict_cat, r.get("steering"), vendor=r["vendor"],
+                    account=r.get("account"), offering=a.offering, now=now)
+                rows.append({
+                    "vendor": r.get("vendor"), "account": r.get("account"),
+                    "names": r.get("names", []), "steering": r["steering"],
+                    "verdict": verdict(
+                        r, model_scope=a.model_scope, now=now,
+                        work=timedelta(seconds=a.work), max_age=timedelta(seconds=a.max_age),
+                        off=off, policy=policy),
+                })
+        except ValueError as e:
+            print(f"unlimited: {e}", file=sys.stderr)
+            return 2
+        json.dump(rows, sys.stdout)
         return 0
     if a.cmd in (None, "status"):
         from .show import render

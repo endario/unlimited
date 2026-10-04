@@ -4,14 +4,24 @@ vendor stop and the monthly bucket."""
 from __future__ import annotations
 
 import copy
+import io
+import os
 import json
 import math
+import subprocess
 import sys
+import textwrap
 import unittest
+from contextlib import ExitStack, redirect_stderr, redirect_stdout
 from datetime import datetime, timedelta, timezone
+from pathlib import Path
+from types import SimpleNamespace
+from unittest import mock
 
-from unlimited import catalog, choice, incentives
+from unlimited import catalog, choice, cli, incentives
 from unlimited.verdict import verdict
+
+import scratch
 
 NOW = datetime(2026, 9, 24, 8, 0, tzinfo=timezone.utc)
 WEEK, FIVE, MONTH = 10080, 300, 43200
@@ -374,6 +384,14 @@ class Preference(unittest.TestCase):
 
 
 class Cli(unittest.TestCase):
+    def setUp(self):
+        self.env = mock.patch.dict(os.environ, {
+            "HOME": scratch.mkdtemp(), "XDG_CONFIG_HOME": scratch.mkdtemp(),
+            "XDG_CACHE_HOME": scratch.mkdtemp(), "XDG_STATE_HOME": scratch.mkdtemp(),
+        }, clear=True)
+        self.env.start()
+        self.addCleanup(self.env.stop)
+
     def test_verdict_prints_one_per_account(self):
         import io
         import json
@@ -389,6 +407,470 @@ class Cli(unittest.TestCase):
             self.assertEqual(cli.main(["verdict", "--vendor", "openai", "--work", "600", "--json"]), 0)
         (got,) = json.loads(buf.getvalue())
         self.assertEqual((got["vendor"], got["names"], got["verdict"]["state"]), ("openai", ["x"], "ranked"))
+
+
+class VerdictPolicyCli(unittest.TestCase):
+    def setUp(self):
+        self.stack = ExitStack()
+        self.addCleanup(self.stack.close)
+        self.config = scratch.mkdtemp()
+        self.stack.enter_context(mock.patch.dict(os.environ, {
+            "HOME": scratch.mkdtemp(), "XDG_CONFIG_HOME": self.config,
+            "XDG_CACHE_HOME": scratch.mkdtemp(),
+            "XDG_STATE_HOME": scratch.mkdtemp(),
+        }, clear=True))
+        self.cat_data = {
+            "tiers": ["standard"],
+            "models": {"model-a": {"provider": "maker", "tiers": ["standard"]}},
+            "offerings": [
+                {"id": "route-a", "model": "model-a", "vendor": "openai"},
+                {"id": "route-b", "model": "model-a", "vendor": "neuralwatt"},
+            ],
+        }
+        self.cat = catalog.Catalog(self.cat_data)
+        self.groups = []
+        self.readings = [reading(window("codex", .1, WEEK, 3000,
+                                        at_reset=(.3, .4)))]
+        adapters = {v: SimpleNamespace(VENDOR=v) for v in ("openai", "neuralwatt")}
+        self.stack.enter_context(mock.patch.dict(cli.REGISTRY, adapters, clear=True))
+        self.stack.enter_context(mock.patch.object(catalog, "load_metadata", return_value=self.cat))
+        self.off = self.stack.enter_context(mock.patch.object(catalog, "off_policy", return_value={}))
+        self.stack.enter_context(mock.patch.object(incentives, "read",
+                                                  side_effect=lambda *a, **k: self.groups))
+        self.clock = self.stack.enter_context(mock.patch.object(cli, "datetime"))
+        self.clock.now.return_value = NOW
+        self.read_cache = self.stack.enter_context(mock.patch.object(
+            cli.cache, "through", side_effect=lambda adapter, **kw: [
+                copy.deepcopy(r) for r in self.readings if r["vendor"] == adapter.VENDOR]))
+
+    def run_cli(self, *args):
+        out, err = io.StringIO(), io.StringIO()
+        with redirect_stdout(out), redirect_stderr(err):
+            code = cli.main(["verdict", "--work", "600", "--json", *args])
+        return code, out.getvalue(), err.getvalue()
+
+    def test_offering_infers_only_its_usage_vendor(self):
+        code, text, _ = self.run_cli("--offering", "route-a")
+        self.assertEqual(code, 0)
+        self.assertEqual([r["vendor"] for r in json.loads(text)], ["openai"])
+        self.assertEqual([c.args[0].VENDOR for c in self.read_cache.call_args_list], ["openai"])
+
+    def test_explicit_cross_vendor_requests_fail_before_cache_io(self):
+        for vendors in (("neuralwatt",), ("openai", "neuralwatt")):
+            self.read_cache.reset_mock()
+            args = [x for v in vendors for x in ("--vendor", v)]
+            code, text, err = self.run_cli("--offering", "route-a", *args)
+            self.assertEqual((code, text), (2, ""))
+            self.assertIn("--offering", err)
+            self.read_cache.assert_not_called()
+
+    def test_non_offering_names_fail_before_cache_io(self):
+        for name in ("unknown", "maker", "model-a"):
+            self.read_cache.reset_mock()
+            code, text, _ = self.run_cli("--offering", name)
+            self.assertEqual((code, text), (2, ""))
+            self.read_cache.assert_not_called()
+
+    def test_an_unreadable_offering_catalog_fails_before_cache_io(self):
+        with mock.patch.object(catalog, "load_metadata", side_effect=catalog.CatalogError("broken")):
+            code, text, _ = self.run_cli("--offering", "route-a")
+        self.assertEqual((code, text), (2, ""))
+        self.read_cache.assert_not_called()
+
+    def test_matching_explicit_vendor_is_accepted(self):
+        code, text, _ = self.run_cli("--offering", "route-a", "--vendor", "openai")
+        self.assertEqual(code, 0)
+        self.assertEqual([r["vendor"] for r in json.loads(text)], ["openai"])
+
+    def test_unregistered_offering_vendor_is_refused_before_cache_io(self):
+        self.cat.offerings.append({"id": "external/a", "model": "model-a", "vendor": "external"})
+        code, text, _ = self.run_cli("--offering", "external/a")
+        self.assertEqual((code, text), (2, ""))
+        self.read_cache.assert_not_called()
+
+    def test_offering_identity_does_not_add_route_admission_to_verdict(self):
+        self.cat.banned = frozenset({"route-a"})
+        self.cat.off = [{"target": "route-a"}]
+        code, text, _ = self.run_cli("--offering", "route-a")
+        self.assertEqual(code, 0)
+        (got,) = json.loads(text)
+        self.assertEqual(got["verdict"]["state"], "ranked")
+
+    def test_repeatable_matching_vendors_preserve_read_behavior(self):
+        code, text, _ = self.run_cli("--offering", "route-a", "--vendor", "openai", "--vendor", "openai")
+        self.assertEqual(code, 0)
+        self.assertEqual([r["vendor"] for r in json.loads(text)], ["openai", "openai"])
+        self.assertEqual([c.args[0].VENDOR for c in self.read_cache.call_args_list], ["openai", "openai"])
+
+    def test_model_name_that_is_an_offering_id_is_accepted(self):
+        self.cat.offerings.append({"id": "model-a", "model": "model-a", "vendor": "openai"})
+        code, text, _ = self.run_cli("--offering", "model-a")
+        self.assertEqual(code, 0)
+        self.assertEqual([r["vendor"] for r in json.loads(text)], ["openai"])
+
+    def test_sibling_offering_infers_its_own_vendor(self):
+        self.readings = [reading(window("codex", .1, WEEK, 3000), vendor="neuralwatt")]
+        code, text, _ = self.run_cli("--offering", "route-b")
+        self.assertEqual(code, 0)
+        self.assertEqual([r["vendor"] for r in json.loads(text)], ["neuralwatt"])
+        self.assertEqual([c.args[0].VENDOR for c in self.read_cache.call_args_list], ["neuralwatt"])
+
+    def test_metadata_failures_with_offering_are_fatal_before_cache_io(self):
+        for error in (OSError, ValueError, TypeError, OverflowError):
+            with self.subTest(error=error), mock.patch.object(catalog, "load_metadata", side_effect=error("private")):
+                code, text, err = self.run_cli("--offering", "route-a")
+            self.assertEqual((code, text), (2, ""))
+            self.assertIn("--offering", err)
+            self.read_cache.assert_not_called()
+
+    def test_expired_offering_is_still_an_identity(self):
+        self.cat.offerings[0]["until"] = (NOW - timedelta(days=1)).date()
+        code, text, _ = self.run_cli("--offering", "route-a")
+        self.assertEqual(code, 0)
+        self.assertEqual(json.loads(text)[0]["verdict"]["state"], "ranked")
+
+    def setting(self, target, factor, *, account=None, until=None):
+        return {"target": target, "multiplier": factor,
+                "activated_at": (NOW - timedelta(minutes=1)).isoformat(),
+                "until": (until or NOW + timedelta(hours=1)).isoformat(),
+                **({"account": account} if account is not None else {})}
+
+    def assert_sdk_row(self, got, r, *, offering=None, scope=None):
+        annotated = incentives.annotate([r], now=NOW)[0]
+        policy = incentives.evaluate_context(self.cat, annotated["steering"],
+                                            vendor=r["vendor"], account=r.get("account"),
+                                            offering=offering, now=NOW)
+        raw = verdict(r, model_scope=scope, now=NOW, work=timedelta(seconds=600),
+                      max_age=timedelta(seconds=300), off=self.off.return_value)
+        expected = verdict(r, model_scope=scope, now=NOW, work=timedelta(seconds=600),
+                           max_age=timedelta(seconds=300), off=self.off.return_value,
+                           policy=policy)
+        self.assertEqual(got["steering"], annotated["steering"])
+        self.assertEqual(got["verdict"], expected)
+        self.assertEqual({k: v for k, v in got["verdict"].items() if k != "preference"}, raw)
+        self.assertEqual((got["vendor"], got["account"], got["names"]),
+                         (r["vendor"], r.get("account"), r.get("names", [])))
+        return policy
+
+    def test_cli_sdk_parity_for_vendor_and_actual_offering(self):
+        self.groups = [self.setting("openai", 2), self.setting("route-a", 10)]
+        for args, offering, factor in ((("--vendor", "openai"), None, 2),
+                                       (("--offering", "route-a"), "route-a", 10)):
+            code, text, _ = self.run_cli(*args)
+            self.assertEqual(code, 0)
+            (got,) = json.loads(text)
+            policy = self.assert_sdk_row(got, self.readings[0], offering=offering)
+            self.assertEqual(policy["multiplier"], factor)
+            self.assertEqual(got["verdict"]["preference"]["multiplier"], factor)
+
+    def test_scope_text_is_not_a_catalog_offering(self):
+        self.groups = [self.setting("route-a", 10), self.setting("model-a", 4),
+                       self.setting("maker", 3)]
+        code, text, _ = self.run_cli("--vendor", "openai", "--model-scope", "route-a")
+        self.assertEqual(code, 0)
+        (got,) = json.loads(text)
+        policy = self.assert_sdk_row(got, self.readings[0], scope="route-a")
+        self.assertEqual(policy["multiplier"], 1)
+        self.assertEqual(got["verdict"]["preference"]["effective_score"], got["verdict"]["score"])
+
+    def test_mixed_vendor_work_without_an_offering_evaluates_each_row_vendor_only(self):
+        self.readings.append(reading(window("codex", .1, WEEK, 3000, at_reset=(.3, .4)),
+                                     vendor="neuralwatt"))
+        self.groups = [self.setting("openai", 2), self.setting("neuralwatt", .1),
+                       self.setting("route-a", 10), self.setting("model-a", 5)]
+        code, text, _ = self.run_cli("--vendor", "neuralwatt", "--vendor", "openai")
+        self.assertEqual(code, 0)
+        got = json.loads(text)
+        self.assertEqual([x["vendor"] for x in got], ["neuralwatt", "openai"])
+        by_vendor = {r["vendor"]: r for r in self.readings}
+        for row, factor in zip(got, (.1, 2)):
+            policy = self.assert_sdk_row(row, by_vendor[row["vendor"]])
+            self.assertEqual(policy["multiplier"], factor)
+
+    def test_actual_offering_does_not_replace_model_family_limits(self):
+        self.readings[0]["limits"].append(
+            window("opus-week", 1, WEEK, 3000, role="weekly_model", scope="Opus"))
+        self.groups = [self.setting("route-a", 10)]
+        code, text, _ = self.run_cli("--offering", "route-a")
+        self.assertEqual(code, 0)
+        (got,) = json.loads(text)
+        self.assertEqual(got["verdict"]["state"], "ranked")
+        code, text, _ = self.run_cli("--offering", "route-a", "--model-scope", "Opus")
+        self.assertEqual(code, 0)
+        (got,) = json.loads(text)
+        self.assertEqual((got["verdict"]["state"], got["verdict"]["by"]),
+                         ("excluded", "opus-week"))
+        self.assertNotIn("preference", got["verdict"])
+
+    def test_preference_is_ranked_only_and_does_not_change_quota(self):
+        self.groups = [self.setting("openai", 1e300, account="a")]
+        cases = [
+            (reading(window("codex", .1, WEEK, 3000, at_reset=(.3, .4))), "ranked"),
+            (reading(window("codex", .8, WEEK, 3000, at_reset=(1.1, 1.3),
+                            exhausts=NOW + timedelta(hours=2))), "ranked"),
+            (reading(window("codex", 1, WEEK, 3000)), "excluded"),
+            (reading(window("codex", .1, WEEK, 3000), status="refused"), "unread"),
+            (reading(window("codex", .1, WEEK, 3000), taken=NOW - timedelta(minutes=6)), "unread"),
+        ]
+        for r, state in cases:
+            self.readings = [r]
+            code, text, _ = self.run_cli("--vendor", "openai")
+            self.assertEqual(code, 0)
+            (got,) = json.loads(text, parse_constant=lambda x: (_ for _ in ()).throw(ValueError(x)))
+            self.assert_sdk_row(got, r)
+            self.assertEqual(got["verdict"]["state"], state)
+            if state == "ranked":
+                p = got["verdict"]["preference"]
+                self.assertEqual((p["requested_multiplier"], p["multiplier"], p["clamped"]),
+                                 (1e300, 1e6, True))
+                self.assertTrue(math.isfinite(p["effective_score"]))
+                self.assertEqual(p["reason"], "clamped")
+            else:
+                self.assertNotIn("preference", got["verdict"])
+
+    def test_policy_loading_failure_preserves_identity_and_ranked_quota(self):
+        private = "/private/fixture/home/incentives.json fixture-secret"
+        with mock.patch.object(incentives, "read", side_effect=catalog.CatalogError(private)):
+            code, text, _ = self.run_cli("--vendor", "openai")
+        self.assertEqual(code, 0)
+        (got,) = json.loads(text)
+        self.assertEqual((got["account"], got["steering"]["account"]), ("a", "a"))
+        self.assertEqual(got["verdict"]["state"], "ranked")
+        p = got["verdict"]["preference"]
+        self.assertEqual((p["status"], p["reason"], p["multiplier"]),
+                         ("unavailable", "policy-unavailable", 1))
+        self.assertEqual(p["effective_score"], got["verdict"]["score"])
+        self.assertNotIn(private, text)
+        self.assertNotIn("fixture-secret", text)
+        self.assertNotIn("/private/fixture", text)
+
+    def test_bad_switches_remain_fatal_before_vendor_reads(self):
+        self.off.side_effect = catalog.CatalogError("broken switches")
+        code, text, _ = self.run_cli("--vendor", "openai")
+        self.assertEqual((code, text), (2, ""))
+        self.read_cache.assert_not_called()
+
+    def test_neutral_cases_keep_raw_score(self):
+        for groups in ([], [self.setting("openai", 1)],
+                       [self.setting("openai", 10, until=NOW - timedelta(seconds=1))]):
+            self.groups = groups
+            code, text, _ = self.run_cli("--vendor", "openai")
+            self.assertEqual(code, 0)
+            (got,) = json.loads(text)
+            self.assert_sdk_row(got, self.readings[0])
+            self.assertEqual(got["verdict"]["preference"]["multiplier"], 1)
+            self.assertEqual(got["verdict"]["preference"]["effective_score"], got["verdict"]["score"])
+
+    def test_active_policy_catalog_error_is_advisory_without_offering(self):
+        self.groups = [self.setting("openai", 2)]
+        with mock.patch.object(catalog, "load_metadata", side_effect=catalog.CatalogError(
+                "/private/fixture/catalog.toml fixture-secret")):
+            code, text, _ = self.run_cli("--vendor", "openai")
+        self.assertEqual(code, 0)
+        (got,) = json.loads(text)
+        self.assertEqual(got["verdict"]["state"], "ranked")
+        self.assertEqual(got["verdict"]["preference"]["status"], "unavailable")
+        self.assertEqual(got["verdict"]["preference"]["multiplier"], 1)
+        self.assertNotIn("/private/fixture", text)
+        self.assertNotIn("fixture-secret", text)
+
+    def test_decode_failure_keeps_raw_off_exclusion(self):
+        self.off.return_value = {"openai/a": None}
+        self.groups = []
+        annotated = incentives.annotate(self.readings, now=NOW)
+        annotated[0]["steering"]["v"] = 999
+        with mock.patch.object(incentives, "_annotate", return_value=(annotated, [])):
+            code, text, _ = self.run_cli("--vendor", "openai")
+        self.assertEqual(code, 0)
+        (got,) = json.loads(text)
+        self.assertEqual(got["verdict"], {"state": "excluded", "reason": "off", "until": None})
+        self.assertEqual(got["steering"]["account"], "a")
+
+    def test_decode_failures_with_valid_identity_are_unavailable(self):
+        for field, value, reason in (("v", 999, "unsupported-version"),
+                                     ("settings", "not-a-list", "invalid-context")):
+            annotated = incentives.annotate(self.readings, now=NOW)
+            annotated[0]["steering"][field] = value
+            with mock.patch.object(incentives, "_annotate", return_value=(annotated, [])):
+                code, text, _ = self.run_cli("--vendor", "openai")
+            self.assertEqual(code, 0)
+            (got,) = json.loads(text)
+            p = got["verdict"]["preference"]
+            self.assertEqual((p["status"], p["reason"], p["multiplier"]),
+                             ("unavailable", reason, 1))
+            self.assertEqual(got["steering"]["account"], "a")
+            raw = verdict(self.readings[0], model_scope=None, now=NOW,
+                          work=timedelta(seconds=600), max_age=timedelta(seconds=300), off={})
+            self.assertEqual({k: v for k, v in got["verdict"].items() if k != "preference"}, raw)
+
+    def test_valid_policy_with_unavailable_catalog_uses_shared_failure_result(self):
+        self.groups = [self.setting("openai", 2)]
+        annotated = incentives.annotate(self.readings, now=NOW)
+        with mock.patch.object(incentives, "_annotate", return_value=(annotated, [])), \
+             mock.patch.object(catalog, "load_metadata", side_effect=catalog.CatalogError("broken")):
+            code, text, _ = self.run_cli("--vendor", "openai")
+        self.assertEqual(code, 0)
+        (got,) = json.loads(text)
+        p = got["verdict"]["preference"]
+        self.assertEqual((p["status"], p["reason"], p["multiplier"]),
+                         ("unavailable", "catalog-unavailable", 1))
+
+    def test_unexpected_cross_vendor_reading_cannot_borrow_offering_policy(self):
+        wrong = reading(window("codex", .1, WEEK, 3000, at_reset=(.3, .4)),
+                        vendor="neuralwatt")
+        self.groups = [self.setting("route-a", 10)]
+        self.read_cache.side_effect = None
+        self.read_cache.return_value = [wrong]
+        code, text, err = self.run_cli("--offering", "route-a")
+        self.assertEqual((code, text), (2, ""))
+        self.assertTrue(err)
+
+    def test_unbound_policy_does_not_fabricate_an_account(self):
+        self.readings = [dict(self.readings[0], account=None, names=[])]
+        self.groups = [self.setting("openai", 2)]
+        code, text, _ = self.run_cli("--vendor", "openai")
+        self.assertEqual(code, 0)
+        (got,) = json.loads(text)
+        self.assertEqual((got["account"], got["steering"]["account"]), (None, None))
+        self.assert_sdk_row(got, self.readings[0])
+        self.assertEqual(got["verdict"]["preference"]["multiplier"], 2)
+
+    def test_metadata_filesystem_type_and_numeric_failures_are_advisory_without_offering(self):
+        self.groups = [self.setting("openai", 2)]
+        private = "/private/fixture/catalog.toml fixture-secret"
+        for error in (OSError, ValueError, TypeError, OverflowError):
+            with self.subTest(error=error), mock.patch.object(catalog, "load_metadata", side_effect=error(private)):
+                code, text, err = self.run_cli("--vendor", "openai")
+                self.assertEqual(code, 0)
+                (got,) = json.loads(text)
+                self.assertEqual(got["account"], "a")
+                self.assertEqual(got["verdict"]["state"], "ranked")
+                self.assertEqual(got["steering"]["error"], "catalog-unavailable")
+                pref = got["verdict"]["preference"]
+                self.assertEqual((pref["status"], pref["reason"], pref["multiplier"]),
+                                 ("unavailable", "policy-unavailable", 1))
+                self.assertEqual(pref["effective_score"], got["verdict"]["score"])
+                self.assertNotIn(private, text + err)
+                self.assertIn("catalog-unavailable", err)
+
+    def test_evaluation_catalog_failures_use_shared_unavailable_result(self):
+        self.groups = [self.setting("openai", 2)]
+        annotated = incentives.annotate(self.readings, now=NOW)
+        for error in (OSError, ValueError, TypeError, OverflowError):
+            with self.subTest(error=error), \
+                 mock.patch.object(incentives, "_annotate", return_value=(annotated, [])), \
+                 mock.patch.object(catalog, "load_metadata", side_effect=error("fixture-secret")):
+                code, text, err = self.run_cli("--vendor", "openai")
+                self.assertEqual(code, 0)
+                (got,) = json.loads(text)
+                pref = got["verdict"]["preference"]
+                self.assertEqual((pref["status"], pref["reason"], pref["multiplier"]),
+                                 ("unavailable", "catalog-unavailable", 1))
+                self.assertNotIn("fixture-secret", text + err)
+
+    def test_zero_row_policy_failure_keeps_an_advisory_warning(self):
+        self.readings = []
+        with mock.patch.object(incentives, "read", side_effect=catalog.CatalogError("fixture-secret")):
+            code, text, err = self.run_cli("--vendor", "openai")
+        self.assertEqual((code, json.loads(text)), (0, []))
+        self.assertIn("policy-unavailable", err)
+        self.assertNotIn("fixture-secret", text + err)
+
+    def test_zero_row_metadata_failure_keeps_an_advisory_warning(self):
+        self.readings = []
+        self.groups = [self.setting("openai", 2)]
+        with mock.patch.object(catalog, "load_metadata", side_effect=OSError("fixture-secret")):
+            code, text, err = self.run_cli("--vendor", "openai")
+        self.assertEqual((code, json.loads(text)), (0, []))
+        self.assertEqual(err.count("catalog-unavailable"), 1)
+        self.assertNotIn("fixture-secret", text + err)
+
+    def test_context_identity_conflict_does_not_leave_partial_json(self):
+        for field, value in (("vendor", "neuralwatt"), ("account", "b")):
+            annotated = incentives.annotate(self.readings * 2, now=NOW)
+            annotated[1]["steering"][field] = value
+            annotated[1]["steering"]["v"] = 999
+            with self.subTest(field=field), \
+                 mock.patch.object(incentives, "_annotate", return_value=(annotated, [])):
+                code, text, err = self.run_cli("--vendor", "openai")
+            self.assertEqual((code, text), (2, ""))
+            self.assertIn("conflict", err)
+
+    def test_later_cross_vendor_reading_does_not_leave_partial_json(self):
+        wrong = reading(window("codex", .1, WEEK, 3000), vendor="neuralwatt")
+        self.groups = [self.setting("route-a", 10)]
+        self.read_cache.side_effect = None
+        self.read_cache.return_value = [self.readings[0], wrong]
+        code, text, err = self.run_cli("--offering", "route-a")
+        self.assertEqual((code, text), (2, ""))
+        self.assertIn("conflict", err)
+
+    def test_multiple_accounts_keep_input_order_and_distinct_preferences(self):
+        self.readings = [dict(self.readings[0], account="b", names=["beta"]),
+                         dict(self.readings[0], names=["alpha"])]
+        self.groups = [self.setting("openai", 10, account="a"), self.setting("openai", .1, account="b")]
+        before = copy.deepcopy(self.readings)
+        code, text, _ = self.run_cli("--vendor", "openai")
+        self.assertEqual(code, 0)
+        rows = json.loads(text)
+        self.assertEqual([row["account"] for row in rows], ["b", "a"])
+        self.assertEqual([row["verdict"]["preference"]["multiplier"] for row in rows], [.1, 10])
+        for row, r in zip(rows, self.readings):
+            self.assert_sdk_row(row, r)
+            for key in ("names", "bindings", "credentials"):
+                self.assertNotIn(key, row["steering"])
+                self.assertNotIn(key, row["verdict"]["preference"])
+        self.assertEqual(self.readings, before)
+
+    def test_sibling_offering_policy_does_not_borrow_vendor_binding(self):
+        self.readings = [reading(window("codex", .1, WEEK, 3000), vendor="neuralwatt")]
+        self.groups = [self.setting("route-a", 10), self.setting("route-b", .1)]
+        code, text, _ = self.run_cli("--offering", "route-b")
+        self.assertEqual(code, 0)
+        (got,) = json.loads(text)
+        self.assert_sdk_row(got, self.readings[0], offering="route-b")
+        self.assertEqual(got["verdict"]["preference"]["multiplier"], .1)
+
+    def test_omitted_vendors_without_offering_still_reads_all_vendors(self):
+        self.readings.append(reading(window("codex", .1, WEEK, 3000), vendor="neuralwatt"))
+        code, text, _ = self.run_cli()
+        self.assertEqual(code, 0)
+        rows = json.loads(text)
+        self.assertEqual([row["vendor"] for row in rows], ["neuralwatt", "openai"])
+        self.assertEqual([c.args[0].VENDOR for c in self.read_cache.call_args_list], ["neuralwatt", "openai"])
+        self.assertTrue(all(row["verdict"]["preference"]["multiplier"] == 1 for row in rows))
+
+
+    def test_process_json_matches_sdk_with_real_local_policy_loading(self):
+        self.groups = [self.setting("openai", 2), self.setting("route-a", 10, account="a")]
+        incentives.write(self.groups)  # isolated XDG_CONFIG_HOME from setUp
+        source = str(Path(cli.__file__).resolve().parents[1])
+        program = textwrap.dedent(f'''\
+    import json, sys
+    from datetime import datetime
+    from unittest import mock
+    from unlimited import catalog, cli
+    cat = catalog.Catalog(json.loads({json.dumps(self.cat_data)!r}))
+    readings = json.loads({json.dumps(self.readings)!r})
+    now = datetime.fromisoformat({NOW.isoformat()!r})
+    with mock.patch.object(catalog, "load_metadata", return_value=cat), \\
+         mock.patch.object(cli.cache, "through", return_value=readings), \\
+         mock.patch.object(cli, "datetime") as clock:
+        clock.now.return_value = now
+        raise SystemExit(cli.main(sys.argv[1:]))
+    ''')
+        env = dict(os.environ, PYTHONPATH=source)
+        argv = ["verdict", "--offering", "route-a", "--work", "600", "--json"]
+        proc = subprocess.run([sys.executable, "-c", program, *argv], env=env,
+                              capture_output=True, text=True, timeout=10, check=False)
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        (got,) = json.loads(proc.stdout, parse_constant=lambda x: (_ for _ in ()).throw(ValueError(x)))
+        self.assert_sdk_row(got, self.readings[0], offering="route-a")
+        self.assertEqual(got["verdict"]["preference"]["multiplier"], 10)
+        rejected = subprocess.run(
+            [sys.executable, "-c", program, *argv, "--vendor", "neuralwatt"], env=env,
+            capture_output=True, text=True, timeout=10, check=False)
+        self.assertEqual((rejected.returncode, rejected.stdout), (2, ""))
 
 
 if __name__ == "__main__":

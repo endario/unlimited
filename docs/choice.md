@@ -14,7 +14,7 @@ Three parts, each usable on its own:
 
 ## 1. Verdict
 
-`unlimited verdict --work SECONDS [--model-scope M] [--max-age S] [--vendor V]... --json`, or
+`unlimited verdict --work SECONDS [--offering ID] [--model-scope M] [--max-age S] [--vendor V]... --json`, or
 `unlimited.verdict.verdict(reading, model_scope=, now=, work=, max_age=, starts=None, off=, policy=None)`, over one
 schema-1 reading:
 
@@ -46,6 +46,20 @@ An explicit policy adds `preference` only to a ranked verdict: the policy-result
 unavailable policy use multiplier 1. Raw score, tier, forecast and exclusions remain separate;
 compare tier before effective score. Resolve policy for the concrete source/account/offering
 before reducing alternatives, and pass raw projected use—not preference—to route quota pricing.
+
+The CLI emits `{vendor, account, names, steering, verdict}` per reading, in reading order.
+`steering` is the source-local annotated context; ranked `verdict.preference` includes the resolved
+policy's status, reason, scope and fixed expiry beside the raw quota fields. Unavailable policy
+is explained without discarding usable quota; excluded and unread verdicts have no preference.
+
+`--offering ID` evaluates steering for that concrete catalog route, whether live or not. Without
+it, only vendor-targeted settings apply. An offering alone reads its usage vendor; any explicit
+different `--vendor`, including in a mixed list, is bad input. It does not infer or replace
+`--model-scope`, which still selects model-family usage limits.
+
+After selecting an account, pass its canonical ID to `choose --account OFFERING=ACCOUNT` and that
+same account's raw projection to `--quota`. This identifies the account to launch; choose does
+not select an account and still uses this machine's local policy.
 
 ## 2. Attempt log
 
