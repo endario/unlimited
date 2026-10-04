@@ -94,6 +94,8 @@ appended to it.
   absent means neutral in pure `rank`. `choose` reads local groups beside its catalog unless this
   argument is supplied; `[]` suppresses local steering.
 - `accounts`: offering ID to account ID/name, or to `{"account": ID, "names": [ALIAS, ...]}`.
+  For reset-bound settings, use the structured form to make a canonical ID authoritative rather
+  than an alias.
   It identifies what the caller will launch, not an account to choose. Use the same account's
   projection in `quota`. Account-scoped or reset-bound settings without this context are listed
   in `incentives_unresolved`; a known sibling account is not an unresolved setting.

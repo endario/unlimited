@@ -158,7 +158,9 @@ def _group_identity(group: dict, route: dict, bound: set[str], now: datetime,
             continue
         matched = canonical == binding["account"] if canonical is not None else bool(bound & names)
         if matched:
-            return names, moment(binding["until"])
+            until = moment(binding["until"])
+            if until > now:
+                return names, until
     return None, None
 
 
@@ -175,7 +177,13 @@ def resolve(cat: Catalog, groups: list[dict] | None, accounts: dict[str, object]
         route = cat._route(offering)
         if route_ids is not None and route["id"] not in route_ids:
             continue
-        bound = _identity(accounts.get(route["id"]))
+        identity = accounts.get(route["id"])
+        bound = _identity(identity)
+        canonical = identity.get("account") if isinstance(identity, dict) else None
+        if isinstance(identity, str) and any(
+                b["vendor"] == route["vendor"] and b["account"] == identity
+                for g in groups for b in g.get("bindings") or []):
+            canonical = identity
         candidates = []
         for position, group in enumerate(groups):
             if not _valid(group) or not _live(group, now):
@@ -183,8 +191,6 @@ def resolve(cat: Catalog, groups: list[dict] | None, accounts: dict[str, object]
             specificity = _specificity(cat, route, group["target"])
             if specificity is None:
                 continue
-            identity = accounts.get(route["id"])
-            canonical = identity.get("account") if isinstance(identity, dict) else None
             needed, until = _group_identity(group, route, bound, now, canonical)
             if until is None or until <= now:
                 if not bound and group.get("bindings") and any(b["vendor"] == route["vendor"] and moment(b["until"]) > now

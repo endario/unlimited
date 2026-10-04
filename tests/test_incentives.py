@@ -98,6 +98,35 @@ class Incentives(unittest.TestCase):
         self.assertEqual(short.factors["gpt-6.1-sol"], 10)
         self.assertEqual(later.factors["gpt-6.1-sol"], 10)
 
+    def test_raw_expired_first_binding_does_not_shadow_live_same_account(self):
+        live_until = (NOW + timedelta(hours=1)).isoformat()
+        for expired_at in (NOW - timedelta(seconds=1), NOW):
+            group = {"target": "openai", "multiplier": 10, "activated_at": NOW.isoformat(), "bindings": [
+                {"vendor": "openai", "account": "a", "names": ["alpha"], "until": expired_at.isoformat()},
+                {"vendor": "openai", "account": "a", "names": ["alpha"], "until": live_until},
+            ]}
+            before = json.dumps(group)
+            for identity in ({"account": "a", "names": ["alpha"]}, "alpha"):
+                with self.subTest(expired_at=expired_at, identity=identity):
+                    got = incentives.resolve(self.cat, [group], {"gpt-6.1-sol": identity}, NOW)
+                    self.assertEqual(got.factors["gpt-6.1-sol"], 10)
+                    self.assertEqual(got.winners["gpt-6.1-sol"]["until"], live_until)
+                    self.assertEqual(json.dumps(group), before)
+        expired = {**group, "bindings": [{**b, "until": NOW.isoformat()} for b in group["bindings"]]}
+        self.assertEqual(incentives.resolve(self.cat, [expired], {"gpt-6.1-sol": "alpha"}, NOW)
+                         .factors["gpt-6.1-sol"], 1)
+
+    def test_raw_canonical_id_does_not_match_another_accounts_alias(self):
+        group = {"target": "openai", "multiplier": 10, "activated_at": NOW.isoformat(), "bindings": [
+            {"vendor": "openai", "account": "a", "until": NOW.isoformat()},
+            {"vendor": "openai", "account": "b", "names": ["a"],
+             "until": (NOW + timedelta(hours=1)).isoformat()},
+        ]}
+        for identity in ("a", {"account": "a", "names": []}):
+            with self.subTest(identity=identity):
+                got = incentives.resolve(self.cat, [group], {"gpt-6.1-sol": identity}, NOW)
+                self.assertEqual(got.factors["gpt-6.1-sol"], 1)
+
     def test_overlay_keeps_losing_settings_and_neutral_route_winner(self):
         groups = [
             {"target": "openai", "multiplier": 10, "activated_at": NOW.isoformat(),
