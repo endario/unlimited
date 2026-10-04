@@ -429,7 +429,7 @@ def _annotate(readings: list[dict], *, now: datetime) -> tuple[list[dict], list[
         return [dict(r, steering=_context_header(r, now)) for r in readings], []
     try:
         cat = load_metadata()
-    except (CatalogError, ValueError, TypeError, OverflowError):
+    except (CatalogError, OSError, ValueError, TypeError, OverflowError):
         return failed("catalog-unavailable")
     return overlay(readings, cat, groups, now), []
 

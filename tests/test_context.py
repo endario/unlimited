@@ -232,6 +232,85 @@ class Context(unittest.TestCase):
         self.assertEqual(ctx["error"], "catalog-unavailable")
         self.assertNotIn("/private", json.dumps(ctx))
 
+    def test_shipped_catalog_filesystem_failures_keep_facts_and_bounded_diagnostics(self):
+        read_text = Path.read_text
+        for failure in ("missing", "unreadable"):
+            with self.subTest(failure=failure):
+                fixture = Path(scratch.mkdtemp())
+                shipped = fixture / "catalog.toml"
+                if failure == "unreadable":
+                    shipped.write_text('schema = 2\ntiers = ["standard"]\n')
+
+                def fixture_read(path, *args, **kwargs):
+                    if path == shipped and failure == "unreadable":
+                        raise PermissionError(13, "permission denied", str(path))
+                    return read_text(path, *args, **kwargs)
+
+                with mock.patch.dict(os.environ, {"XDG_CONFIG_HOME": scratch.mkdtemp()}), \
+                        mock.patch.object(catalog.resources, "files", return_value=fixture), \
+                        mock.patch.object(Path, "read_text", new=fixture_read):
+                    incentives.write([setting()])
+                    try:
+                        rows = self.annotate([self.reading])
+                        empty, diagnostics = incentives._annotate([], now=NOW)
+                    except OSError as error:
+                        self.fail(f"catalog filesystem failure discarded quota facts: {error}")
+                    self.assertIs(type(rows), list)
+                    self.assertEqual(self.facts_only(rows[0]), self.reading)
+                    context = rows[0]["steering"]
+                    self.assertEqual((context["account"], context["error"], context["settings"]),
+                                     ("a", "catalog-unavailable", []))
+                    self.assertIs(type(empty), list)
+                    self.assertEqual((empty, diagnostics), ([], ["catalog-unavailable"]))
+                    self.assertNotIn(str(fixture), json.dumps(context))
+                    out, err = io.StringIO(), io.StringIO()
+                    with mock.patch.object(cli.cache, "through", return_value=[self.reading]), \
+                            mock.patch.object(cli, "datetime") as clock, \
+                            redirect_stdout(out), redirect_stderr(err):
+                        clock.now.return_value = NOW
+                        self.assertEqual(cli.main(["read", "--vendor", "openai", "--json"]), 0)
+                    self.assertEqual(json.loads(out.getvalue()), rows)
+                    self.assertIn("catalog-unavailable", err.getvalue())
+                    self.assertNotIn(str(fixture), err.getvalue())
+
+    def colon_catalog(self):
+        local = Path(scratch.mkdtemp()) / "catalog.toml"
+        local.write_text('schema = 2\n[models.m]\nprovider = "p"\ntiers = ["standard"]\n'
+                         '[[offerings]]\nid = "api:m"\nmodel = "m"\nvendor = "openai"\n'
+                         '[[offerings]]\nid = "sibling"\nmodel = "m"\nvendor = "openai"\n')
+        return catalog.load_metadata(local)
+
+    def test_exact_colon_offering_export_preserves_raw_factor_and_scope(self):
+        cat = self.colon_catalog()
+        self.assertEqual(cat.route("api:m")["provider"], "p")
+        groups = [setting("api:m", 10)]
+        context = incentives.overlay([self.reading], cat, groups, NOW)[0]["steering"]
+        self.assertEqual(context["unresolved"], [])
+        self.assertEqual([s["target"] for s in context["settings"]], ["api:m"])
+        self.assertEqual([r["id"] for r in context["routes"]], ["api:m"])
+        accounts = {oid: {"account": "a", "names": []} for oid in ("api:m", "sibling")}
+        for minutes, factor in ((0, 10), (119, 10), (120, 1), (121, 1)):
+            with self.subTest(minutes=minutes):
+                now = NOW + timedelta(minutes=minutes)
+                raw = incentives.resolve(cat, groups, accounts, now)
+                exported = incentives.resolve(cat, context["settings"], accounts, now)
+                self.assertEqual((raw.factors["api:m"], exported.factors["api:m"]), (factor, factor))
+                self.assertEqual((raw.factors["sibling"], exported.factors["sibling"]), (1, 1))
+
+    def test_exact_colon_offering_shared_target_and_setter_accept_the_catalog_id(self):
+        cat = self.colon_catalog()
+        self.assertTrue(catalog.target_known(cat, "api:m"))
+        self.assertTrue(catalog.target_known(cat, "p:m"))
+        self.assertTrue(catalog.target_known(cat, "p:api:m"))
+        self.assertFalse(catalog.target_known(cat, "unknown:m"))
+        self.assertFalse(catalog.target_known(cat, "api:m", account="a"))
+        group = incentives.set_incentive(cat, "api:m", 3, now=NOW, duration=timedelta(hours=1))
+        stored = incentives.read(incentives.incentives_path(cat.local), NOW)
+        self.assertEqual(stored, [group])
+        self.assertEqual((group["target"], group["multiplier"]), ("api:m", 3))
+        resolved = incentives.resolve(cat, stored, {"api:m": {"account": "a"}}, NOW)
+        self.assertEqual(resolved.factors["api:m"], 3)
+
     def test_real_policy_library_and_cli_annotate_after_cached_factual_read(self):
         tmp = Path(scratch.mkdtemp())
         config, cached = tmp / "config", tmp / "cache" / "unlimited"
