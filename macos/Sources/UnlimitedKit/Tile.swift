@@ -13,9 +13,8 @@ public struct Tile: Identifiable, Equatable, Sendable {
         public var text: String {
             switch self {
             case .percent(let p): "\(p)"
-            case .unread, .stale: "!"
+            case .unread, .stale, .unknown: "?"
             case .noWindow: "—"
-            case .unknown: "?"
             case .waiting: "…"
             }
         }

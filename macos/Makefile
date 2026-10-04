@@ -10,6 +10,8 @@ app:
 	rm -rf $(APP) && mkdir -p $(APP)/Contents/MacOS
 	cp .build/release/Unlimited $(APP)/Contents/MacOS/
 	cp Info.plist $(APP)/Contents/
+	mkdir -p $(APP)/Contents/Resources
+	cp -R .build/release/Unlimited_UnlimitedKit.bundle $(APP)/Contents/Resources/
 	codesign --force --sign - $(APP)
 
 .PHONY: test app
