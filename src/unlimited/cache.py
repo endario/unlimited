@@ -32,6 +32,7 @@ def _write(path: Path, readings: list[dict], history: dict) -> None:
     tmp = path.with_suffix(".tmp")
     fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
     with os.fdopen(fd, "w") as f:
+        os.fchmod(f.fileno(), 0o600)
         json.dump({"readings": readings, "history": history}, f)
     os.replace(tmp, path)
 
