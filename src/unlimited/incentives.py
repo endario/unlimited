@@ -18,6 +18,7 @@ ROLES = frozenset({"session", "weekly", "weekly_model", "month", "extra"})
 MIN_MULTIPLIER = 1e-6  # smaller factors can overflow ordinary time costs
 MAX_MULTIPLIER = 1e6
 CONTEXT_VERSION = 1
+_LOAD_CATALOG = object()
 
 
 @dataclass(frozen=True)
@@ -521,7 +522,8 @@ def overlay(readings: list[dict], cat: Catalog, groups: list[dict], now: datetim
     return out
 
 
-def _annotate(readings: list[dict], *, now: datetime) -> tuple[list[dict], list[str]]:
+def _annotate(readings: list[dict], *, now: datetime,
+              cat: Catalog | None = _LOAD_CATALOG) -> tuple[list[dict], list[str]]:
     """Shared annotation and loader diagnostics, including when no reading was found."""
     from .catalog import load_metadata
 
@@ -534,9 +536,12 @@ def _annotate(readings: list[dict], *, now: datetime) -> tuple[list[dict], list[
         return failed("policy-unavailable")
     if not groups:
         return [dict(r, steering=_context_header(r, now)) for r in readings], []
-    try:
-        cat = load_metadata()
-    except (CatalogError, OSError, ValueError, TypeError, OverflowError):
+    if cat is _LOAD_CATALOG:
+        try:
+            cat = load_metadata()
+        except (CatalogError, OSError, ValueError, TypeError, OverflowError):
+            return failed("catalog-unavailable")
+    if cat is None:
         return failed("catalog-unavailable")
     return overlay(readings, cat, groups, now), []
 
