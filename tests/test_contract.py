@@ -8,7 +8,7 @@ import os
 import threading
 import time
 import unittest
-from contextlib import redirect_stdout
+from contextlib import redirect_stderr, redirect_stdout
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from unittest import mock
@@ -74,8 +74,10 @@ class Contract(unittest.TestCase):
         (self.tmp / "codex" / "auth.json").write_text(json.dumps(
             {"tokens": {"access_token": OPENAI_SECRET, "account_id": "acct-fixture"}}))
         env = {"CODEX_HOME": str(self.tmp / "codex"), "GLM_API_KEY": ZAI_SECRET, "CLAUDE_GLM_ENV": "", "NEURALWATT_API_KEY": NEURALWATT_SECRET,
-               "HOME": str(self.tmp / "home"), "XDG_CACHE_HOME": str(self.tmp / "cache")}
-        self.env = mock.patch.dict(os.environ, env)
+               "HOME": str(self.tmp / "home"), "XDG_CACHE_HOME": str(self.tmp / "cache"),
+               "XDG_CONFIG_HOME": str(self.tmp / "config"), "XDG_STATE_HOME": str(self.tmp / "state"),
+               "XDG_DATA_HOME": str(self.tmp / "data")}
+        self.env = mock.patch.dict(os.environ, env, clear=True)
         self.env.start()
         self.addCleanup(self.env.stop)
         self.now = NOW
@@ -83,6 +85,24 @@ class Contract(unittest.TestCase):
 
     def read(self, vendor, max_age=300.0):
         return cache.through(vendor, max_age=max_age, clock=lambda: self.now, get=self.up)
+
+    def test_verdict_rejects_a_cached_reading_without_vendor_without_requesting_usage(self):
+        from unlimited import schema
+        fact = schema.reading("openai", "acct-fixture", NOW, "ok", limits=[
+            schema.limit("codex", window_minutes=10080, used_at_least=.1,
+                         resets_at=NOW + timedelta(hours=20), held=False)])
+        fact.pop("vendor")
+        path = self.tmp / "cache" / "unlimited" / "openai.json"
+        path.parent.mkdir(parents=True)
+        path.write_text(json.dumps({"readings": [fact], "history": {}}))
+        out, err = io.StringIO(), io.StringIO()
+        with mock.patch.object(transport, "get", self.up), \
+                mock.patch.object(cli, "datetime") as dt, redirect_stdout(out), redirect_stderr(err):
+            dt.now.return_value = NOW
+            code = cli.main(["verdict", "--vendor", "openai", "--work", "600", "--json"])
+        self.assertEqual((code, out.getvalue()), (2, ""))
+        self.assertIn("reading vendor", err.getvalue())
+        self.assertEqual(self.up.calls, [])
 
     def test_cli_reads_the_selected_vendors_as_json(self):
         buf = io.StringIO()
@@ -263,6 +283,46 @@ class Contract(unittest.TestCase):
         got = zai.read(Credential("a", {"key": "k"}), NOW,
                        lambda u, h, n: Answer({"success": True, "data": {}}, 200, None))
         self.assertEqual((got["status"], got["why"]), ("unread", "no-limits"))
+
+    def test_verdict_policy_changes_without_changing_cached_usage_history(self):
+        from unlimited import catalog, incentives
+        cat = catalog.Catalog({"tiers": ["standard"], "models": {}, "offerings": []})
+        config = self.tmp / "config"
+        state = self.tmp / "state"
+        def call():
+            out = io.StringIO()
+            with redirect_stdout(out):
+                self.assertEqual(cli.main(["verdict", "--vendor", "openai", "--work", "600",
+                                           "--max-age", "300", "--json"]), 0)
+            return json.loads(out.getvalue())[0]
+        with mock.patch.dict(os.environ, {"XDG_CONFIG_HOME": str(config),
+                                          "XDG_STATE_HOME": str(state)}), \
+             mock.patch.object(catalog, "load_metadata", return_value=cat), \
+             mock.patch.object(transport, "get", self.up), \
+             mock.patch.object(cli, "datetime") as dt:
+            dt.now.return_value = NOW
+            group = {"target": "openai", "account": "acct-fixture", "multiplier": 10,
+                     "activated_at": NOW.isoformat(),
+                     "until": (NOW + timedelta(hours=1)).isoformat()}
+            incentives.write([group])
+            first = call()
+            path = self.tmp / "cache" / "unlimited" / "openai.json"
+            before = json.loads(path.read_text())
+            incentives.write([{**group, "multiplier": .1}])
+            second = call()
+            after = json.loads(path.read_text())
+        self.assertEqual(self.up.calls, [openai.URL])
+        self.assertEqual(before, after)
+        self.assertNotIn("steering", json.dumps(after))
+        self.assertNotIn("preference", json.dumps(after))
+        self.assertEqual(first["verdict"]["score"], second["verdict"]["score"])
+        self.assertEqual(first["verdict"]["at_reset"], second["verdict"]["at_reset"])
+        self.assertEqual((first["verdict"]["preference"]["multiplier"],
+                          second["verdict"]["preference"]["multiplier"]), (10, .1))
+        self.assertEqual(first["verdict"]["preference"]["until"], group["until"])
+        self.assertEqual(second["verdict"]["preference"]["until"], group["until"])
+        self.assertEqual(first["steering"]["observed_at"], NOW.isoformat())
+        self.assertNotIn(OPENAI_SECRET, json.dumps([first, second]))
 
 
 class Version(unittest.TestCase):
