@@ -315,6 +315,7 @@ def capture(payload: dict, now: datetime) -> dict | None:
     tmp = path / f".{who}.tmp"
     fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
     with os.fdopen(fd, "w") as f:
+        os.fchmod(f.fileno(), 0o600)
         json.dump(r, f)
     os.replace(tmp, path / f"{who}.json")
     return r

@@ -55,6 +55,26 @@ class Statusline(Base):
         return SimpleNamespace(VENDOR="anthropic", local=anthropic.local, read=anthropic.read,
                                discover=lambda: [Credential(UUID, {"token": "t", "expires": None})])
 
+    def test_a_capture_reusing_a_readable_tmp_is_private(self):
+        d = self.signed_in(".claude-account2")
+        path = anthropic.capture_dir() / f"{UUID}.json"
+        path.parent.mkdir(parents=True)
+        tmp = path.parent / f".{UUID}.tmp"
+        tmp.write_text("stale capture")
+        tmp.chmod(0o644)
+        self.assertEqual(tmp.stat().st_mode & 0o777, 0o644)
+        with mock.patch.dict(os.environ, {"CLAUDE_CONFIG_DIR": str(d)}):
+            got = anthropic.capture({"rate_limits": RL}, NOW)
+        self.assertIsNotNone(got)
+        body = json.loads(path.read_text())
+        self.assertEqual(body, got)
+        self.assertEqual((body["account"], body["source"], body["taken_at"]),
+                         (UUID, "statusline", NOW.isoformat()))
+        by = {l["name"]: l["used_at_least"] for l in body["limits"]}
+        self.assertAlmostEqual(by["five_hour"], 0.235)
+        self.assertAlmostEqual(by["seven_day"], 0.412)
+        self.assertEqual(path.stat().st_mode & 0o777, 0o600)
+
     def test_a_fresh_capture_answers_without_asking_anthropic(self):
         d = self.signed_in(".claude-account2")
         with mock.patch.dict(os.environ, {"CLAUDE_CONFIG_DIR": str(d)}):
@@ -392,6 +412,20 @@ class Grok(Base):
             return token if url == xai.TOKEN_URL else Answer(self.BODY, 200, None)
         return get
 
+    def test_a_renewed_token_reusing_a_readable_tmp_is_private(self):
+        path = xai._token_file()
+        path.parent.mkdir(parents=True)
+        tmp = path.with_suffix(".tmp")
+        tmp.write_text("stale token")
+        tmp.chmod(0o644)
+        self.assertEqual(tmp.stat().st_mode & 0o777, 0o644)
+        get = self.grok(Answer({"access_token": "new", "expires_in": 21600}, 200, None))
+        got = xai.read(Credential("u", self.EXPIRED), NOW, get)
+        self.assertEqual(got["status"], "ok")
+        self.assertEqual(json.loads(path.read_text()),
+                         {"u": {"key": "new", "expires": "2026-09-19T18:00:00+00:00"}})
+        self.assertEqual(path.stat().st_mode & 0o777, 0o600)
+
     def test_an_expired_token_is_renewed_and_the_renewal_reused_until_it_expires(self):
         get = self.grok(Answer({"access_token": "new", "expires_in": 21600}, 200, None))
         got = xai.read(Credential("u", self.EXPIRED), NOW, get)
@@ -700,6 +734,20 @@ class LastGood(Base):
                                    {"schema": 1, "vendor": "x", "account": "a", "taken_at": now.isoformat(),
                                     "source": "api", "status": answer[0], "why": answer[1],
                                     "retry_until": None, "limits": []}))
+
+    def test_a_cache_write_reusing_a_readable_tmp_is_private(self):
+        path = cache.default_dir() / "x.json"
+        path.parent.mkdir(parents=True)
+        tmp = path.with_suffix(".tmp")
+        tmp.write_text("stale reading")
+        tmp.chmod(0o644)
+        self.assertEqual(tmp.stat().st_mode & 0o777, 0o644)
+        cache.through(self.adapter(None), max_age=300, clock=lambda: NOW, get=None)
+        self.assertEqual(json.loads(path.read_text()), {"readings": [
+            {"schema": 1, "vendor": "x", "account": "a", "taken_at": NOW.isoformat(),
+             "source": "api", "status": "ok", "why": None, "retry_until": None, "limits": []}],
+            "history": {}})
+        self.assertEqual(path.stat().st_mode & 0o777, 0o600)
 
     def test_a_network_failure_keeps_the_last_good_reading_with_its_age(self):
         cache.through(self.adapter(None), max_age=300, clock=lambda: NOW, get=None)
