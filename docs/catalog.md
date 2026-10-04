@@ -82,6 +82,10 @@ syntax without removing a route. A positive finite multiplier divides its time c
 encourages, below one discourages. Quota cost is unchanged. Settings are machine-local in
 `incentives.json` beside the catalog, with locked atomic updates independent of switches.
 
+Requested multipliers must be finite and at least `1e-6`. Resolution caps the winning factor at
+`1e6`; stored settings retain the request. A clamped winner reports the requested and effective
+values. Requests above the cap have the same effective factor, not distinct strengths.
+
 Omitting `--for` captures the latest upcoming usage-window reset for each affected account;
 those expiry timestamps do not move with later readings. An explicit duration overrides reset
 expiry and needs no vendor read. Missing reset information requires a duration. List active

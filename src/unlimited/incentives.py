@@ -16,6 +16,7 @@ from .state import flock, write_json
 
 ROLES = frozenset({"session", "weekly", "weekly_model", "month", "extra"})
 MIN_MULTIPLIER = 1e-6  # smaller factors can overflow ordinary time costs
+MAX_MULTIPLIER = 1e6
 CONTEXT_VERSION = 1
 
 
@@ -165,6 +166,57 @@ def _group_identity(group: dict, route: dict, bound: set[str], now: datetime,
     return None, None
 
 
+def _resolved_winner(group: dict, until: datetime) -> dict:
+    requested = float(group["multiplier"])
+    effective = min(requested, MAX_MULTIPLIER)
+    winner = {**group, "multiplier": effective, "until": until.isoformat(), "bindings": None}
+    winner.pop("requested_multiplier", None)
+    winner.pop("clamped", None)
+    if effective != requested:
+        winner.update(requested_multiplier=requested, clamped=True)
+    return winner
+
+
+def _resolve_route(cat: Catalog, groups: list[dict], route: dict, identity: object,
+                   now: datetime, *, vendor_only: bool = False) -> tuple[dict | None, list[str]]:
+    bound = _identity(identity)
+    canonical = identity.get("account") if isinstance(identity, dict) else None
+    # Expired declarations still distinguish canonical IDs from another account's aliases.
+    if isinstance(identity, str) and any(
+            b["vendor"] == route["vendor"] and b["account"] == identity
+            for g in groups for b in g.get("bindings") or []):
+        canonical = identity
+    candidates, unresolved = [], []
+    for position, group in enumerate(groups):
+        if not _valid(group) or not _live(group, now):
+            continue
+        specificity = (1 if group["target"] == route["vendor"] and valid_target(cat, group["target"])
+                       else None) if vendor_only else _specificity(cat, route, group["target"])
+        if specificity is None:
+            continue
+        needed, until = _group_identity(group, route, bound, now, canonical)
+        if until is None or until <= now:
+            if not bound and group.get("bindings") and any(
+                    b["vendor"] == route["vendor"] and moment(b["until"]) > now for b in group["bindings"]):
+                label = f"{group['target']}/{group.get('account') or ''}".rstrip("/")
+                if label not in unresolved:
+                    unresolved.append(label)
+            continue
+        if needed and not (bound & needed):
+            if not bound:
+                label = f"{group['target']}/{group.get('account') or ''}".rstrip("/")
+                if label not in unresolved:
+                    unresolved.append(label)
+            continue
+        # An explicit selector outranks target scope; reset bindings only supply identity and expiry.
+        candidates.append((specificity + (10 if group.get("account") is not None else 0),
+                           moment(group["activated_at"]), position, group, until))
+    if not candidates:
+        return None, unresolved
+    _, _, _, group, until = max(candidates, key=lambda x: x[:3])
+    return _resolved_winner(group, until), unresolved
+
+
 def resolve(cat: Catalog, groups: list[dict] | None, accounts: dict[str, object] | None, now: datetime,
             route_ids: set[str] | None = None) -> Resolved:
     """Resolve live groups once for ranking and readings; missing account context remains neutral."""
@@ -178,43 +230,11 @@ def resolve(cat: Catalog, groups: list[dict] | None, accounts: dict[str, object]
         route = cat._route(offering)
         if route_ids is not None and route["id"] not in route_ids:
             continue
-        identity = accounts.get(route["id"])
-        bound = _identity(identity)
-        canonical = identity.get("account") if isinstance(identity, dict) else None
-        if isinstance(identity, str) and any(
-                b["vendor"] == route["vendor"] and b["account"] == identity
-                for g in groups for b in g.get("bindings") or []):
-            canonical = identity
-        candidates = []
-        for position, group in enumerate(groups):
-            if not _valid(group) or not _live(group, now):
-                continue
-            specificity = _specificity(cat, route, group["target"])
-            if specificity is None:
-                continue
-            needed, until = _group_identity(group, route, bound, now, canonical)
-            if until is None or until <= now:
-                if not bound and group.get("bindings") and any(b["vendor"] == route["vendor"] and moment(b["until"]) > now
-                                                          for b in group["bindings"]):
-                    label = f"{group['target']}/{group.get('account') or ''}".rstrip("/")
-                    if label not in unresolved:
-                        unresolved.append(label)
-                continue
-            if needed and not (bound & needed):
-                if not bound:
-                    label = f"{group['target']}/{group.get('account') or ''}".rstrip("/")
-                    if label not in unresolved:
-                        unresolved.append(label)
-                continue
-            # An explicit selector outranks target scope; reset bindings only supply identity and expiry.
-            candidates.append((specificity + (10 if group.get("account") is not None else 0),
-                               moment(group["activated_at"]), position, group, until))
-        if candidates:
-            _, _, _, group, until = max(candidates, key=lambda x: (x[0], x[1], x[2]))
-            factors[route["id"]] = float(group["multiplier"])
-            winners[route["id"]] = {**group, "until": until.isoformat(), "bindings": None}
-        else:
-            factors[route["id"]] = 1.0
+        winner, labels = _resolve_route(cat, groups, route, accounts.get(route["id"]), now)
+        unresolved.extend(label for label in labels if label not in unresolved)
+        factors[route["id"]] = winner["multiplier"] if winner is not None else 1.0
+        if winner is not None:
+            winners[route["id"]] = winner
     return Resolved(factors, winners, unresolved)
 
 
@@ -364,6 +384,89 @@ def clear_incentive(cat: Catalog, target: str, *, account: str | None, now: date
     return groups
 
 
+def _context_identity(context: object) -> tuple[str, str | None] | None:
+    if not isinstance(context, dict) or "account" not in context:
+        return None
+    vendor, account = context.get("vendor"), context["account"]
+    if not isinstance(vendor, str) or not vendor.strip():
+        return None
+    if account is not None and (not isinstance(account, str) or not account.strip()):
+        return None
+    return vendor, account
+
+
+def _policy_result(winner: dict | None, scope: str | None, reason: str | None,
+                   unresolved: list[str], status: str) -> dict:
+    multiplier = float(winner["multiplier"]) if winner is not None else 1.0
+    requested = float(winner.get("requested_multiplier", winner["multiplier"])) if winner is not None else None
+    clamped = requested is not None and requested != multiplier
+    return {"status": status, "reason": "clamped" if clamped else reason,
+            "multiplier": multiplier, "requested_multiplier": requested,
+            "target": winner["target"] if winner is not None else None,
+            "scope": scope, "until": winner["until"] if winner is not None else None,
+            "account_scoped": winner is not None and winner.get("account") is not None,
+            "clamped": clamped, "unresolved": list(unresolved)}
+
+
+def evaluate_context(cat: Catalog | None, context: dict | None, *, vendor: str, account: str | None,
+                     offering: str | None, now: datetime) -> dict:
+    """Evaluate source-local settings at a supplied time, without reading policy or quota."""
+    identity = _context_identity(context)
+    if identity is not None:
+        cv, ca = identity
+        if cv != vendor or ca is not None and account is not None and ca != account:
+            raise ValueError("context vendor/account conflict")
+    route = None
+    if offering is not None and cat is not None:
+        route = cat.route(offering)
+        if route is None or route["vendor"] != vendor:
+            raise ValueError("offering/vendor conflict")
+    if context is None:
+        return _policy_result(None, None, "missing-context", [], "unavailable")
+    if not isinstance(context, dict) or identity is None or type(context.get("v")) is not int:
+        return _policy_result(None, None, "invalid-context", [], "unavailable")
+    if context["v"] != CONTEXT_VERSION:
+        return _policy_result(None, None, "unsupported-version", [], "unavailable")
+    if context.get("error"):
+        return _policy_result(None, None, "policy-unavailable", [], "unavailable")
+    groups = context.get("settings")
+    context_account = identity[1]
+    try:
+        valid = isinstance(groups, list) and all(
+            _valid(g) and "bindings" not in g and g.get("until") is not None
+            and (g.get("account") is None or context_account is not None and g["account"] == context_account)
+            for g in groups)
+    except OverflowError:
+        valid = False
+    if not valid:
+        return _policy_result(None, None, "invalid-context", [], "unavailable")
+    if not groups and offering is None:
+        return _policy_result(None, None, "no-live-rule", [], "neutral")
+    if cat is None:
+        return _policy_result(None, None, "catalog-unavailable", [], "unavailable")
+    given = context.get("unresolved")
+    unresolved = [x for x in given if isinstance(x, str)] if isinstance(given, list) else []
+    for group in groups:
+        if not valid_target(cat, group["target"]) and group["target"] not in unresolved:
+            unresolved.append(group["target"])
+    binding = {"account": context_account if context_account is not None else account, "names": []}
+    if offering is not None:
+        resolved = resolve(cat, groups, {offering: binding}, now, {offering})
+        winner = resolved.winners.get(offering)
+        unresolved.extend(x for x in resolved.unresolved if x not in unresolved)
+        specificity = _specificity(cat, route, winner["target"]) if winner is not None else None
+        scope = {1: "vendor", 2: "provider", 3: "model", 4: "offering"}.get(specificity)
+    else:
+        winner, labels = _resolve_route(cat, groups, {"vendor": vendor}, binding, now, vendor_only=True)
+        unresolved.extend(x for x in labels if x not in unresolved)
+        scope = "vendor" if winner is not None else None
+    if winner is None:
+        return _policy_result(None, None, "no-live-rule", unresolved, "neutral")
+    neutral = winner["multiplier"] == 1
+    return _policy_result(winner, scope, "explicit-neutral" if neutral else None,
+                          unresolved, "neutral" if neutral else "applied")
+
+
 def _context_header(reading: dict, now: datetime) -> dict:
     account = reading.get("account")
     return {"v": CONTEXT_VERSION, "vendor": reading.get("vendor"),
@@ -407,9 +510,13 @@ def overlay(readings: list[dict], cat: Catalog, groups: list[dict], now: datetim
                                         "until": until.isoformat()})
         accounts = {route["id"]: {"account": canonical, "names": []} for route in routes}
         resolved = resolve(cat, context["settings"], accounts, now, set(accounts))
-        context["routes"] = [{"id": oid, "target": winner["target"], "account": winner.get("account"),
-                              "multiplier": winner["multiplier"], "until": winner["until"]}
-                             for oid, winner in resolved.winners.items()]
+        context["routes"] = []
+        for oid, winner in resolved.winners.items():
+            display = {"id": oid, "target": winner["target"], "account": winner.get("account"),
+                       "multiplier": winner["multiplier"], "until": winner["until"]}
+            if "requested_multiplier" in winner:
+                display.update(requested_multiplier=winner["requested_multiplier"], clamped=True)
+            context["routes"].append(display)
         out.append(dict(reading, steering=context))
     return out
 
