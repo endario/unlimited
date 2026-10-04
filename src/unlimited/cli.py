@@ -663,6 +663,16 @@ def main(argv: list[str] | None = None) -> int:
     verdict_cat = None
     vendors = getattr(a, "vendor", None) or sorted(REGISTRY)
     if a.cmd == "verdict":
+        try:
+            if a.work < 0 or a.max_age < 0:
+                raise ValueError
+            work = timedelta(seconds=a.work)
+            max_age = timedelta(seconds=a.max_age)
+            datetime.now(timezone.utc) + work
+        except (ValueError, OverflowError):
+            print("unlimited: --work and --max-age must be non-negative, finite durations "
+                  "within the supported time range", file=sys.stderr)
+            return 2
         # Before the reads: a broken switches file fails the command without waiting on a vendor.
         from . import catalog
         try:
@@ -724,7 +734,7 @@ def main(argv: list[str] | None = None) -> int:
                     "names": r.get("names", []), "steering": r["steering"],
                     "verdict": verdict(
                         r, model_scope=a.model_scope, now=now,
-                        work=timedelta(seconds=a.work), max_age=timedelta(seconds=a.max_age),
+                        work=work, max_age=max_age,
                         off=off, policy=policy),
                 })
         except ValueError as e:
