@@ -8,5 +8,6 @@ let package = Package(
         .target(name: "UnlimitedKit"),
         .executableTarget(name: "Unlimited", dependencies: ["UnlimitedKit"]),
         .testTarget(name: "UnlimitedKitTests", dependencies: ["UnlimitedKit"], resources: [.copy("Fixtures")]),
+        .testTarget(name: "UnlimitedTests", dependencies: ["Unlimited", "UnlimitedKit"]),
     ]
 )

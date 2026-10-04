@@ -121,12 +121,12 @@ final class StripModel: ObservableObject {
     var closePopover: () -> Void = {}
     /// Every account as read, before the owner's hiding: what Settings lists.
     @Published private(set) var accounts: [Tile] = []
-    @Published private(set) var prefs: Preferences = StripModel.loadPrefs()
+    @Published private(set) var prefs: Preferences
 
     private static let prefsKey = "preferences", pathKey = "unlimitedPath"
 
-    private static func loadPrefs() -> Preferences {
-        UserDefaults.standard.data(forKey: prefsKey)
+    private static func loadPrefs(_ defaults: UserDefaults) -> Preferences {
+        defaults.data(forKey: prefsKey)
             .flatMap { try? JSONDecoder().decode(Preferences.self, from: $0) } ?? Preferences()
     }
 
@@ -138,19 +138,28 @@ final class StripModel: ObservableObject {
     }
 
     var customPath: String {
-        get { UserDefaults.standard.string(forKey: Self.pathKey) ?? "" }
+        get { defaults.string(forKey: Self.pathKey) ?? "" }
         set {
-            UserDefaults.standard.set(newValue, forKey: Self.pathKey)
+            defaults.set(newValue, forKey: Self.pathKey)
             runner = nil
             refresh()
         }
     }
 
     private var lastRead: [Reading] = []
+    private let now: () -> Date
+    private let defaults: UserDefaults
+
+    init(runner: Runner? = nil, defaults: UserDefaults = .standard, now: @escaping () -> Date = Date.init) {
+        self.runner = runner
+        self.defaults = defaults
+        self.now = now
+        self.prefs = Self.loadPrefs(defaults)
+    }
 
     private func redraw() {
         guard !lastRead.isEmpty else { return }
-        accounts = Tile.strip(lastRead, now: Date(), off: offKeys)
+        accounts = Tile.strip(lastRead, now: now(), off: offKeys)
         tiles = prefs.apply(accounts)
         if tiles.isEmpty { tiles = [.waiting] }
         save()
@@ -159,9 +168,8 @@ final class StripModel: ObservableObject {
     }
 
     private func save() {
-        if let data = try? JSONEncoder().encode(prefs) { UserDefaults.standard.set(data, forKey: Self.prefsKey) }
+        if let data = try? JSONEncoder().encode(prefs) { defaults.set(data, forKey: Self.prefsKey) }
     }
-    /// Why the strip is a single `!`, for the menu; nil when it reads.
     @Published private(set) var problem: String?
     /// The strip's phase: each weekly figure for `weeklyShown`, then any alternate window for
     /// `alternateShown`. The timer runs only while some tile has an alternate.
@@ -234,8 +242,11 @@ final class StripModel: ObservableObject {
                 case .failure(Problem.tooOld):
                     self.fail("unlimited is older than 0.0.23: run `uv tool install --force unlimited`")
                 case .failure:
-                    // One failed run keeps the last strip; the next tick tries again.
                     if self.tiles == [.waiting] { self.fail("unlimited read failed") }
+                    else {
+                        self.problem = "unlimited read failed"
+                        self.redraw()
+                    }
                 }
             }
         }
