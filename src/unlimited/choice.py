@@ -172,12 +172,37 @@ def vendors_here(cat: Catalog) -> set[str]:
     return here
 
 
+def _context_accounts(cands: list[dict], contexts: dict[str, dict],
+                      accounts: dict[str, object] | None) -> dict[str, dict]:
+    from .incentives import _context_identity
+
+    bound = dict(accounts or {})
+    for oid, binding in bound.items():
+        if not (isinstance(binding, dict) and isinstance(binding.get("account"), str)
+                and binding["account"].strip()):
+            raise ValueError(f"accounts {oid}: contexts require a canonical account dictionary")
+    for c in cands:
+        oid = c["model"]
+        identity = _context_identity(contexts.get(oid))
+        if identity is None:
+            continue
+        vendor, account = identity
+        supplied = bound.get(oid)
+        if vendor != c["vendor"] or (account is not None and supplied is not None
+                                     and account != supplied["account"]):
+            raise ValueError("context vendor/account conflict")
+        if supplied is None and account is not None:
+            bound[oid] = {"account": account, "names": []}
+    return bound
+
+
 def rank(cat: Catalog, *, tier: str, candidates: list[str], attempts: list[dict], quota: dict[str, float],
          deadline: float, now: datetime, temperature: float | None = None, quota_weight: float = QUOTA_WEIGHT,
          task: str | None = None, meta: dict | None = None,
          exclude: dict[str, str] | None = None, vendors: Collection[str] | None = None,
          prefer: dict[str, float] | None = None, seed: int | None = None,
-         incentives: list[dict] | None = None, accounts: dict[str, object] | None = None) -> dict | None:
+         incentives: list[dict] | None = None, accounts: dict[str, object] | None = None,
+         contexts: dict[str, dict] | None = None) -> dict | None:
     """The decision over `attempts` (as `outcomes.attempts` gives them), reading and writing
     nothing: the whole request, every candidate scored, `order` (indices, the order to try) and
     `pick` (its first). None when no named candidate is live. `exclude` maps a route's id to the
@@ -193,6 +218,8 @@ def rank(cat: Catalog, *, tier: str, candidates: list[str], attempts: list[dict]
     if not ((temperature is None or (math.isfinite(temperature) and temperature >= 0))
             and math.isfinite(quota_weight) and quota_weight >= 0 and math.isfinite(deadline) and deadline > 0):
         raise ValueError("temperature and quota weight must be finite and not negative, the deadline positive")
+    if contexts is not None and incentives is not None:
+        raise ValueError("contexts and incentives cannot both be supplied")
     prefer = prefer or {}
     known = ({m["provider"] for m in cat.models.values()} | set(cat.models) | {o["id"] for o in cat.offerings})
     for name in candidates:
@@ -212,8 +239,10 @@ def rank(cat: Catalog, *, tier: str, candidates: list[str], attempts: list[dict]
         if not (isinstance(minutes, (int, float)) and math.isfinite(minutes)):
             raise ValueError(f"prefer {name}: minutes must be a finite number")
     exclude = exclude or {}
-    cands = [c for c in named(cat, tier, candidates, now)
-             if c["model"] not in exclude and not _account_off(cat, c, accounts, now)
+    cands = named(cat, tier, candidates, now)
+    bound = _context_accounts(cands, contexts, accounts) if contexts is not None else accounts
+    cands = [c for c in cands
+             if c["model"] not in exclude and not _account_off(cat, c, bound, now)
              and (vendors is None or c["vendor"] in vendors)]
     if not cands:
         return None
@@ -224,10 +253,19 @@ def rank(cat: Catalog, *, tier: str, candidates: list[str], attempts: list[dict]
         name = next((n for n in names if n in prefer), None)
         if name is not None:
             lean[c["model"]] = prefer[name]
-    from .incentives import resolve
-    resolved = resolve(cat, incentives, accounts, now, {candidate["model"] for candidate in cands})
+    from .incentives import evaluate_context, resolve
+    if contexts is None:
+        resolved = resolve(cat, incentives, accounts, now, {candidate["model"] for candidate in cands})
+        factors, unresolved = resolved.factors, resolved.unresolved
+    else:
+        evaluations = {c["model"]: evaluate_context(
+            cat, contexts.get(c["model"]), vendor=c["vendor"],
+            account=bound.get(c["model"], {}).get("account"), offering=c["model"], now=now) for c in cands}
+        factors = {oid: evaluation["multiplier"] for oid, evaluation in evaluations.items()}
+        unresolved = list(dict.fromkeys(target for evaluation in evaluations.values()
+                                        for target in evaluation["unresolved"]))
     scored = score(cands, quota, outcomes.stats(attempts, now), deadline, cat.tie_preference, quota_weight, lean,
-                   outcomes.spread(attempts, now), resolved.factors)
+                   outcomes.spread(attempts, now), factors)
     if seed is None:
         seed = random.randrange(1 << 32)
     tried = order(scored, temperature, random.Random(seed), quota_weight)
@@ -238,12 +276,15 @@ def rank(cat: Catalog, *, tier: str, candidates: list[str], attempts: list[dict]
         request["incentives"] = incentives
     if accounts is not None:
         request["accounts"] = accounts
+    if contexts is not None:
+        request["contexts"] = contexts
     return {"v": outcomes.VERSION, "type": "decision", "decision": uuid.uuid4().hex[:16], "at": now.isoformat(),
             "request": request,
             "policy": "thompson" if temperature is None else "best" if temperature == 0 else "softmax",
             "seed": seed, "candidates": scored, "order": tried,
             "pick": tried[0], "prefer_unmatched": sorted(set(prefer) - used), "attempts_unknown": sum(unknown.values()),
-            "incentives_unresolved": resolved.unresolved,
+            "incentives_unresolved": unresolved,
+            **({"context_evaluations": evaluations} if contexts is not None else {}),
             "routes_unknown": [{"provider": p, "model": m, "attempts": n} for (p, m), n in sorted(unknown.items(), key=str)]}
 
 
@@ -252,9 +293,9 @@ def choose(cat: Catalog, *, tier: str, candidates: list[str], quota: dict[str, f
            task: str | None = None, meta: dict | None = None, exclude: dict[str, str] | None = None,
            vendors: Collection[str] | None = None, prefer: dict[str, float] | None = None,
            seed: int | None = None, log=None, incentives: list[dict] | None = None,
-           accounts: dict[str, object] | None = None) -> dict | None:
+           accounts: dict[str, object] | None = None, contexts: dict[str, dict] | None = None) -> dict | None:
     """`rank` over unlimited's attempt log, the decision appended to it."""
-    if incentives is None:
+    if contexts is None and incentives is None:
         from . import incentives as policy
         loaded = policy.read(policy.incentives_path(cat.local), now)
         incentives = loaded or None
@@ -262,7 +303,7 @@ def choose(cat: Catalog, *, tier: str, candidates: list[str], quota: dict[str, f
     decision = rank(cat, tier=tier, candidates=candidates, attempts=outcomes.attempts(records, now), quota=quota,
                     deadline=deadline, now=now, temperature=temperature, quota_weight=quota_weight, task=task,
                     meta=meta, exclude=exclude, vendors=vendors, prefer=prefer, seed=seed,
-                    incentives=incentives, accounts=accounts)
+                    incentives=incentives, accounts=accounts, contexts=contexts)
     if decision is not None:
         outcomes.append(decision, log)
     return decision

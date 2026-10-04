@@ -47,7 +47,7 @@ per line, appended under an exclusive lock, each with a `type`:
 |---|---|---|
 | `start` | `unlimited attempt start` | `attempt` (id), `at`, `provider`, `model`, `offering` (the route's id, when not `model`), `effort`, `account`, `decision` (the choice it carries out, if any), `deadline` (seconds), `task`, `meta` |
 | `end` | `unlimited attempt end ID` | `attempt`, `at`, `outcome` (`ok`, `timeout`, `error`, `unavailable`, `abandoned`), `tokens` (`in`, `out`, `cache`), `meta` |
-| `decision` | `unlimited choose` | `decision` (id), `at`, `request` (everything asked, below), `policy`, `seed`, `candidates` (each scored, with its odds), `order`, `pick`, `prefer_unmatched`, `attempts_unknown`, `routes_unknown`, `incentives_unresolved` |
+| `decision` | `unlimited choose` | `decision` (id), `at`, `request` (everything asked, below), `policy`, `seed`, `candidates` (each scored, with its odds), `order`, `pick`, `prefer_unmatched`, `attempts_unknown`, `routes_unknown`, `incentives_unresolved`, `context_evaluations` (with explicit contexts) |
 
 `task` and `meta` are the caller's: a label and string key/value pairs, recorded for later analysis,
 never read. No prompt or content is recorded unless a caller puts it in `meta`.
@@ -91,8 +91,13 @@ appended to it.
 - `vendors`: None (every vendor) unless given; `choice.vendors_here(cat)` is this machine's.
 - `seed`: replays a decision's order when the original request and decision time are supplied.
 - `incentives`: explicit activation groups from `unlimited.incentives.read`, applied to time cost;
-  absent means neutral in pure `rank`. `choose` reads local groups beside its catalog unless this
-  argument is supplied; `[]` suppresses local steering.
+  absent means neutral in pure `rank`. `choose` reads local groups beside its catalog only when
+  neither `incentives` nor `contexts` is supplied; `[]` suppresses local steering.
+- `contexts: dict[str, dict] | None = None`: offering ID to the actual representative's `steering`
+  context, evaluated through `incentives.evaluate_context` at `now`. Any explicit map, including
+  empty or partial, suppresses implicit local policy. Uncovered routes stay at 1× with
+  `reason=missing-context`; an account binding alone does not supply their policy. Supplying both
+  `contexts` and `incentives` raises `ValueError`. Display `routes` and aliases are not policy input.
 - `accounts`: offering ID to account ID/name, or to `{"account": ID, "names": [ALIAS, ...]}`.
   For reset-bound settings, use the structured form to make a canonical ID authoritative rather
   than an alias.
@@ -100,8 +105,21 @@ appended to it.
   projection in `quota`. Account-scoped or reset-bound settings without this context are listed
   in `incentives_unresolved`; a known sibling account is not an unresolved setting.
 
-The decision logs supplied policy and account bindings. Replay with that snapshot, the original
-`now` and the logged seed, rather than current local settings.
+With explicit `contexts`, each supplied `accounts` entry must be a dictionary with a nonblank
+canonical `account`; alias-only or bare-string bindings are rejected. A well-formed context header
+can supply that canonical identity independently of missing, malformed or unavailable policy.
+A supplied non-null account must match the context's non-null account; vendor/account conflicts
+raise `ValueError` before account exclusions or policy decoding. Receiver-local `names` on a
+matching supplied binding still enforce alias off switches, but never affect context policy.
+A null or invalid header does not erase independently supplied identity. Uncovered bindings are
+for exclusions only; null-account context settings remain unbound.
+
+The decision logs supplied policy and account bindings as asked. Explicit contexts are retained
+whole in `request.contexts`, including caller metadata and entries not used by this decision.
+`context_evaluations` maps each remaining offering to the evaluator's resolved explanation,
+including neutral/unavailable reasons. Candidate time fields and quota components retain their
+existing shape; `multiplier` enters the existing time-cost calculation. Replay with that snapshot,
+the original `now` and the logged seed, rather than current local settings.
 
 For each candidate, over the attempts with weight `w = 2^(−age / 12 h)`:
 
@@ -184,8 +202,8 @@ not renew it. Aliases, unrelated account bindings and credential fields are not 
 An empty policy does not load catalog metadata. Policy/catalog loader failures retain quota facts
 and canonical identity, with `error=policy-unavailable` or `catalog-unavailable`; transported errors
 do not include local exception paths. Unknown applicable targets appear in `unresolved` without
-being reinterpreted as vendor rules. Annotation alone does not change verdicts or add context input
-to route choice.
+being reinterpreted as vendor rules. Annotation alone does not change verdicts or choices; Python
+callers pass the representative's `steering` through `contexts` to apply it to route choice.
 
 ## Context evaluation
 
@@ -222,7 +240,7 @@ unbound settings; a separately supplied account does not turn them into scoped p
 
 A nullable catalog permits policy-failure handling and neutral empty settings with no offering.
 Otherwise evaluation requires catalog metadata; it does not load or synthesize a catalog.
-This API does not add context inputs to `rank`/`choose` or policy weighting to verdicts.
+Policy weighting of verdicts is separate from the `rank`/`choose` context input.
 
 ## Cards
 
