@@ -348,6 +348,47 @@ class Context(unittest.TestCase):
         self.assertNotIn("error", row["steering"])
         self.assertEqual(self.facts_only(row), self.reading)
 
+    def test_supplied_catalog_snapshot_keeps_annotation_and_evaluation_together(self):
+        groups = [setting(ROUTE, 10)]
+        before = copy.deepcopy((self.reading, groups, self.cat.offerings))
+        with mock.patch.object(incentives, "read", return_value=groups), \
+                mock.patch.object(catalog, "load_metadata", side_effect=AssertionError("catalog reload")):
+            rows, errors = incentives._annotate([self.reading], now=NOW, cat=self.cat)
+        self.assertEqual(errors, [])
+        self.assertEqual(self.facts_only(rows[0]), self.reading)
+        context = rows[0]["steering"]
+        self.assertEqual(context["routes"][0]["multiplier"], 10)
+        self.assertEqual(self.evaluate(context)["multiplier"], 10)
+        self.assertEqual((self.reading, groups, self.cat.offerings), before)
+
+    def test_explicit_unavailable_catalog_does_not_retry_loading(self):
+        with mock.patch.object(incentives, "read", return_value=[setting()]), \
+                mock.patch.object(catalog, "load_metadata", side_effect=AssertionError("catalog retry")):
+            rows, errors = incentives._annotate([self.reading], now=NOW, cat=None)
+            empty, empty_errors = incentives._annotate([], now=NOW, cat=None)
+        self.assertEqual(errors, ["catalog-unavailable"])
+        self.assertEqual((empty, empty_errors), ([], errors))
+        self.assertEqual(self.facts_only(rows[0]), self.reading)
+        self.assertEqual(rows[0]["steering"]["error"], "catalog-unavailable")
+        self.assertEqual(rows[0]["steering"]["account"], "a")
+        self.assertEqual(rows[0]["steering"]["settings"], [])
+
+    def test_supplied_catalog_keeps_empty_policy_and_loader_failure_precedence(self):
+        for cat in (self.cat, None):
+            with self.subTest(cat=cat), \
+                    mock.patch.object(catalog, "load_metadata", side_effect=AssertionError("catalog I/O")):
+                with mock.patch.object(incentives, "read", return_value=[]):
+                    rows, errors = incentives._annotate([self.reading], now=NOW, cat=cat)
+                self.assertEqual(errors, [])
+                self.assertNotIn("error", rows[0]["steering"])
+                self.assertEqual(rows[0]["steering"]["settings"], [])
+                with mock.patch.object(incentives, "read", side_effect=catalog.CatalogError("private-policy")):
+                    rows, errors = incentives._annotate([self.reading], now=NOW, cat=cat)
+                self.assertEqual(errors, ["policy-unavailable"])
+                self.assertEqual(rows[0]["steering"]["error"], "policy-unavailable")
+                self.assertNotIn("private-policy", json.dumps(rows))
+                self.assertEqual(self.facts_only(rows[0]), self.reading)
+
     @staticmethod
     def facts_only(row):
         return {k: v for k, v in row.items() if k != "steering"}
