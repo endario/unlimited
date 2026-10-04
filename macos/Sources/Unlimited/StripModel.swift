@@ -147,10 +147,16 @@ final class StripModel: ObservableObject {
     }
 
     private var lastRead: [Reading] = []
+    private let now: () -> Date
+
+    init(runner: Runner? = nil, now: @escaping () -> Date = Date.init) {
+        self.runner = runner
+        self.now = now
+    }
 
     private func redraw() {
         guard !lastRead.isEmpty else { return }
-        accounts = Tile.strip(lastRead, now: Date(), off: offKeys)
+        accounts = Tile.strip(lastRead, now: now(), off: offKeys)
         tiles = prefs.apply(accounts)
         if tiles.isEmpty { tiles = [.waiting] }
         save()
@@ -161,7 +167,6 @@ final class StripModel: ObservableObject {
     private func save() {
         if let data = try? JSONEncoder().encode(prefs) { UserDefaults.standard.set(data, forKey: Self.prefsKey) }
     }
-    /// Why the strip is a single `!`, for the menu; nil when it reads.
     @Published private(set) var problem: String?
     /// The strip's phase: each weekly figure for `weeklyShown`, then any alternate window for
     /// `alternateShown`. The timer runs only while some tile has an alternate.
@@ -234,8 +239,11 @@ final class StripModel: ObservableObject {
                 case .failure(Problem.tooOld):
                     self.fail("unlimited is older than 0.0.23: run `uv tool install --force unlimited`")
                 case .failure:
-                    // One failed run keeps the last strip; the next tick tries again.
                     if self.tiles == [.waiting] { self.fail("unlimited read failed") }
+                    else {
+                        self.problem = "unlimited read failed"
+                        self.redraw()
+                    }
                 }
             }
         }
