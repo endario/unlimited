@@ -134,7 +134,7 @@ public struct Runner: Sendable {
         return nums?.count == 3 ? nums : nil
     }
 
-    func run(_ args: [String], timeout: TimeInterval) throws -> Data {
+    public func run(_ args: [String], timeout: TimeInterval) throws -> Data {
         try runCaptured(args, timeout: timeout).0
     }
 

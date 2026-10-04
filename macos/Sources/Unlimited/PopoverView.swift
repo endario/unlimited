@@ -1,8 +1,15 @@
 import SwiftUI
 import UnlimitedKit
 
+@MainActor
+final class PopoverState: ObservableObject {
+    @Published var launchProblem: String?
+    @Published var launching = false
+}
+
 struct PopoverView: View {
     @ObservedObject var model: StripModel
+    @StateObject private var state = PopoverState()
 
     private var tile: Tile? { model.tiles.first { $0.id == model.selected } ?? model.tiles.first }
 
@@ -13,6 +20,17 @@ struct PopoverView: View {
                 footer(nil)
             } else if let tile, let reading = model.readings[tile.id] {
                 header(tile, reading)
+                if let issue = reading.issue(now: Date()) {
+                    UsageIssueView(issue: issue, login: issue.offersLogin ? model.launches[tile.id].map { launch in
+                        { openTerminal(launch, command: launch.loginCommand) }
+                    } : nil)
+                    .disabled(state.launching)
+                    .help(reading.why ?? issue.title)
+                }
+                if let launchProblem = state.launchProblem {
+                    Text(launchProblem).font(.callout)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
                 ForEach(Card.cards(reading, now: Date())) { CardView(card: $0) }
                 if let credits = Card.credits(reading) {
                     Box { Label(credits, systemImage: "creditcard").font(.callout) }
@@ -27,6 +45,8 @@ struct PopoverView: View {
         }
         .padding(8)
         .frame(width: 320)
+        .onChange(of: tile?.id) { state.launchProblem = nil }
+        .onChange(of: tile?.value) { state.launchProblem = nil }
     }
 
     /// Which account this is: the strip above is the tabs, so the popover only names it.
@@ -43,9 +63,23 @@ struct PopoverView: View {
                     Button { model.closePopover(); launch.openEditor(editor) } label: { Image(systemName: "text.rectangle") }
                         .buttonStyle(.plain).help("Open a VS Code session as \(t.label)")
                 }
-                Button { model.closePopover(); launch.openTerminal() } label: { Image(systemName: "terminal") }
-                    .buttonStyle(.plain).help("Open a CLI session in tmux as \(t.label)")
+                Button { openTerminal(launch, closeOnSuccess: true) } label: { Image(systemName: "terminal") }
+                    .buttonStyle(.plain).disabled(state.launching).help("Open a CLI session in tmux as \(t.label)")
             }
+        }
+    }
+
+    private func openTerminal(_ launch: Launch, command: String? = nil, closeOnSuccess: Bool = false) {
+        guard !state.launching else { return }
+        let account = tile?.id
+        state.launching = true
+        state.launchProblem = nil
+        Task {
+            let problem = await launch.openTerminal(command: command)
+            state.launching = false
+            guard tile?.id == account else { return }
+            state.launchProblem = problem
+            if problem == nil && closeOnSuccess { model.closePopover() }
         }
     }
 
@@ -72,6 +106,36 @@ struct PopoverView: View {
                 .buttonStyle(.plain).help("Quit")
         }
         .font(.caption)
+    }
+}
+
+struct UsageIssueView: View {
+    let issue: UsageIssue
+    let login: (() -> Void)?
+
+    var body: some View {
+        Box {
+            VStack(alignment: .leading, spacing: 8) {
+                Text(issue.title).font(.callout.weight(.semibold))
+                Text(issue.message).font(.callout)
+                    .fixedSize(horizontal: false, vertical: true)
+                if issue.offersLogin {
+                    if let login {
+                        Button(action: login) {
+                            Text("\(Image(systemName: "terminal"))\u{2009}Sign in")
+                        }
+                        .help("Open iTerm to sign in to this account")
+                        Text("Choose this account in the browser, then refresh.")
+                            .font(.caption)
+                            .fixedSize(horizontal: false, vertical: true)
+                    } else {
+                        Text("No account launcher was found in ~/.local/bin. Sign in through this account’s Claude Code setup, then refresh.")
+                            .font(.caption)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                }
+            }
+        }
     }
 }
 

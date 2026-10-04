@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from datetime import datetime
 
+from . import errors
 from .projection import MIN_PAST
 from .schema import moment
 
@@ -26,9 +27,12 @@ def _plan(r: dict) -> str | None:
 
 
 def _until(t: datetime, now: datetime) -> str:
-    s = int((t - now).total_seconds())
-    if s <= 0:
+    seconds = (t - now).total_seconds()
+    if seconds <= 0:
         return "now"
+    if seconds < 60:
+        return "under a minute"
+    s = int(seconds)
     d, h, m = s // 86400, s % 86400 // 3600, s % 3600 // 60
     return f"{d}d {h}h" if d else f"{h}h {m:02d}m" if h else f"{m}m"
 
@@ -111,16 +115,16 @@ def render(readings: list[dict], now: datetime, *, color: bool = False, all_limi
             notes.append(r["source"])
         wait = moment(r.get("retry_until"))
         if r.get("status") == "ok" and wait and wait > now:
-            notes.append(f"throttled: next read in {_until(wait, now)}")
+            notes.append(f"refresh paused: next read in {_until(wait, now)}")
         plan = _plan(r)
         indicator = _steering(r, color, now)
         lines.append(f"{vendor}" + (f" {plan}" if plan else "") + f" · {who}" + (f" {indicator}" if indicator else "")
                      + (f"  ({', '.join(notes)})" if notes else ""))
         if r.get("status") != "ok":
-            until = moment(r.get("retry_until"))
-            lines.append(_paint(f"  not read: {r.get('why') or r.get('status')}"
-                                + (f", retry in {_until(until, now)}" if until and until > now else ""),
-                                None, None, color))
+            description = errors.describe(r.get("why"))
+            lines.extend([f"  ? {description['title']}", f"    {description['message']}"])
+            if wait and wait > now:
+                lines.append(f"    Retry in {_until(wait, now)}.")
             lines.append("")
             continue
         shown = [l for l in r.get("limits", []) if all_limits or

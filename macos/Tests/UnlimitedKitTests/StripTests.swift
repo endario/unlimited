@@ -41,6 +41,16 @@ func strip() throws -> [String: Tile] {
     #expect(tiles["CL1"]?.dimmed == false)
 }
 
+@Test func unavailableUsageShowsAQuestionMarkInsteadOfAQuotaWarning() throws {
+    let tiles = try strip()
+    #expect(tiles["ZAI2"]?.value.text == "?", "an unread account has no usage figure")
+    #expect(tiles["OPC"]?.value.text == "?", "an old reading cannot describe current usage")
+    #expect(tiles["CDX"]?.value.text == "?")
+    #expect(tiles["ZAI"]?.value.text == "—", "an answered account with no window stays distinct")
+    #expect(tiles["OPC2"]?.value.text == "0", "backoff retains the last known percentage")
+    #expect(Tile.waiting.value.text == "…")
+}
+
 @Test func withNoAccountsTheStripIsOneWaitingTile() {
     #expect(Tile.strip([], now: now) == [.waiting])
 }

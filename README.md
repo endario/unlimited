@@ -37,7 +37,9 @@ cross-fades to it now and then. The thin bar beside each figure is how much of t
 passed. Where a vendor has several accounts, the one to use next is underlined. A tile whose
 account is switched off (`unlimited off`, the vendor or the account alone) keeps
 its exact colours at half transparency and is never the one to use next; Settings' "Never offer"
-rows flip those switches. A glyph that stands for no reading at all (`!`, `—`, `?`, `…`) is grey.
+rows flip those switches. An unavailable or stale usage figure is `?`; `—` means no usage window
+and `…` means the first reading is pending. These glyphs are grey. The popover explains failed
+reads; Claude sign-in failures offer **Sign in**, opening the account's wrapper in iTerm.
 
 The colour says where the window is heading, once there is enough to go on:
 
@@ -66,6 +68,9 @@ cd macos && make app && open .build/Unlimited.app
 <br clear="right">
 
 ## In the terminal
+
+Unavailable usage prints `?` with a readable failure explanation and any retry delay. The
+CLI and app share the builtin message definitions; JSON keeps the machine-readable reason codes.
 
 ![unlimited status: one block per account, a bar per usage window, and a forecast line under each](https://raw.githubusercontent.com/endario/unlimited/main/docs/status.svg)
 
