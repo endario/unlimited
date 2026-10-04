@@ -65,14 +65,68 @@ class Render(unittest.TestCase):
         out = show.render([reading("anthropic", "a", NOW, "ok", credits=old)], NOW)
         self.assertIn("(read 2h 00m ago)", out.split("credits")[1])
 
-    def test_an_unread_account_says_why(self):
+    def test_an_unread_account_explains_the_failure_and_retry_delay(self):
         r = reading("zai", "z", NOW, "refused", why="http-429", retry_until=NOW + timedelta(minutes=5))
-        self.assertIn("not read: http-429, retry in 5m", show.render([r], NOW))
+        out = show.render([r], NOW)
+        self.assertIn("? Usage service busy", out)
+        self.assertIn("The provider is limiting usage requests", out)
+        self.assertIn("Retry in 5m", out)
+        self.assertNotIn("http-429", out)
 
-    def test_a_throttled_account_shows_its_kept_reading_and_when_it_is_next_read(self):
+    def test_failures_are_explained_in_words_instead_of_reason_codes(self):
+        cases = [("signed-out", "Signed out", "Sign in"),
+                 ("credential-expired", "Sign-in expired", "Sign in"),
+                 ("no-credential", "No sign-in found", "Sign in"),
+                 ("http-401", "Sign-in rejected", "Sign in"),
+                 ("http-403", "Access denied", "access permissions"),
+                 ("unreachable", "Cannot reach usage service", "Check your connection"),
+                 ("not-json", "Invalid usage response", "could not read"),
+                 ("not-an-object", "Invalid usage response", "could not read"),
+                 ("no-limits", "No usage limits reported", "no usage limits"),
+                 ("no-subscription", "No subscription found", "Check its plan"),
+                 ("vendor-refused", "Usage request refused", "provider refused"),
+                 ("http-503", "Usage unavailable", "temporarily unavailable"),
+                 ("http-418", "Usage unavailable", "418"),
+                 ("new-reason", "Usage unavailable", "Refresh")]
+        for why, title, hint in cases:
+            with self.subTest(why=why):
+                r = reading("anthropic", "a", NOW, "unread", why=why)
+                out = show.render([r], NOW)
+                self.assertIn("? " + title, out)
+                self.assertIn(hint, out)
+                self.assertEqual(r["why"], why, "human formatting must not rewrite the machine reason")
+
+    def test_a_subminute_retry_does_not_tell_the_user_to_wait_zero_minutes(self):
+        r = reading("anthropic", "a", NOW, "refused", why="http-401", retry_until=NOW + timedelta(seconds=30))
+        out = show.render([r], NOW)
+        self.assertIn("Retry in under a minute", out)
+        self.assertNotIn("Retry in 0m", out)
+
+    def test_a_retained_reading_reports_a_subminute_refresh_delay(self):
+        r = reading("anthropic", "a", NOW, "ok", limits=[], retry_until=NOW + timedelta(seconds=30))
+        out = show.render([r], NOW)
+        self.assertIn("refresh paused: next read in under a minute", out)
+        self.assertNotIn("next read in 0m", out)
+
+    def test_unmapped_provider_reasons_keep_their_diagnostic_details(self):
+        for why in ("vendor-123", "new-reason"):
+            with self.subTest(why=why):
+                out = show.render([reading("zai", "a", NOW, "refused", why=why)], NOW)
+                self.assertIn("? Usage unavailable", out)
+                self.assertIn(why, out)
+                self.assertIn("Refresh", out)
+
+    def test_a_missing_reason_still_explains_the_failed_read(self):
+        out = show.render([reading("openai", "a", NOW, "unread")], NOW)
+        self.assertIn("? Usage unavailable", out)
+        self.assertIn("Refresh", out)
+
+    def test_a_paused_refresh_keeps_its_reading_without_inventing_throttling(self):
         r = reading("zai", "z", NOW - timedelta(minutes=10), "ok", limits=[])
         r["retry_until"] = (NOW + timedelta(minutes=4)).isoformat()
-        self.assertIn("(read 10m ago, throttled: next read in 4m)", show.render([r], NOW))
+        out = show.render([r], NOW)
+        self.assertIn("(read 10m ago, refresh paused: next read in 4m)", out)
+        self.assertNotIn("throttled", out)
 
     def test_colour_is_green_to_85_orange_to_95_then_red(self):
         paint = lambda used: show._paint("x", used, None, True)

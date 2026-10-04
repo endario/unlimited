@@ -1,0 +1,42 @@
+{
+  "image": "signed-out.png",
+  "pixels": [
+    640,
+    446
+  ],
+  "scale": 2,
+  "ink_bounding_boxes": {
+    "title": [
+      33,
+      160,
+      158,
+      184
+    ],
+    "message": [
+      33,
+      206,
+      515,
+      260
+    ],
+    "caption": [
+      33,
+      345,
+      506,
+      365
+    ]
+  },
+  "leading_ink_spread_px": 0,
+  "light_message_colours_rgb": [
+    [
+      166,
+      166,
+      166
+    ],
+    [
+      25,
+      25,
+      25
+    ]
+  ],
+  "light_message_contrast": 7.222
+}

@@ -13,15 +13,51 @@ public struct Launch: Equatable, Sendable {
     static func wrapper(_ names: [String]) -> String? {
         for n in names {
             if n.hasPrefix("claude-") { return n }
-            if n.hasPrefix("account"), let i = Int(n.dropFirst("account".count)) { return "claude-\(i)" }
+            if n.hasPrefix("account") {
+                let suffix = n.dropFirst("account".count)
+                if !suffix.isEmpty, suffix.allSatisfy({ $0.isASCII && $0.isNumber }) { return "claude-\(suffix)" }
+            }
         }
         return nil
     }
 
+    static func shellQuote(_ value: String) -> String {
+        // A terminal can translate a typed CR to LF; construct it inside the shell instead.
+        "'" + value.replacingOccurrences(of: "'", with: "'\\''")
+            .replacingOccurrences(of: "\r", with: "'\"$(printf '\\r')\"'") + "'"
+    }
+
+    public var terminalCommand: String {
+        // tmux passes its command to another shell, so quote that command as well as its path.
+        "tmux new-session " + Self.shellQuote(Self.shellQuote(cli.path))
+    }
+
+    public var loginCommand: String {
+        let overrides = ["CLAUDE_CONFIG_DIR", "CLAUDE_CODE_OAUTH_TOKEN", "CLAUDE_CODE_OAUTH_TOKEN_FILE_DESCRIPTOR",
+                         "ANTHROPIC_AUTH_TOKEN", "ANTHROPIC_API_KEY"]
+        // A login shell can export another account's credentials; the wrapper selects this one.
+        return (["/usr/bin/env"] + overrides.flatMap { ["-u", $0] } + [cli.path, "auth", "login", "--claudeai"])
+            .map(Self.shellQuote).joined(separator: " ")
+    }
+
+    public static func terminalScript(command: String) -> String {
+        let text = command.replacingOccurrences(of: "\\", with: "\\\\")
+            .replacingOccurrences(of: "\"", with: "\\\"")
+            .replacingOccurrences(of: "\n", with: "\\n")
+            .replacingOccurrences(of: "\r", with: "\\r")
+        return """
+            tell application "iTerm"
+                activate
+                set w to (create window with default profile)
+                tell current session of w to write text "\(text)"
+            end tell
+            """
+    }
+
     public static func resolve(names: [String], home: URL = FileManager.default.homeDirectoryForCurrentUser) -> Launch? {
-        guard let name = wrapper(names) else { return nil }
-        let cli = home.appending(path: ".local/bin/\(name)")
-        guard FileManager.default.isExecutableFile(atPath: cli.path) else { return nil }
+        let candidates = names.compactMap { wrapper([$0]) }.map { home.appending(path: ".local/bin/\($0)") }
+        guard let cli = candidates.first(where: { FileManager.default.isExecutableFile(atPath: $0.path) }) else { return nil }
+        let name = cli.lastPathComponent
         // Each bundle's launcher ends `exec "…/.local/bin/code-N" "$@"`.
         let code = "/.local/bin/code-\(name.dropFirst("claude-".count))\""
         let apps = home.appending(path: "Applications")

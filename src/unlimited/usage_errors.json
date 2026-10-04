@@ -1,0 +1,70 @@
+{
+  "exact": {
+    "signed-out": {
+      "title": "Signed out",
+      "message": "This account is signed out. Sign in again to retrieve its usage.",
+      "auth": true
+    },
+    "credential-expired": {
+      "title": "Sign-in expired",
+      "message": "This account’s sign-in has expired. Sign in again to retrieve its usage.",
+      "auth": true
+    },
+    "no-credential": {
+      "title": "No sign-in found",
+      "message": "No saved sign-in was found for this account. Sign in to retrieve its usage.",
+      "auth": true
+    },
+    "http-401": {
+      "title": "Sign-in rejected",
+      "message": "The provider rejected this account’s sign-in. Sign in again, then refresh.",
+      "auth": true
+    },
+    "http-403": {
+      "title": "Access denied",
+      "message": "The provider denied access to this account’s usage. Check its access permissions, then refresh."
+    },
+    "http-429": {
+      "title": "Usage service busy",
+      "message": "The provider is limiting usage requests. Wait before refreshing."
+    },
+    "unreachable": {
+      "title": "Cannot reach usage service",
+      "message": "The usage service could not be reached. Check your connection, then refresh."
+    },
+    "not-json": {
+      "title": "Invalid usage response",
+      "message": "The provider returned a response Unlimited could not read. Refresh to try again."
+    },
+    "not-an-object": {
+      "title": "Invalid usage response",
+      "message": "The provider returned a response Unlimited could not read. Refresh to try again."
+    },
+    "no-limits": {
+      "title": "No usage limits reported",
+      "message": "The provider returned no usage limits for this account. Refresh to try again."
+    },
+    "vendor-refused": {
+      "title": "Usage request refused",
+      "message": "The provider refused the usage request. Check this account with the provider, then refresh."
+    },
+    "no-subscription": {
+      "title": "No subscription found",
+      "message": "No active subscription was reported for this account. Check its plan with the provider."
+    }
+  },
+  "prefixes": {
+    "http-5": {
+      "title": "Usage unavailable",
+      "message": "The provider’s usage service is temporarily unavailable. Refresh to try again."
+    },
+    "http-": {
+      "title": "Usage unavailable",
+      "message": "The provider refused the usage request ({reason}). Refresh to try again."
+    }
+  },
+  "fallback": {
+    "title": "Usage unavailable",
+    "message": "Usage could not be read from the provider (reason: {reason}). Refresh to try again."
+  }
+}
