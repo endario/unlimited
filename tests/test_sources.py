@@ -30,6 +30,7 @@ class Base(unittest.TestCase):
         self.home = self.tmp / "home"
         self.home.mkdir()
         p = mock.patch.dict(os.environ, {"XDG_CACHE_HOME": str(self.tmp / "cache"), "HOME": str(self.home),
+                                          **dict.fromkeys(anthropic.OVERRIDES, ""),
                                           "CLAUDE_GLM_ENV": "", "GLM_API_KEY": "",
                                           "CLAUDE_KIMI_ENV": "", "KIMI_API_KEY": "", "COMMAND_CODE_API_KEY": ""})
         p.start()
