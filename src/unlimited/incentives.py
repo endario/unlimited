@@ -177,7 +177,7 @@ def _resolved_winner(group: dict, until: datetime) -> dict:
     return winner
 
 
-def _resolve_route(cat: Catalog | None, groups: list[dict], route: dict, identity: object,
+def _resolve_route(cat: Catalog, groups: list[dict], route: dict, identity: object,
                    now: datetime, *, vendor_only: bool = False) -> tuple[dict | None, list[str]]:
     bound = _identity(identity)
     canonical = identity.get("account") if isinstance(identity, dict) else None
@@ -190,9 +190,8 @@ def _resolve_route(cat: Catalog | None, groups: list[dict], route: dict, identit
     for position, group in enumerate(groups):
         if not _valid(group) or not _live(group, now):
             continue
-        specificity = (1 if group["target"] == route["vendor"] and cat is not None
-                       and valid_target(cat, group["target"]) else None) if vendor_only \
-                      else _specificity(cat, route, group["target"])
+        specificity = (1 if group["target"] == route["vendor"] and valid_target(cat, group["target"])
+                       else None) if vendor_only else _specificity(cat, route, group["target"])
         if specificity is None:
             continue
         needed, until = _group_identity(group, route, bound, now, canonical)
