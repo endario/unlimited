@@ -59,7 +59,16 @@ class EnvKeys:
     def files(self) -> list[Path]:
         files = sorted((Path.home() / ".config").glob(self.glob))
         path = os.environ.get(self.named) if self.named else None
-        return files + ([Path(path)] if path else [])
+        if path:
+            named = Path(path)
+            for f in files:
+                try:
+                    if f == named or f.samefile(named):
+                        return files
+                except OSError:
+                    pass
+            files.append(named)
+        return files
 
     def names(self) -> dict[str, list[str]]:
         """Account id → the files holding its key, by stem (a wrapper's command name)."""
