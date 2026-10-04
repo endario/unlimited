@@ -4,6 +4,7 @@ import copy
 import io
 import json
 import os
+import sys
 import unittest
 from contextlib import redirect_stderr, redirect_stdout
 from datetime import datetime, timedelta, timezone
@@ -44,6 +45,148 @@ class Context(unittest.TestCase):
         self.reading = dict(schema.reading("openai", "a", NOW - timedelta(minutes=5), "ok", limits=[
             schema.limit("seven_day", window_minutes=10080, used_at_least=.25,
                          resets_at=NOW + timedelta(hours=3), held=False)]), names=["private-alias"])
+
+    def evaluate(self, context, *, offering=ROUTE, cat=None, account="a", now=NOW):
+        evaluator = getattr(incentives, "evaluate_context", None)
+        self.assertTrue(callable(evaluator), "public context evaluator is missing")
+        return evaluator(self.cat if cat is None else cat, context, vendor="openai",
+                         account=account, offering=offering, now=now)
+
+    def test_explicit_neutral_retains_selected_rule_explanation(self):
+        ctx = self.export([setting(factor=100), setting(factor=1, account="a", hours=1)])
+        before = copy.deepcopy(ctx)
+        for offering in (ROUTE, None):
+            with self.subTest(offering=offering):
+                self.assertEqual(self.evaluate(ctx, offering=offering), {
+                    "status": "neutral", "reason": "explicit-neutral", "multiplier": 1.0,
+                    "requested_multiplier": 1.0, "target": "openai", "scope": "vendor",
+                    "until": (NOW + timedelta(hours=1)).isoformat(), "account_scoped": True,
+                    "clamped": False, "unresolved": []})
+        self.assertEqual(ctx, before)
+
+    def test_activation_then_source_position_selects_winner_in_both_paths(self):
+        groups = [setting(factor=2, activated=NOW - timedelta(seconds=1)),
+                  setting(factor=3), setting(factor=4),
+                  setting(factor=5, activated=NOW - timedelta(seconds=1))]
+        ctx = self.export(groups)
+        for offering in (ROUTE, None):
+            with self.subTest(offering=offering):
+                self.assertEqual(self.evaluate(ctx, offering=offering)["multiplier"], 4)
+        ctx["settings"][1]["activated_at"] = (NOW + timedelta(seconds=1)).isoformat()
+        for offering in (ROUTE, None):
+            with self.subTest(offering=offering):
+                self.assertEqual(self.evaluate(ctx, offering=offering)["multiplier"], 3)
+
+    def test_receiver_catalog_resolves_scope_without_using_display_routes(self):
+        cat = catalog.Catalog({"tiers": ["standard"],
+                               "models": {"m": {"provider": "p", "tiers": ["standard"]}},
+                               "offerings": [{"id": "api:m", "model": "m", "vendor": "openai"},
+                                             {"id": "sibling", "model": "m", "vendor": "openai"}]})
+        for target, scope in (("openai", "vendor"), ("p", "provider"), ("m", "model"),
+                              ("p:m", "model"), ("api:m", "offering"), ("p:api:m", "offering")):
+            ctx = {"v": 1, "vendor": "openai", "account": "a", "settings": [setting(target, 3)],
+                   "routes": [{"id": "api:m", "multiplier": 999}],
+                   "requested_multiplier": 999, "clamped": True}
+            with self.subTest(target=target):
+                got = self.evaluate(ctx, cat=cat, offering="api:m")
+                self.assertEqual((got["multiplier"], got["requested_multiplier"], got["scope"],
+                                  got["account_scoped"], got["clamped"]), (3, 3, scope, False, False))
+                unspecified = self.evaluate(ctx, cat=cat, offering=None)
+                self.assertEqual(unspecified["multiplier"], 3 if scope == "vendor" else 1)
+                sibling = self.evaluate(ctx, cat=cat, offering="sibling")
+                self.assertEqual(sibling["multiplier"], 1 if scope == "offering" else 3)
+
+    def test_unknown_target_equal_to_requested_vendor_is_diagnosed_not_applied(self):
+        cat = catalog.Catalog({"tiers": []})
+        context = {"v": 1, "vendor": "unregistered-vendor", "account": None,
+                   "settings": [setting("unregistered-vendor", 10)]}
+        before = copy.deepcopy(context)
+        got = incentives.evaluate_context(cat, context, vendor="unregistered-vendor", account=None,
+                                          offering=None, now=NOW)
+        self.assertEqual(got, {"status": "neutral", "reason": "no-live-rule", "multiplier": 1.0,
+                               "requested_multiplier": None, "target": None, "scope": None,
+                               "until": None, "account_scoped": False, "clamped": False,
+                               "unresolved": ["unregistered-vendor"]})
+        self.assertEqual(context, before)
+
+    def test_receiver_known_custom_vendor_applies_without_offering_input(self):
+        cat = catalog.Catalog({"tiers": ["standard"],
+                               "models": {"m": {"provider": "p", "tiers": ["standard"]}},
+                               "offerings": [{"id": "o", "model": "m", "vendor": "catalog-vendor"}]})
+        context = {"v": 1, "vendor": "catalog-vendor", "account": None,
+                   "settings": [setting("catalog-vendor", 10)]}
+        got = incentives.evaluate_context(cat, context, vendor="catalog-vendor", account=None,
+                                          offering=None, now=NOW)
+        self.assertEqual((got["status"], got["multiplier"], got["scope"], got["unresolved"]),
+                         ("applied", 10, "vendor", []))
+
+    def test_vendor_without_offerings_uses_vendor_rule(self):
+        cat = catalog.Catalog({"tiers": ["standard"], "models": {}, "offerings": []})
+        ctx = {"v": 1, "vendor": "openai", "account": "a", "settings": [setting(factor=3)]}
+        got = self.evaluate(ctx, cat=cat, offering=None)
+        self.assertEqual((got["multiplier"], got["scope"], got["unresolved"]), (3, "vendor", []))
+
+    def test_source_local_contexts_do_not_merge_shared_account_policy(self):
+        contexts = [self.export([setting(factor=3)]), self.export([setting(factor=.1)])]
+        self.assertEqual([self.evaluate(ctx)["multiplier"] for ctx in contexts], [3, .1])
+
+    def test_null_header_keeps_unbound_policy_with_optional_supplied_identity(self):
+        ctx = self.export([setting(factor=3)], reading=dict(self.reading, account=None))
+        for account in (None, "a"):
+            with self.subTest(account=account):
+                got = self.evaluate(ctx, account=account)
+                self.assertEqual((got["multiplier"], got["account_scoped"]), (3, False))
+        ctx["settings"][0]["account"] = "a"
+        self.assertEqual(self.evaluate(ctx)["reason"], "invalid-context")
+
+    def test_request_conflicts_precede_policy_failures(self):
+        good = self.export([setting()])
+        for ctx in (None, {**good, "v": 99}, {**good, "error": "policy-unavailable"},
+                    {**good, "settings": "broken"}):
+            for offering in ("absent-offering", "opus"):
+                with self.subTest(context=ctx, offering=offering), self.assertRaises(ValueError):
+                    self.evaluate(ctx, offering=offering)
+        for ctx in ({**good, "v": 99}, {**good, "settings": "broken"}):
+            with self.subTest(context=ctx), self.assertRaises(ValueError):
+                incentives.evaluate_context(None, ctx, vendor="other", account="a", offering=None, now=NOW)
+            with self.subTest(context=ctx), self.assertRaises(ValueError):
+                incentives.evaluate_context(None, ctx, vendor="openai", account="b", offering=None, now=NOW)
+
+    def test_missing_invalid_and_empty_context_do_not_require_catalog(self):
+        good = {"v": 1, "vendor": "openai", "account": "a", "settings": []}
+        cases = [(None, "unavailable", "missing-context"),
+                 ([], "unavailable", "invalid-context"),
+                 ({**good, "vendor": " "}, "unavailable", "invalid-context"),
+                 ({k: v for k, v in good.items() if k != "account"}, "unavailable", "invalid-context"),
+                 ({**good, "account": True}, "unavailable", "invalid-context"),
+                 ({**good, "v": 2}, "unavailable", "unsupported-version"),
+                 ({**good, "settings": "bad"}, "unavailable", "invalid-context"),
+                 (good, "neutral", "no-live-rule")]
+        self.assertTrue(callable(getattr(incentives, "evaluate_context", None)))
+        for ctx, status, reason in cases:
+            with self.subTest(context=ctx):
+                got = incentives.evaluate_context(None, ctx, vendor="openai", account="a", offering=None, now=NOW)
+                self.assertEqual(got, {"status": status, "reason": reason, "multiplier": 1.0,
+                                      "requested_multiplier": None, "target": None, "scope": None,
+                                      "until": None, "account_scoped": False, "clamped": False, "unresolved": []})
+        unavailable = incentives.evaluate_context(None, good, vendor="openai", account="a", offering=ROUTE, now=NOW)
+        self.assertEqual(unavailable["reason"], "catalog-unavailable")
+        populated = {**good, "settings": [setting()]}
+        self.assertEqual(incentives.evaluate_context(None, populated, vendor="openai", account="a",
+                                                    offering=None, now=NOW)["reason"], "catalog-unavailable")
+
+    def test_public_evaluation_is_pure_and_leaves_inputs_unchanged(self):
+        ctx = self.export([setting(factor=3)])
+        before = copy.deepcopy(ctx)
+        with mock.patch.object(incentives, "read", side_effect=AssertionError("policy I/O")), \
+                mock.patch.object(catalog, "load_metadata", side_effect=AssertionError("catalog I/O")), \
+                mock.patch.object(catalog, "load", side_effect=AssertionError("switch I/O")), \
+                mock.patch.object(incentives, "datetime") as clock, \
+                mock.patch.object(transport, "get", side_effect=AssertionError("vendor request")):
+            clock.now.side_effect = AssertionError("implicit clock")
+            for offering in (ROUTE, None):
+                self.assertEqual(self.evaluate(ctx, offering=offering)["multiplier"], 3)
+        self.assertEqual(ctx, before)
 
     def export(self, groups, *, reading=None, now=NOW):
         return incentives.overlay([self.reading if reading is None else reading], self.cat, groups, now)[0]["steering"]
@@ -412,3 +555,93 @@ class Context(unittest.TestCase):
                 self.assertNotIn(str(tmp), err.getvalue())
                 self.assertNotIn(str(tmp), json.dumps(row["steering"]))
 
+    def test_evaluation_preserves_local_expiry_fallback(self):
+        groups = [setting("openai", 10, hours=3), setting(ROUTE, 5, hours=2),
+                  setting("openai", 1, account="a", hours=1)]
+        ctx = incentives.overlay([self.reading], self.cat, groups, NOW)[0]["steering"]
+        for minutes, factor in ((0, 1), (60, 5), (120, 10), (180, 1)):
+            with self.subTest(minutes=minutes):
+                now = NOW + timedelta(minutes=minutes)
+                result = incentives.evaluate_context(self.cat, ctx, vendor="openai", account="a",
+                                                     offering=ROUTE, now=now)
+                self.assertEqual(result["multiplier"], factor)
+                raw = incentives.resolve(self.cat, incentives._current(groups, now),
+                                         {ROUTE: {"account": "a", "names": []}}, now, {ROUTE})
+                self.assertEqual(result["multiplier"], raw.factors[ROUTE])
+
+    def test_unspecified_work_does_not_use_offering_scope(self):
+        ctx = incentives.overlay([self.reading], self.cat,
+                                 [setting("openai", 2), setting(ROUTE, 10)], NOW)[0]["steering"]
+        result = incentives.evaluate_context(self.cat, ctx, vendor="openai", account="a",
+                                             offering=None, now=NOW)
+        self.assertEqual((result["multiplier"], result["scope"]), (2, "vendor"))
+
+    def test_known_offering_and_vendor_only_share_clamp_without_borrowing_scope(self):
+        context = incentives.overlay([self.reading], self.cat,
+                                     [setting("openai", sys.float_info.max)], NOW)[0]["steering"]
+        for offering in (ROUTE, None):
+            with self.subTest(offering=offering):
+                got = incentives.evaluate_context(self.cat, context, vendor="openai", account="a",
+                                                  offering=offering, now=NOW)
+                self.assertEqual((got["multiplier"], got["requested_multiplier"], got["scope"]),
+                                 (1e6, sys.float_info.max, "vendor"))
+                self.assertEqual((got["status"], got["reason"], got["clamped"]),
+                                 ("applied", "clamped", True))
+        scoped = incentives.overlay([self.reading], self.cat, [setting(ROUTE, 10)], NOW)[0]["steering"]
+        known = incentives.evaluate_context(self.cat, scoped, vendor="openai", account="a", offering=ROUTE, now=NOW)
+        unspecified = incentives.evaluate_context(self.cat, scoped, vendor="openai", account="a", offering=None, now=NOW)
+        self.assertEqual(known["scope"], "offering")
+        self.assertEqual((unspecified["multiplier"], unspecified["reason"]), (1.0, "no-live-rule"))
+
+    def test_policy_failure_does_not_hide_well_formed_identity_conflict(self):
+        ctx = {"v": 99, "vendor": "openai", "account": "a", "settings": []}
+        with self.assertRaises(ValueError):
+            incentives.evaluate_context(self.cat, ctx, vendor="openai", account="b",
+                                        offering=ROUTE, now=NOW)
+        result = incentives.evaluate_context(self.cat, ctx, vendor="openai", account="a",
+                                             offering=ROUTE, now=NOW)
+        self.assertEqual((result["status"], result["multiplier"], result["reason"]),
+                         ("unavailable", 1, "unsupported-version"))
+
+    def test_error_context_can_be_evaluated_without_catalog(self):
+        ctx = {"v": 1, "vendor": "openai", "account": "a", "settings": [],
+               "error": "policy-unavailable"}
+        result = incentives.evaluate_context(None, ctx, vendor="openai", account="a",
+                                             offering=None, now=NOW)
+        self.assertEqual((result["status"], result["multiplier"], result["reason"]),
+                         ("unavailable", 1, "policy-unavailable"))
+
+    def test_invalid_settings_are_unavailable_not_partial_policy(self):
+        good = incentives.overlay([self.reading], self.cat, [setting()], NOW)[0]["steering"]
+        cases = [("v", True), ("settings", {}),
+                 *[("settings", [{**good["settings"][0], "multiplier": factor}])
+                   for factor in (True, 0, -1, 1e-7, float("inf"), float("nan"), 10**400)],
+                 ("settings", [None]),
+                 ("settings", [{**good["settings"][0], "activated_at": "not-a-time"}]),
+                 ("settings", [{**good["settings"][0], "account": "b"}]),
+                 ("settings", [{**good["settings"][0], "bindings": []}]),
+                 ("settings", [{**good["settings"][0], "until": "not-a-time"}])]
+        for field, value in cases:
+            with self.subTest(field=field, value=value):
+                result = incentives.evaluate_context(self.cat, {**good, field: value},
+                                                     vendor="openai", account="a", offering=ROUTE, now=NOW)
+                self.assertEqual((result["status"], result["multiplier"], result["reason"]),
+                                 ("unavailable", 1, "invalid-context"))
+
+    def test_additive_fields_are_ignored_but_unknown_semantic_version_is_not(self):
+        good = incentives.overlay([self.reading], self.cat, [setting()], NOW)[0]["steering"]
+        extra = {**good, "annotation_extra": {"value": "opaque"}}
+        result = incentives.evaluate_context(self.cat, extra, vendor="openai", account="a",
+                                             offering=ROUTE, now=NOW)
+        self.assertEqual(result["multiplier"], 10)
+        changed = incentives.evaluate_context(self.cat, {**good, "v": 2}, vendor="openai", account="a",
+                                              offering=ROUTE, now=NOW)
+        self.assertEqual(changed["reason"], "unsupported-version")
+
+    def test_unknown_target_is_diagnosed_without_borrowing_scope(self):
+        good = incentives.overlay([self.reading], self.cat, [setting("openai", 2)], NOW)[0]["steering"]
+        good["settings"].append(setting("unknown-receiver-target", 100))
+        result = incentives.evaluate_context(self.cat, good, vendor="openai", account="a",
+                                             offering=ROUTE, now=NOW)
+        self.assertEqual(result["multiplier"], 2)
+        self.assertIn("unknown-receiver-target", result["unresolved"])

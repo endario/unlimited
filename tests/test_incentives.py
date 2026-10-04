@@ -2,11 +2,13 @@
 
 from __future__ import annotations
 
+import copy
 import math
 import io
 import json
 import os
 import random
+import sys
 import unittest
 from contextlib import redirect_stdout, redirect_stderr
 from unittest import mock
@@ -126,6 +128,9 @@ class Incentives(unittest.TestCase):
             with self.subTest(identity=identity):
                 got = incentives.resolve(self.cat, [group], {"gpt-6.1-sol": identity}, NOW)
                 self.assertEqual(got.factors["gpt-6.1-sol"], 1)
+        pruned = incentives._current([group], NOW)
+        got = incentives.resolve(self.cat, pruned, {"gpt-6.1-sol": {"account": "a", "names": []}}, NOW)
+        self.assertEqual(got.factors["gpt-6.1-sol"], 1)
 
     def test_overlay_keeps_losing_settings_and_neutral_route_winner(self):
         groups = [
@@ -362,4 +367,77 @@ class Incentives(unittest.TestCase):
                    "steering": {"routes": [{"multiplier": 10, "until": (NOW + timedelta(hours=1)).isoformat()}]}}
         self.assertNotIn("▲", show.render([reading], NOW + timedelta(hours=2)))
 
+    def test_selected_factor_is_bounded_without_rewriting_requested_policy(self):
+        path = incentives.incentives_path(self.local)
+        for requested in (1e-6, 1.0, 1e6, math.nextafter(1e6, math.inf), sys.float_info.max):
+            with self.subTest(requested=requested):
+                group = incentives.set_incentive(
+                    self.cat, "openai", requested, now=NOW,
+                    duration=timedelta(hours=1), path=path)
+                before = copy.deepcopy(group)
+                resolved = incentives.resolve(
+                    self.cat, [group], {"gpt-6.1-sol": {"account": "a"}}, NOW)
+                effective = min(requested, 1e6)
+                self.assertEqual(resolved.factors["gpt-6.1-sol"], effective)
+                winner = resolved.winners["gpt-6.1-sol"]
+                self.assertEqual(winner["multiplier"], effective)
+                if requested > 1e6:
+                    self.assertEqual(winner["requested_multiplier"], requested)
+                    self.assertIs(winner["clamped"], True)
+                else:
+                    self.assertNotIn("requested_multiplier", winner)
+                    self.assertNotIn("clamped", winner)
+                self.assertEqual(group, before)
+                self.assertEqual(incentives.read(path, NOW)[0]["multiplier"], requested)
+                self.assertEqual(incentives.parse_multiplier(f"{requested!r}x"), requested)
 
+    def test_raw_additive_metadata_cannot_claim_a_computed_clamp(self):
+        group = {"target": "openai", "multiplier": 10, "requested_multiplier": sys.float_info.max,
+                 "clamped": True,
+                 "activated_at": NOW.isoformat(), "until": (NOW + timedelta(hours=1)).isoformat()}
+        resolved = incentives.resolve(self.cat, [group], {"gpt-6.1-sol": {"account": "a"}}, NOW)
+        winner = resolved.winners["gpt-6.1-sol"]
+        self.assertEqual(winner["multiplier"], 10)
+        self.assertNotIn("requested_multiplier", winner)
+        self.assertNotIn("clamped", winner)
+        self.assertEqual(group["requested_multiplier"], sys.float_info.max)
+        self.assertIs(group["clamped"], True)
+
+    def test_neutral_override_expiry_reveals_bounded_broader_rule(self):
+        groups = [
+            {"target": "openai", "multiplier": sys.float_info.max,
+             "activated_at": NOW.isoformat(),
+             "until": (NOW + timedelta(hours=2)).isoformat()},
+            {"target": "gpt-6.1-sol", "multiplier": 1.0,
+             "activated_at": NOW.isoformat(),
+             "until": (NOW + timedelta(hours=1)).isoformat()},
+        ]
+        before = copy.deepcopy(groups)
+        accounts = {"gpt-6.1-sol": {"account": "a"}}
+        live = incentives.resolve(self.cat, groups, accounts, NOW)
+        self.assertEqual(live.factors["gpt-6.1-sol"], 1.0)
+        self.assertNotIn("requested_multiplier", live.winners["gpt-6.1-sol"])
+        after = incentives.resolve(self.cat, groups, accounts, NOW + timedelta(hours=1))
+        self.assertEqual(after.factors["gpt-6.1-sol"], 1e6)
+        self.assertEqual(after.winners["gpt-6.1-sol"]["target"], "openai")
+        self.assertEqual(after.winners["gpt-6.1-sol"]["requested_multiplier"], sys.float_info.max)
+        self.assertEqual(groups, before)
+
+    def test_display_keeps_requested_settings_and_effective_clamped_winner(self):
+        group = {"target": "openai", "multiplier": sys.float_info.max,
+                 "activated_at": NOW.isoformat(),
+                 "until": (NOW + timedelta(hours=1)).isoformat()}
+        r = {"vendor": "openai", "account": "a", "names": [], "status": "ok", "limits": []}
+        context = incentives.overlay([r], self.cat, [group], NOW)[0]["steering"]
+        self.assertEqual(context["settings"][0]["multiplier"], sys.float_info.max)
+        route = next(x for x in context["routes"] if x["id"] == "gpt-6.1-sol")
+        self.assertEqual(route["multiplier"], 1e6)
+        self.assertEqual(route["requested_multiplier"], sys.float_info.max)
+        self.assertIs(route["clamped"], True)
+        result = incentives.evaluate_context(
+            self.cat, context, vendor="openai", account="a", offering="gpt-6.1-sol", now=NOW)
+        self.assertEqual((result["multiplier"], result["requested_multiplier"], result["reason"]),
+                         (1e6, sys.float_info.max, "clamped"))
+        self.assertIs(result["clamped"], True)
+        json.dumps(context, allow_nan=False)
+        json.dumps(result, allow_nan=False)
