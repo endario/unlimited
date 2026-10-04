@@ -16,6 +16,7 @@ from .state import flock, write_json
 
 ROLES = frozenset({"session", "weekly", "weekly_model", "month", "extra"})
 MIN_MULTIPLIER = 1e-6  # smaller factors can overflow ordinary time costs
+CONTEXT_VERSION = 1
 
 
 @dataclass(frozen=True)
@@ -363,34 +364,77 @@ def clear_incentive(cat: Catalog, target: str, *, account: str | None, now: date
     return groups
 
 
+def _context_header(reading: dict, now: datetime) -> dict:
+    account = reading.get("account")
+    return {"v": CONTEXT_VERSION, "vendor": reading.get("vendor"),
+            "account": account if isinstance(account, str) and account.strip() else None,
+            "observed_at": now.isoformat(), "settings": [], "routes": [], "unresolved": []}
+
+
 def overlay(readings: list[dict], cat: Catalog, groups: list[dict], now: datetime) -> list[dict]:
-    """Attach schema-1 steering after cache reads, never into cached vendor history."""
+    """Attach canonical policy after cache reads, never into cached vendor history."""
+    if not all(_valid(group) for group in groups):
+        raise ValueError("invalid incentive policy")
+    current = _current(groups, now)
     out = []
     for reading in readings:
-        account = {route["id"]: {"account": reading.get("account"), "names": reading.get("names", [])}
-                   for route in (cat._route(offering) for offering in cat.offerings)
-                   if route["vendor"] == reading.get("vendor")}
-        resolved = resolve(cat, groups, account, now)
-        routes = [{"id": oid, "target": winner["target"], "account": winner.get("account"),
-                   "multiplier": winner["multiplier"], "until": winner["until"]}
-                  for oid, winner in resolved.winners.items() if oid in account]
-        settings = []
-        for group in groups:
-            if not _valid(group) or not _live(group, now):
+        context = _context_header(reading, now)
+        canonical = context["account"]
+        bound = _reading_identity(reading) if canonical is not None else set()
+        routes = [cat._route(offering) for offering in cat.offerings
+                  if offering["vendor"] == reading.get("vendor")]
+        for group in current:
+            if canonical is None and (group.get("account") is not None or group.get("bindings") is not None):
                 continue
-            contexts = [route for route in (cat._route(offering) for offering in cat.offerings) if route["id"] in account]
-            if not contexts and group["target"] == reading.get("vendor"):
-                contexts = [{"vendor": reading["vendor"]}]
-            for route in contexts:
-                if "id" in route and _specificity(cat, route, group["target"]) is None:
-                    continue
-                bound = _reading_identity(reading)
-                needed, until = _group_identity(group, route, bound, now, reading.get("account"))
-                if until is not None and until > now and (not needed or needed & bound):
-                    setting = {"target": group["target"], "account": group.get("account"),
-                               "multiplier": group["multiplier"], "until": until.isoformat()}
-                    if setting not in settings:
-                        settings.append(setting)
-                    break
-        out.append(dict(reading, steering={"settings": settings, "routes": routes}))
+            needed, until = _group_identity(group, {"vendor": reading.get("vendor")}, bound, now, canonical)
+            if until is None or until <= now or needed and not needed & bound:
+                continue
+            if not valid_target(cat, group["target"]):
+                if group["target"] not in context["unresolved"]:
+                    context["unresolved"].append(group["target"])
+                continue
+            if not any(_specificity(cat, route, group["target"]) is not None for route in routes) and not (
+                    not routes and group["target"] == reading.get("vendor")):
+                continue
+            if group.get("bindings") is not None:
+                # Keep the original selector: canonicalising it before matching would widen its horizon.
+                expiries = [_group_identity(dict(group, bindings=[b]), {"vendor": reading.get("vendor")},
+                            bound, now, canonical)[1] for b in group["bindings"]]
+                until = max(expiry for expiry in expiries if expiry is not None)
+            context["settings"].append({"target": group["target"],
+                                        "account": canonical if group.get("account") is not None else None,
+                                        "multiplier": group["multiplier"], "activated_at": group["activated_at"],
+                                        "until": until.isoformat()})
+        accounts = {route["id"]: {"account": canonical, "names": []} for route in routes}
+        resolved = resolve(cat, context["settings"], accounts, now, set(accounts))
+        context["routes"] = [{"id": oid, "target": winner["target"], "account": winner.get("account"),
+                              "multiplier": winner["multiplier"], "until": winner["until"]}
+                             for oid, winner in resolved.winners.items()]
+        out.append(dict(reading, steering=context))
+    return out
+
+
+def _annotate(readings: list[dict], *, now: datetime) -> tuple[list[dict], list[str]]:
+    """Shared annotation and loader diagnostics, including when no reading was found."""
+    from .catalog import load_metadata
+
+    def failed(code):
+        return [dict(r, steering={**_context_header(r, now), "error": code}) for r in readings], [code]
+
+    try:
+        groups = read(now=now)
+    except (CatalogError, ValueError, TypeError, OverflowError):
+        return failed("policy-unavailable")
+    if not groups:
+        return [dict(r, steering=_context_header(r, now)) for r in readings], []
+    try:
+        cat = load_metadata()
+    except (CatalogError, ValueError, TypeError, OverflowError):
+        return failed("catalog-unavailable")
+    return overlay(readings, cat, groups, now), []
+
+
+def annotate(readings: list[dict], *, now: datetime) -> list[dict]:
+    """Load local advisory policy onto factual readings without changing their evidence."""
+    out, _ = _annotate(readings, now=now)
     return out
