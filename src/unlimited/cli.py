@@ -700,20 +700,24 @@ def main(argv: list[str] | None = None) -> int:
         from . import catalog, incentives
         from .verdict import verdict
         now = datetime.now(timezone.utc)
-        out, errors = incentives._annotate(out, now=now)
+        errors = []
         if verdict_cat is None:
             try:
                 verdict_cat = catalog.load_metadata()
             except (catalog.CatalogError, OSError, ValueError, TypeError, OverflowError):
-                if "catalog-unavailable" not in errors:
-                    errors.append("catalog-unavailable")
+                errors.append("catalog-unavailable")
+        out, annotation_errors = incentives._annotate(out, now=now, cat=verdict_cat)
+        errors.extend(e for e in annotation_errors if e not in errors)
         if errors:
             print("unlimited: steering: " + ", ".join(errors), file=sys.stderr)
         try:
             rows = []
             for r in out:
+                vendor = r.get("vendor")
+                if not isinstance(vendor, str) or not vendor.strip():
+                    raise ValueError("reading vendor missing or invalid")
                 policy = incentives.evaluate_context(
-                    verdict_cat, r.get("steering"), vendor=r["vendor"],
+                    verdict_cat, r.get("steering"), vendor=vendor,
                     account=r.get("account"), offering=a.offering, now=now)
                 rows.append({
                     "vendor": r.get("vendor"), "account": r.get("account"),

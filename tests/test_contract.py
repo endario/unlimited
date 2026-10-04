@@ -8,7 +8,7 @@ import os
 import threading
 import time
 import unittest
-from contextlib import redirect_stdout
+from contextlib import redirect_stderr, redirect_stdout
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from unittest import mock
@@ -85,6 +85,24 @@ class Contract(unittest.TestCase):
 
     def read(self, vendor, max_age=300.0):
         return cache.through(vendor, max_age=max_age, clock=lambda: self.now, get=self.up)
+
+    def test_verdict_rejects_a_cached_reading_without_vendor_without_requesting_usage(self):
+        from unlimited import schema
+        fact = schema.reading("openai", "acct-fixture", NOW, "ok", limits=[
+            schema.limit("codex", window_minutes=10080, used_at_least=.1,
+                         resets_at=NOW + timedelta(hours=20), held=False)])
+        fact.pop("vendor")
+        path = self.tmp / "cache" / "unlimited" / "openai.json"
+        path.parent.mkdir(parents=True)
+        path.write_text(json.dumps({"readings": [fact], "history": {}}))
+        out, err = io.StringIO(), io.StringIO()
+        with mock.patch.object(transport, "get", self.up), \
+                mock.patch.object(cli, "datetime") as dt, redirect_stdout(out), redirect_stderr(err):
+            dt.now.return_value = NOW
+            code = cli.main(["verdict", "--vendor", "openai", "--work", "600", "--json"])
+        self.assertEqual((code, out.getvalue()), (2, ""))
+        self.assertIn("reading vendor", err.getvalue())
+        self.assertEqual(self.up.calls, [])
 
     def test_cli_reads_the_selected_vendors_as_json(self):
         buf = io.StringIO()

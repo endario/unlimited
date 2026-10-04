@@ -449,6 +449,49 @@ class VerdictPolicyCli(unittest.TestCase):
             code = cli.main(["verdict", "--work", "600", "--json", *args])
         return code, out.getvalue(), err.getvalue()
 
+    def test_annotation_and_preference_use_the_validation_catalog_snapshot(self):
+        changed = copy.deepcopy(self.cat_data)
+        changed["models"]["model-a"]["provider"] = "new-maker"
+        later = catalog.Catalog(changed)
+        self.groups = [self.setting("openai", 3), self.setting("maker", 2),
+                       self.setting("new-maker", 10)]
+        for args in (("--offering", "route-a"), ("--vendor", "openai")):
+            with self.subTest(args=args), \
+                    mock.patch.object(catalog, "load_metadata", side_effect=[self.cat, later]) as load:
+                code, text, _ = self.run_cli(*args)
+            self.assertEqual(code, 0)
+            (got,) = json.loads(text)
+            route = next(r for r in got["steering"]["routes"] if r["id"] == "route-a")
+            self.assertEqual((route["target"], route["multiplier"]), ("maker", 2))
+            preference = got["verdict"]["preference"]
+            expected = ("maker", 2) if args[0] == "--offering" else ("openai", 3)
+            self.assertEqual((preference["target"], preference["multiplier"]), expected)
+            self.assertEqual(load.call_count, 1)
+
+    def test_unavailable_catalog_snapshot_is_not_retried_during_annotation(self):
+        self.groups = [self.setting("openai", 2)]
+        with mock.patch.object(catalog, "load_metadata", side_effect=[OSError("private"), self.cat]) as load:
+            code, text, err = self.run_cli("--vendor", "openai")
+        self.assertEqual(code, 0)
+        (got,) = json.loads(text)
+        self.assertEqual(got["verdict"]["state"], "ranked")
+        self.assertEqual(got["steering"]["error"], "catalog-unavailable")
+        self.assertEqual(got["verdict"]["preference"]["multiplier"], 1)
+        self.assertEqual(load.call_count, 1)
+        self.assertEqual(err.count("catalog-unavailable"), 1)
+        self.assertNotIn("private", text + err)
+
+    def test_malformed_later_reading_vendor_fails_without_partial_json(self):
+        for vendor in (None, "", " ", 3, []):
+            wrong = dict(self.readings[0], vendor=vendor)
+            self.read_cache.side_effect = None
+            self.read_cache.return_value = [self.readings[0], wrong]
+            with self.subTest(vendor=vendor):
+                code, text, err = self.run_cli("--vendor", "openai")
+            self.assertEqual((code, text), (2, ""))
+            self.assertIn("reading vendor", err)
+
+
     def test_offering_infers_only_its_usage_vendor(self):
         code, text, _ = self.run_cli("--offering", "route-a")
         self.assertEqual(code, 0)
