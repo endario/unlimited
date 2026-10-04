@@ -591,6 +591,65 @@ class EnvFiles(Base):
         self.assertIsNone(env_value(self.env(b"K=\xff\xfe\n"), "K"))
         self.assertIsNone(env_value(self.tmp / "absent.env", "K"))
 
+    def test_a_named_file_matching_the_glob_is_listed_once_by_identity(self):
+        config = self.home / ".config"
+        config.mkdir()
+        second = config / "b.env"
+        second.write_text("K=second\n")
+        first = config / "a.env"
+        first.write_text("K=first\n")
+        symlink = self.tmp / "symlink.env"
+        symlink.symlink_to(second)
+        hardlink = self.tmp / "hardlink.env"
+        hardlink.hardlink_to(second)
+        for named in (second, config / ".." / ".config" / "b.env",
+                      Path(os.path.relpath(second)), symlink, hardlink):
+            with self.subTest(named=named), mock.patch.dict(os.environ, {"NAMED": str(named)}):
+                self.assertEqual(EnvKeys("K", "*.env", named="NAMED").files(), [first, second])
+
+    def test_a_named_only_file_is_appended_after_the_sorted_glob(self):
+        config = self.home / ".config"
+        config.mkdir()
+        second = config / "b.env"
+        second.write_text("K=second\n")
+        first = config / "a.env"
+        first.write_text("K=first\n")
+        for named in (self.env("K=session\n", "a-session.env"), self.tmp / "absent.env"):
+            with self.subTest(named=named), mock.patch.dict(os.environ, {"NAMED": str(named)}):
+                self.assertEqual(EnvKeys("K", "*.env", named="NAMED").files(), [first, second, named])
+
+    def test_an_unset_or_empty_named_variable_keeps_the_sorted_glob(self):
+        config = self.home / ".config"
+        config.mkdir()
+        second = config / "b.env"
+        second.touch()
+        first = config / "a.env"
+        first.touch()
+        for value in (None, ""):
+            with self.subTest(value=value), mock.patch.dict(os.environ, {"NAMED": ""}):
+                if value is None:
+                    del os.environ["NAMED"]
+                self.assertEqual(EnvKeys("K", "*.env", named="NAMED").files(), [first, second])
+                self.assertEqual(EnvKeys("K", "*.env").files(), [first, second])
+
+    def test_a_dangling_glob_symlink_does_not_prevent_named_file_deduplication(self):
+        config = self.home / ".config"
+        config.mkdir()
+        dangling = config / "a.env"
+        dangling.symlink_to(self.tmp / "absent.env")
+        matched = config / "b.env"
+        matched.write_text("K=matched\n")
+        with mock.patch.dict(os.environ, {"NAMED": str(matched)}):
+            self.assertEqual(EnvKeys("K", "*.env", named="NAMED").files(), [dangling, matched])
+
+    def test_a_named_dangling_glob_path_is_listed_once(self):
+        config = self.home / ".config"
+        config.mkdir()
+        dangling = config / "a.env"
+        dangling.symlink_to(self.tmp / "absent.env")
+        with mock.patch.dict(os.environ, {"NAMED": str(dangling)}):
+            self.assertEqual(EnvKeys("K", "*.env", named="NAMED").files(), [dangling])
+
     def test_a_named_session_file_outside_config_is_found(self):
         f = self.env("K=inside\n", "session.env")
         with mock.patch.dict(os.environ, {"NAMED": str(f)}):
