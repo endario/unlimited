@@ -64,6 +64,13 @@ A local `schema = 1` file is still read.
 
 ## Switches
 
+JSON switch rows carry `policy_projection="unlimited-policy-keys-v1"` and `policy_keys`.
+Intersect these opaque keys with an annotated reading's keys to match factual exclusions; require
+both the marker and array. An empty array is authoritative, not permission to discard the switch:
+non-usage targets still exclude catalog routes. Preserve `target` and `account` as returned for
+exact `on` selectors, and `until` and `why` for display. `catalog.project_switch` returns a transient
+copy; these fields are not switch persistence.
+
 `unlimited off TARGET [--for 90m|12h|1d|1w] [--why TEXT]` takes a provider, model, vendor, offering id
 or `provider:model` pair out of the catalog on this machine, until `unlimited on TARGET` or the time
 passes; `unlimited off` lists what is off, `unlimited off --json` as a JSON array. A vendor target may

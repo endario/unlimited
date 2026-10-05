@@ -12,6 +12,7 @@ from datetime import date, datetime, timezone
 from importlib import resources
 from pathlib import Path
 
+from .identity import POLICY_PROJECTION, policy_key
 from .state import flock as _flock
 from .state import write_json
 
@@ -123,13 +124,21 @@ def live(x: dict, now: datetime) -> bool:
     return until is None or until > now
 
 
+def switch_policy_keys(switch: dict) -> list[str]:
+    from .adapters import REGISTRY
+    return [policy_key(switch["target"], switch.get("account"))] if switch["target"] in REGISTRY else []
+
+
+def project_switch(switch: dict) -> dict:
+    return dict(switch, policy_projection=POLICY_PROJECTION, policy_keys=switch_policy_keys(switch))
+
+
 def off_policy(now: datetime, path: Path | None = None) -> dict[str, str | None]:
     """The machine's live switches over usage vendors as a policy (`verdict`'s `off`): keyed by
     the vendor (`zai`) for a whole-vendor switch, or `vendor/account` (`zai/claude-glm-2`) for one
     account's, each to its switch's `until` (ISO text, None when it has no end)."""
-    from .adapters import REGISTRY
-    return {x["target"] if x.get("account") is None else f"{x['target']}/{x['account']}": x.get("until")
-            for x in read_switches(path) if x["target"] in REGISTRY and live(x, now)}
+    return {key: x.get("until") for x in read_switches(path) if live(x, now)
+            for key in switch_policy_keys(x)}
 
 
 # What a schema-2 file may hold at its top level.
