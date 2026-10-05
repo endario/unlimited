@@ -123,7 +123,7 @@ class Output(unittest.TestCase):
         self.assertEqual(catalog.project_switch({"target": "codex", "policy_keys": ["openai"],
                                                 "policy_projection": "forged"})["policy_keys"], [])
 
-    def test_annotation_projection_survives_every_advisory_loader_branch(self):
+    def test_annotation_projection_survives_advisory_loading(self):
         rows = [{"vendor": "openai", "account": "W", "names": ["A"], "status": "unread"},
                 {"vendor": "openai", "account": None, "names": []}]
         before = copy.deepcopy(rows)
@@ -148,6 +148,22 @@ class Output(unittest.TestCase):
                 if mode == "success":
                     self.assertEqual(shown[0]["steering"]["settings"][0]["multiplier"], 2)
         self.assertEqual(rows, before)
+
+    def test_explicit_unavailable_catalog_keeps_projection_and_facts(self):
+        raw = {"vendor": "openai", "account": "W", "names": ["A"], "status": "unread"}
+        before = copy.deepcopy(raw)
+        group = {"target": "openai", "multiplier": 2, "activated_at": NOW.isoformat(),
+                 "until": (NOW + timedelta(hours=1)).isoformat()}
+        with mock.patch.object(incentives, "read", return_value=[group]), \
+                mock.patch.object(catalog, "load_metadata", side_effect=AssertionError("must not reload")):
+            shown, warnings = incentives._annotate([raw], now=NOW, cat=None)
+        self.assertEqual(shown[0].get("policy_projection"), "unlimited-policy-keys-v1")
+        self.assertEqual(shown[0].get("policy_keys"), ["openai", "openai/W", "openai/A"])
+        self.assertEqual(warnings, ["catalog-unavailable"])
+        self.assertEqual(shown[0]["steering"]["error"], "catalog-unavailable")
+        self.assertEqual({k: v for k, v in shown[0].items()
+                          if k not in {"steering", "policy_projection", "policy_keys"}}, before)
+        self.assertEqual(raw, before)
 
     def test_cli_switch_json_list_mutations_and_exact_clear_do_not_persist_projection(self):
         root = Path(scratch.mkdtemp())
