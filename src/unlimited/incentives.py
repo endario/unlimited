@@ -306,7 +306,7 @@ def account_context(cat: Catalog, target: str, account: str | None) -> str | Non
     return next(iter(matches), account)
 
 
-def account_binding(cat: Catalog, offering: str, account: str) -> dict:
+def account_binding(cat: Catalog, offering: str, account: str, *, resolve_alias: bool = True) -> dict:
     """Canonical account plus locally discovered aliases for one explicit launch binding."""
     from .adapters import REGISTRY
     route = cat.route(offering)
@@ -316,6 +316,8 @@ def account_binding(cat: Catalog, offering: str, account: str) -> dict:
         known = REGISTRY[route["vendor"]].names()
     except Exception:
         known = {}
+    if not resolve_alias:
+        return {"account": account, "names": known.get(account, [])}
     matches = [account] if account in known else [canonical for canonical, aliases in known.items() if account in aliases]
     if len(matches) > 1:
         raise ValueError(f"{account}: ambiguous account identity; use its account id")

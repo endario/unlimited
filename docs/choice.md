@@ -59,7 +59,8 @@ different `--vendor`, including in a mixed list, is bad input. It does not infer
 
 After selecting an account, pass its canonical ID to `choose --account OFFERING=ACCOUNT` and that
 same account's raw projection to `--quota`. This identifies the account to launch; choose does
-not select an account and still uses this machine's local policy.
+not select an account. Pass its `steering` through `--contexts -` to retain that source's policy;
+without the flag, choose uses this machine's local policy.
 
 ## 2. Attempt log
 
@@ -93,6 +94,20 @@ Rarely needed: `--exclude ID[=REASON],...` (routes the caller cannot use), `--pr
 NAME=MINUTES,...` (lean without ruling out), `--vendors V,...|any` (whose accounts a use may
 spend), `--temperature M` and `--quota-weight M` (override how the order is made and what quota is
 worth), `--task LABEL` and `--meta K=V` (the caller's own, recorded).
+
+`--contexts -` reads one offering-keyed JSON object from piped stdin, forwarding each
+representative's `steering` to the SDK. Only `-` is accepted; filenames and TTY input are refused.
+The pipe waits for EOF before sampling the choice clock. Malformed transport, null and non-object
+input exit 2 with empty stdout before log maintenance. An explicit empty or partial map suppresses
+local incentives; uncovered routes receive `missing-context`, not borrowed local policy. The
+whole map, including unused entries, is logged locally: keep credentials out of it. Rules are evaluated at choice time, not frozen at account selection. With `--contexts`,
+`--account` values are canonical IDs: local aliases cannot rewrite them. Locally discovered
+names for that same canonical ID still enforce alias exclusions.
+
+```sh
+unlimited choose --tier heavy --candidates gpt-6.1-sol --deadline 900 \
+    --account gpt-6.1-sol=ACCOUNT --vendors any --contexts - --json < contexts.json
+```
 
 A name is a provider (its live routes at the tier, promotions first), a model (each of its live
 routes) or an offering id (that route), as the catalog has them; switched-off and banned routes are

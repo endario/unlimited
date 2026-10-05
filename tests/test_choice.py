@@ -343,6 +343,211 @@ class Choose(unittest.TestCase):
             self.assertEqual(got["candidates"][0]["multiplier"], 1)
             self.assertIn("openai/a", got["incentives_unresolved"])
 
+    def choice_context(self):
+        return {"v": 1, "vendor": "openai", "account": "a",
+                "observed_at": NOW.isoformat(), "unresolved": [],
+                "settings": [{"target": "openai", "account": "a", "multiplier": 3,
+                              "activated_at": NOW.isoformat(),
+                              "until": (NOW + timedelta(hours=1)).isoformat()}]}
+
+    def context_call(self, args, stream, extra=()):
+        out, err = io.StringIO(), io.StringIO()
+        with mock.patch.object(cli.sys, "stdin", stream), redirect_stdout(out), redirect_stderr(err):
+            try:
+                code = cli.main([*args, "--contexts", "-", *extra])
+            except SystemExit as e:
+                code = e.code
+        return code, out.getvalue(), err.getvalue()
+
+    def test_cli_supplied_context_matches_sdk_and_logs_unused_entries(self):
+        contexts = {"route-a": self.choice_context(), "unused": {"opaque": [1, "keep"]}}
+        with self.local_policy_choice() as (cat, args), \
+             mock.patch.object(incentives, "read", side_effect=AssertionError("local policy")):
+            code, text, err = self.context_call(args, io.StringIO(json.dumps(contexts)),
+                                               ["--account", "route-a=a"])
+            self.assertEqual((code, err), (0, ""))
+            got = json.loads(text)
+            self.assertEqual(got["request"]["contexts"], contexts)
+            self.assertNotIn("incentives", got["request"])
+            accounts = {"route-a": {"account": "a", "names": ["alpha"]}}
+            self.assertEqual(got["request"]["accounts"], accounts)
+            self.assertEqual((got["candidates"][0]["multiplier"], got["candidates"][0]["rho"]), (3, .4))
+            sdk = choice.rank(cat, tier="standard", candidates=["route-a"], attempts=[],
+                              quota={"route-a": .4}, deadline=600, now=NOW, temperature=0,
+                              contexts=contexts, accounts=accounts, seed=got["seed"])
+            for key in ("candidates", "order", "pick", "context_evaluations"):
+                self.assertEqual(got[key], sdk[key])
+            (logged,), bad = outcomes.read()
+            self.assertEqual(bad, 0)
+            self.assertEqual(logged, got)
+
+    def test_cli_empty_and_partial_contexts_do_not_borrow_local_policy(self):
+        with self.local_policy_choice() as (cat, args), \
+             mock.patch.object(incentives, "read", side_effect=AssertionError("local policy")):
+            cat.offerings.append({"id": "route-b", "model": "m", "vendor": "openai"})
+            args = ["route-a,route-b" if x == "route-a" else x for x in args]
+            bindings = ["--account", "route-a=a", "--account", "route-b=a"]
+            for contexts in ({}, {"route-a": self.choice_context()}):
+                with self.subTest(contexts=contexts):
+                    code, text, err = self.context_call(args, io.StringIO(json.dumps(contexts)), bindings)
+                    self.assertEqual((code, err), (0, ""))
+                    got = json.loads(text)
+                    self.assertEqual(got["request"]["contexts"], contexts)
+                    factors = {c["model"]: c["multiplier"] for c in got["candidates"]}
+                    self.assertEqual(factors, {"route-a": 3 if contexts else 1, "route-b": 1})
+                    self.assertEqual(got["context_evaluations"]["route-b"]["reason"], "missing-context")
+
+    def test_cli_context_account_is_canonical_even_when_it_is_a_receiver_alias(self):
+        adapter = SimpleNamespace(names=lambda: {"b": ["a", "other"]})
+        with self.local_policy_choice() as (cat, args), \
+             mock.patch.dict(cli.REGISTRY, {"openai": adapter}, clear=True):
+            for contexts in ({"route-a": self.choice_context()}, {}, {"route-a": None}):
+                with self.subTest(contexts=contexts):
+                    code, text, err = self.context_call(args, io.StringIO(json.dumps(contexts)),
+                                                       ["--account", "route-a=a"])
+                    self.assertEqual((code, err), (0, ""))
+                    got = json.loads(text)
+                    self.assertEqual(got["request"]["accounts"], {"route-a": {"account": "a", "names": []}})
+                    self.assertEqual(got["candidates"][0]["multiplier"], 3 if contexts.get("route-a") else 1)
+            cat.off = [{"target": "openai", "account": "a"}]
+            code, text, err = self.context_call(args, io.StringIO("{}"), ["--account", "route-a=a"])
+            self.assertEqual((code, text), (1, ""))
+
+    def test_cli_missing_context_stdin_fails_before_clock_or_log_work(self):
+        with self.local_policy_choice() as (_, args), mock.patch.object(cli, "datetime") as clock, \
+             mock.patch.object(outcomes, "compact") as compact:
+            try:
+                code, output, err = self.context_call(args, None)
+            except AttributeError:
+                self.fail("missing stdin must be a controlled transport error")
+            self.assertEqual((code, output), (2, ""))
+            self.assertIn("pipe a JSON object", err)
+            clock.now.assert_not_called()
+            compact.assert_not_called()
+
+    def test_cli_undecodable_context_depth_is_a_pre_log_transport_error(self):
+        text = '{"unused":' + '[' * 10000 + '0' + ']' * 10000 + '}'
+        try:
+            json.loads(text)
+        except RecursionError:
+            pass
+        else:
+            self.skipTest("native decoder accepts this nesting depth")
+        with self.local_policy_choice() as (_, args), mock.patch.object(cli, "datetime") as clock, \
+             mock.patch.object(outcomes, "compact") as compact:
+            try:
+                code, output, err = self.context_call(args, io.StringIO(text))
+            except RecursionError:
+                self.fail("decoder depth failure must be a controlled transport error")
+            self.assertEqual((code, output), (2, ""))
+            self.assertIn("unlimited: --contexts:", err)
+            clock.now.assert_not_called()
+            compact.assert_not_called()
+
+    def test_cli_accepted_deep_context_is_complete_on_stdout_and_in_log(self):
+        depth = 2000
+        while True:
+            text = '{"unused":' + '[' * depth + '0' + ']' * depth + '}'
+            try:
+                contexts = json.loads(text)
+                json.dumps({"request": {"contexts": contexts}})
+            except RecursionError:
+                depth //= 2
+                continue
+            break
+        with self.local_policy_choice() as (_, args):
+            try:
+                code, output, err = self.context_call(args, io.StringIO(text))
+            except RecursionError:
+                self.fail("accepted context must serialize without truncated stdout")
+            self.assertEqual((code, err), (0, ""))
+            got = json.loads(output)
+            self.assertEqual(json.dumps(got["request"]["contexts"]), json.dumps(contexts))
+            (logged,), bad = outcomes.read()
+            self.assertEqual(bad, 0)
+            self.assertEqual(json.dumps(logged), json.dumps(got))
+
+    def test_cli_bad_context_transport_precedes_clock_and_log_work(self):
+        class TTY(io.StringIO):
+            def isatty(self):
+                return True
+
+            def read(self, *args, **kwargs):
+                raise AssertionError("interactive read")
+
+        class Broken(io.StringIO):
+            def read(self, *args, **kwargs):
+                raise OSError("broken input")
+
+        streams = [io.StringIO(s) for s in ("", "{", "null", "[]", "true", "1", '"text"', "{} {}",
+                                           '{"unused": NaN}', '{"unused": Infinity}',
+                                           '{"unused": -Infinity}', '{"unused": 1e999}')]
+        streams += [TTY("{}"), Broken()]
+        with self.local_policy_choice() as (_, args), \
+             mock.patch.object(cli, "datetime") as clock, \
+             mock.patch.object(outcomes, "compact") as compact, \
+             mock.patch.object(choice, "choose", wraps=choice.choose) as choose_call:
+            clock.now.return_value = NOW
+            for stream in streams:
+                with self.subTest(stream=stream):
+                    clock.reset_mock()
+                    compact.reset_mock()
+                    choose_call.reset_mock()
+                    code, text, err = self.context_call(args, stream)
+                    self.assertEqual((code, text), (2, ""))
+                    self.assertIn("unlimited: --contexts:", err)
+                    clock.now.assert_not_called()
+                    compact.assert_not_called()
+                    choose_call.assert_not_called()
+
+    def test_cli_delayed_context_input_uses_later_clock_without_renewing_expiry(self):
+        context = self.choice_context()
+        later = NOW + timedelta(hours=2)
+        with self.local_policy_choice() as (_, args), mock.patch.object(cli, "datetime") as clock:
+            clock.now.return_value = NOW
+
+            class Delayed(io.StringIO):
+                def read(self, *args, **kwargs):
+                    clock.now.return_value = later
+                    return super().read(*args, **kwargs)
+
+            code, text, err = self.context_call(args, Delayed(json.dumps({"route-a": context})))
+            self.assertEqual((code, err), (0, ""))
+            got = json.loads(text)
+            self.assertEqual(got["at"], later.isoformat())
+            self.assertEqual(got["candidates"][0]["multiplier"], 1)
+            self.assertEqual(got["context_evaluations"]["route-a"]["reason"], "no-live-rule")
+            self.assertEqual(got["request"]["contexts"]["route-a"], context)
+
+    def test_cli_context_policy_semantics_remain_sdk_owned(self):
+        base = self.choice_context()
+        for context, reason in (({**base, "v": 99}, "unsupported-version"),
+                                ({**base, "settings": "bad"}, "invalid-context"),
+                                ({**base, "error": "catalog-unavailable"}, "policy-unavailable")):
+            context["routes"] = [{"id": "route-a", "multiplier": 100}]
+            with self.subTest(reason=reason), self.local_policy_choice() as (_, args), \
+                 mock.patch.object(incentives, "read", side_effect=AssertionError("local policy")):
+                code, text, err = self.context_call(args, io.StringIO(json.dumps({"route-a": context})))
+                self.assertEqual((code, err), (0, ""))
+                got = json.loads(text)
+                self.assertEqual(got["candidates"][0]["multiplier"], 1)
+                self.assertEqual((got["context_evaluations"]["route-a"]["status"],
+                                  got["context_evaluations"]["route-a"]["reason"]), ("unavailable", reason))
+
+    def test_cli_context_identity_conflicts_and_alias_off_use_sdk_rules(self):
+        with self.local_policy_choice() as (cat, args):
+            conflicting = {**self.choice_context(), "account": "b"}
+            code, text, err = self.context_call(args, io.StringIO(json.dumps({"route-a": conflicting})),
+                                               ["--account", "route-a=a"])
+            self.assertEqual((code, text), (2, ""))
+            self.assertIn("context vendor/account conflict", err)
+            cat.off = [{"target": "openai", "account": "alpha"}]
+            malformed = {**self.choice_context(), "settings": "bad"}
+            code, text, err = self.context_call(args, io.StringIO(json.dumps({"route-a": malformed})),
+                                               ["--account", "route-a=a"])
+            self.assertEqual((code, text), (1, ""))
+            self.assertIn("no candidate", err)
+
     def test_cli_unknown_account_offering_is_refused_before_choice(self):
         with self.local_policy_choice() as (_, args), \
              mock.patch.object(choice, "choose") as choose_call, \
