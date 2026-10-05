@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 import argparse
+import io
 import shlex
 import unittest
+from contextlib import redirect_stderr
 
 from unlimited import cli
 
@@ -37,6 +39,23 @@ class Help(unittest.TestCase):
                     with self.subTest(example=line):
                         p.parse_args(shlex.split(line)[1:])
 
+
+    def test_choose_contexts_accepts_stdin_not_files_and_explains_logging(self):
+        p = cli._parser()
+        args = ["choose", "--tier", "heavy", "--candidates", "codex", "--deadline", "600"]
+        with redirect_stderr(io.StringIO()):
+            try:
+                parsed = p.parse_args([*args, "--contexts", "-"])
+            except SystemExit as e:
+                self.fail(f"stdin contexts should parse, exited {e.code}")
+        self.assertEqual(parsed.contexts, "-")
+        sub = next(q for path, q in parsers(p) if path == ("choose",))
+        self.assertIn("logged", sub.format_help())
+        for value in ("contexts.json", "@contexts.json", ""):
+            with self.subTest(value=value), redirect_stderr(io.StringIO()), \
+                 self.assertRaises(SystemExit) as error:
+                p.parse_args([*args, "--contexts", value])
+            self.assertEqual(error.exception.code, 2)
 
     def test_verdict_offering_is_separate_from_model_scope(self):
         p = cli._parser()
