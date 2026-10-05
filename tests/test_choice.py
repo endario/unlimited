@@ -4,8 +4,10 @@ from __future__ import annotations
 
 import io
 import json
+import math
 import os
 import random
+import sys
 import unittest
 from contextlib import contextmanager, redirect_stderr, redirect_stdout
 from datetime import datetime, timedelta, timezone
@@ -31,6 +33,20 @@ class Price(unittest.TestCase):
             self.assertAlmostEqual(choice.price(rho), want, places=3)
         self.assertEqual(choice.price(None), 0.5, "unread is priced as at the limit")
 
+    def test_finite_signed_extremes_keep_the_quota_price_bounded_and_monotonic(self):
+        projections = [-sys.float_info.max, -1e308, -200.0, -1.0, 0.0, 1.0, 2.0,
+                       200.0, 1e308, sys.float_info.max]
+        prices = []
+        for rho in projections:
+            with self.subTest(rho=rho):
+                got = choice.price(rho)
+                self.assertTrue(math.isfinite(got))
+                self.assertTrue(0.0 <= got <= 1.0)
+                prices.append(got)
+        self.assertEqual(prices, sorted(prices))
+        self.assertAlmostEqual(choice.price(-1.0), 1.0 / (1.0 + math.exp(10.0)))
+        self.assertLess(choice.price(-1.0), choice.price(0.0), "negative projections are not clamped")
+
     def test_the_price_never_passes_one_run_displaced(self):
         # Past the limit a run displaces at most itself from later in the window; an exponential
         # price let a projection of 1.4 cost eight runs and bury the cheapest route (2026-09-28).
@@ -46,6 +62,115 @@ class Price(unittest.TestCase):
         got = choice.score(cands, {"muse": 1.42, "flash": 1.11}, stats, 900.0, [])
         e = {c["model"]: c["e"] for c in got}
         self.assertLess(e["muse"], e["flash"])
+
+
+class QuotaNumbers(unittest.TestCase):
+    def setUp(self):
+        self.root = Path(scratch.mkdtemp())
+        env = {name: str(self.root / name.lower()) for name in
+               ("HOME", "XDG_CONFIG_HOME", "XDG_CACHE_HOME", "XDG_STATE_HOME", "XDG_DATA_HOME")}
+        patch = mock.patch.dict(os.environ, env, clear=True)
+        patch.start()
+        self.addCleanup(patch.stop)
+        self.cat = catalog.Catalog({
+            "tiers": ["standard"],
+            "models": {"m": {"provider": "maker", "tiers": ["standard"]}},
+            "offerings": [{"id": "route-a", "model": "m", "vendor": "synthetic"},
+                          {"id": "free-route", "model": "m", "vendor": "synthetic", "free": True}],
+        })
+        self.args = dict(tier="standard", candidates=["route-a"], quota={}, deadline=600,
+                         now=NOW, temperature=0, incentives=[])
+        self.log = outcomes.path()
+        self.log.parent.mkdir(parents=True)
+        self.log.write_text('{"type":"decision","at":"' + NOW.isoformat() + '","sentinel":true}\n')
+        self.before = self.log.read_bytes()
+
+    def cli_call(self, quota):
+        out, err = io.StringIO(), io.StringIO()
+        with mock.patch.object(catalog, "load", return_value=self.cat), \
+             mock.patch.object(incentives, "read", return_value=[]), \
+             mock.patch.object(choice, "vendors_here", side_effect=AssertionError("discovery")), \
+             mock.patch.object(cli, "datetime") as clock, redirect_stdout(out), redirect_stderr(err):
+            clock.now.return_value = NOW
+            code = cli.main(["choose", "--tier", "standard", "--candidates", "route-a",
+                             "--deadline", "600", "--quota", quota, "--vendors", "any",
+                             "--temperature", "0", "--json"])
+        return code, out.getvalue(), err.getvalue()
+
+    def test_sdk_rejects_non_finite_quota_without_appending_a_decision(self):
+        cases = [({}, "route-a"), ({}, "unused"),
+                 ({"candidates": ["free-route"]}, "free-route"),
+                 ({"exclude": {"route-a": "not now"}}, "route-a"),
+                 ({"vendors": []}, "route-a"), ({"candidates": []}, "unused")]
+        for rho in (float("nan"), float("inf"), float("-inf")):
+            for overrides, name in cases:
+                args = {**self.args, **overrides, "quota": {name: rho}}
+                with self.subTest(rho=rho, overrides=overrides, name=name):
+                    with self.assertRaisesRegex(ValueError, "quota.*finite"):
+                        choice.rank(self.cat, attempts=[], **args)
+                    with mock.patch.object(outcomes, "append", wraps=outcomes.append) as append:
+                        with self.assertRaisesRegex(ValueError, "quota.*finite"):
+                            choice.choose(self.cat, log=self.log, **args)
+                        append.assert_not_called()
+                    self.assertEqual(self.log.read_bytes(), self.before)
+
+    def test_sdk_rejects_unsupported_quota_values_with_value_error(self):
+        for rho in ("0.4", True, False, [], {}, complex(0.4, 0), 10**1000, -(10**1000)):
+            for name in ("route-a", "unused"):
+                with self.subTest(rho=rho, name=name):
+                    with self.assertRaisesRegex(ValueError, "quota.*finite"):
+                        choice.choose(self.cat, log=self.log, **{**self.args, "quota": {name: rho}})
+                    self.assertEqual(self.log.read_bytes(), self.before)
+
+    def test_sdk_missing_and_none_quota_stay_unknown_and_are_logged_as_supplied(self):
+        for quota in ({}, {"route-a": None, "unused": None}):
+            with self.subTest(quota=quota):
+                got = choice.choose(self.cat, log=self.log, **{**self.args, "quota": quota})
+                self.assertEqual((got["candidates"][0]["rho"], got["candidates"][0]["pi"]), (None, 0.5))
+                self.assertEqual(got["request"]["quota"], quota)
+                json.dumps(got, allow_nan=False)
+                logged, bad = outcomes.read(self.log)
+                self.assertEqual(bad, 0)
+                self.assertEqual(logged[-1], got)
+
+    def test_sdk_finite_signed_quota_is_scored_and_logged_without_a_policy_gate(self):
+        for rho in (-sys.float_info.max, -200.0, -1.0, 0, 0.4, 1.0, 2, sys.float_info.max):
+            with self.subTest(rho=rho):
+                quota = {"route-a": rho, "unused": -rho}
+                got = choice.choose(self.cat, log=self.log, **{**self.args, "quota": quota})
+                self.assertEqual(got["request"]["quota"], quota)
+                self.assertEqual(got["candidates"][0]["rho"], rho)
+                self.assertTrue(math.isfinite(got["candidates"][0]["e"]))
+                self.assertEqual(got["candidates"][0]["pi"], choice.price(rho))
+                json.dumps(got, allow_nan=False)
+                logged, bad = outcomes.read(self.log)
+                self.assertEqual(bad, 0)
+                self.assertEqual(logged[-1], got)
+
+    def test_cli_rejects_non_finite_quota_with_empty_stdout_and_no_decision_append(self):
+        for text in ("nan", "inf", "-inf", "1e999", "-1e999"):
+            for name in ("route-a", "unused"):
+                with self.subTest(text=text, name=name):
+                    with mock.patch.object(outcomes, "append", wraps=outcomes.append) as append:
+                        code, out, err = self.cli_call(f"{name}={text}")
+                        self.assertEqual((code, out), (2, ""))
+                        self.assertIn("unlimited: quota", err)
+                        self.assertIn("finite", err)
+                        append.assert_not_called()
+                    self.assertEqual(self.log.read_bytes(), self.before)
+
+    def test_cli_accepts_finite_signed_quota_and_emits_finite_json(self):
+        for text in ("-1.7976931348623157e308", "-200", "-1", "0.4", "1.7976931348623157e308"):
+            with self.subTest(text=text):
+                code, out, err = self.cli_call(f"route-a={text}")
+                self.assertEqual((code, err), (0, ""))
+                got = json.loads(out)
+                self.assertEqual(got["candidates"][0]["rho"], float(text))
+                self.assertEqual(got["request"]["quota"], {"route-a": float(text)})
+                json.dumps(got, allow_nan=False)
+                logged, bad = outcomes.read(self.log)
+                self.assertEqual(bad, 0)
+                self.assertEqual(logged[-1], got)
 
 
 class WorkedExample(unittest.TestCase):
