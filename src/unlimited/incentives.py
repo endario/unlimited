@@ -11,7 +11,7 @@ from pathlib import Path
 
 from .catalog import Catalog, CatalogError, target_known
 from .schema import moment
-from .identity import names as _identity
+from .identity import names as _identity, project_reading
 from .state import flock, write_json
 
 ROLES = frozenset({"session", "weekly", "weekly_model", "month", "extra"})
@@ -528,6 +528,7 @@ def _annotate(readings: list[dict], *, now: datetime,
               cat: Catalog | None = _LOAD_CATALOG) -> tuple[list[dict], list[str]]:
     """Shared annotation and loader diagnostics, including when no reading was found."""
     from .catalog import load_metadata
+    readings = [project_reading(r) for r in readings]
 
     def failed(code):
         return [dict(r, steering={**_context_header(r, now), "error": code}) for r in readings], [code]

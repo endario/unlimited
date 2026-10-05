@@ -391,13 +391,13 @@ class Context(unittest.TestCase):
 
     @staticmethod
     def facts_only(row):
-        return {k: v for k, v in row.items() if k != "steering"}
+        return {k: v for k, v in row.items() if k not in {"steering", "policy_projection", "policy_keys"}}
 
     def test_policy_load_error_is_sanitized_and_keeps_facts_and_identity(self):
         with mock.patch.object(incentives, "read", side_effect=catalog.CatalogError("/private/policy-path secret")):
             row = self.annotate([self.reading])[0]
         ctx = row.pop("steering")
-        self.assertEqual(row, self.reading)
+        self.assertEqual(self.facts_only(row), self.reading)
         self.assertEqual(ctx["account"], "a")
         self.assertEqual(ctx["error"], "policy-unavailable")
         self.assertEqual(ctx["settings"], [])
@@ -411,7 +411,7 @@ class Context(unittest.TestCase):
                 mock.patch.object(catalog, "load_metadata", side_effect=catalog.CatalogError("/private/catalog-path")):
             row = self.annotate([reading])[0]
         ctx = row.pop("steering")
-        self.assertEqual(row, reading)
+        self.assertEqual(self.facts_only(row), reading)
         self.assertIsNone(ctx["account"])
         self.assertEqual(ctx["error"], "catalog-unavailable")
         self.assertNotIn("/private", json.dumps(ctx))
