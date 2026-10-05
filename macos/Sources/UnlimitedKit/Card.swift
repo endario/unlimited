@@ -104,7 +104,7 @@ public struct Card: Identifiable, Sendable {
         let f = DateFormatter()
         f.locale = Locale(identifier: "en_US_POSIX")
         f.timeZone = tz
-        f.dateFormat = "EEE HH:mm"
+        f.dateFormat = "EEE d MMM yyyy HH:mm"
         return f.string(from: t)
     }
 }
