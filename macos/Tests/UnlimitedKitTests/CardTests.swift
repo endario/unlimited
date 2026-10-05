@@ -42,7 +42,7 @@ func claude() throws -> Reading {
     #expect(cards[0].fromHistory && !cards[1].fromHistory, "8 past windows back the 5-hour; 2 do not back the week")
     #expect(cards[2].projected == nil)
     #expect(cards[1].resets == "3d 0h")
-    #expect(cards[1].resetsAt == "Resets Sun 06:00")
+    #expect(cards[1].resetsAt == "Resets Sun 27 Sep 2026 06:00")
 }
 
 @Test func aMarkerPastTheLimitBleedsJustPastTheBarsEnd() {
