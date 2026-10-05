@@ -76,7 +76,7 @@ def _switch(a) -> int:
     if a.cmd == "off" and a.target is None:
         off = [x for x in cat.off if catalog.live(x, now)]
         if a.json:
-            json.dump(off, sys.stdout)
+            json.dump([catalog.project_switch(x) for x in off], sys.stdout)
             return 0
         for x in off:
             what = x["target"] if x.get("account") is None else f"{x['target']}/{x['account']}"
@@ -103,7 +103,7 @@ def _switch(a) -> int:
         print(f"unlimited: catalog: {e}", file=sys.stderr)
         return 2
     if a.json:
-        json.dump(wrote, sys.stdout)
+        json.dump([catalog.project_switch(x) for x in wrote], sys.stdout)
     return 0
 
 

@@ -32,6 +32,13 @@ switch, or `vendor/account` — `zai/claude-glm-2` — for one account's); a rea
 account key when the key's account is its account id or one of its identity names. A Python
 caller passes the same map to apply the policy.
 
+`unlimited read` and `unlimited.incentives.annotate` add `policy_projection="unlimited-policy-keys-v1"`
+and an opaque `policy_keys` array after factual cache reads. Require the marker and array before
+intersecting with [JSON switch keys](catalog.md#switches); do not construct or parse keys in clients.
+Empty arrays are authoritative. `identity.project_reading` recomputes a copied projection from
+factual identity, ignoring supplied projection fields. Raw SDK reads, account IDs, names and
+cache/history remain factual and do not gain this output metadata.
+
 Which limits apply: those with role `session`, `weekly`, `month` or `extra` always; `weekly_model`
 only when its scope is `model_scope`; a limit with no role key always (missing data is never read as
 room). The scored window is a plan's monthly bucket where it enforces one, else its longest window up
