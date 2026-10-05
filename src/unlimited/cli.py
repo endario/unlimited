@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import math
 import sys
 from datetime import datetime, timedelta, timezone
 
@@ -264,8 +265,26 @@ def _incentive(a) -> int:
     return 0
 
 
+def _json_float(text: str) -> float:
+    value = float(text)
+    if not math.isfinite(value):
+        raise ValueError("JSON numbers must be finite")
+    return value
+
+
 def _choose(a) -> int:
     from . import catalog, choice, incentives, outcomes
+    contexts = None
+    if a.contexts is not None:
+        try:
+            if sys.stdin.isatty():
+                raise ValueError("pipe a JSON object on stdin")
+            contexts = json.load(sys.stdin, parse_float=_json_float, parse_constant=_json_float)
+            if not isinstance(contexts, dict):
+                raise ValueError("expected a JSON object")
+        except (ValueError, OSError, UnicodeError, RecursionError) as e:
+            print(f"unlimited: --contexts: {e}", file=sys.stderr)
+            return 2
     now = datetime.now(timezone.utc)
     try:
         cat = catalog.load()
@@ -288,8 +307,8 @@ def _choose(a) -> int:
                 raise ValueError(f"--account {x!r}: expected OFFERING=ACCOUNT")
             if cat.route(offering) is None:
                 raise ValueError(f"--account {offering!r}: not an offering id in the catalog")
-            accounts[offering] = incentives.account_binding(cat, offering, identity)
-        groups = incentives.read(now=now)
+            accounts[offering] = incentives.account_binding(cat, offering, identity, resolve_alias=contexts is None)
+        groups = incentives.read(now=now) if contexts is None else None
     except (catalog.CatalogError, ValueError) as e:
         print(f"unlimited: {e}", file=sys.stderr)
         return 2
@@ -302,7 +321,7 @@ def _choose(a) -> int:
                             quota=quota, deadline=a.deadline, now=now, temperature=a.temperature,
                             quota_weight=a.quota_weight, task=a.task, meta=dict(a.meta or []),
                             exclude=dict(x.partition("=")[::2] for x in a.exclude.split(",") if x),
-                            prefer=prefer, incentives=groups, accounts=accounts,
+                            prefer=prefer, incentives=groups, accounts=accounts, contexts=contexts,
                             vendors=(None if a.vendors == "any" else choice.vendors_here(cat) if a.vendors is None
                                      else {v for v in a.vendors.split(",") if v}))
     except ValueError as e:
@@ -313,7 +332,8 @@ def _choose(a) -> int:
         return 1
     if got["incentives_unresolved"]:
         print("unlimited: incentives need account bindings: " + ", ".join(got["incentives_unresolved"]), file=sys.stderr)
-    json.dump(got, sys.stdout)
+    # Use the log's buffered encoder: streaming dump can overflow on accepted deep input.
+    sys.stdout.write(json.dumps(got))
     return 0
 
 
@@ -548,7 +568,11 @@ exit status: 0 decided; 1 no named candidate is live at the tier; 2 bad input.""
                          "on its usual vendor); each limit's projection.at_reset in `unlimited read` is one; a "
                          "candidate without one is priced as at the limit")
     ch.add_argument("--account", action="append", metavar="OFFERING=ACCOUNT",
-                    help="account identity the caller will launch for this offering; repeatable")
+                    help="account identity the caller will launch for this offering; repeatable; "
+                         "with --contexts, must be a canonical account id, not an alias")
+    ch.add_argument("--contexts", choices=["-"], metavar="-",
+                    help="one offering-keyed JSON object from piped stdin (waits for EOF; no TTY); "
+                         "explicit empty/partial maps replace local incentives; the whole map is logged")
     ch.add_argument("--exclude", default="", metavar="ID[=REASON],...",
                     help="optional: offering ids the caller rules out; a reason is recorded, never "
                          "read")
