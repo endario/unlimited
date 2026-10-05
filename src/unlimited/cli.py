@@ -277,7 +277,7 @@ def _choose(a) -> int:
     contexts = None
     if a.contexts is not None:
         try:
-            if sys.stdin.isatty():
+            if sys.stdin is None or sys.stdin.isatty():
                 raise ValueError("pipe a JSON object on stdin")
             contexts = json.load(sys.stdin, parse_float=_json_float, parse_constant=_json_float)
             if not isinstance(contexts, dict):

@@ -413,6 +413,18 @@ class Choose(unittest.TestCase):
             code, text, err = self.context_call(args, io.StringIO("{}"), ["--account", "route-a=a"])
             self.assertEqual((code, text), (1, ""))
 
+    def test_cli_missing_context_stdin_fails_before_clock_or_log_work(self):
+        with self.local_policy_choice() as (_, args), mock.patch.object(cli, "datetime") as clock, \
+             mock.patch.object(outcomes, "compact") as compact:
+            try:
+                code, output, err = self.context_call(args, None)
+            except AttributeError:
+                self.fail("missing stdin must be a controlled transport error")
+            self.assertEqual((code, output), (2, ""))
+            self.assertIn("pipe a JSON object", err)
+            clock.now.assert_not_called()
+            compact.assert_not_called()
+
     def test_cli_undecodable_context_depth_is_a_pre_log_transport_error(self):
         text = '{"unused":' + '[' * 10000 + '0' + ']' * 10000 + '}'
         try:
