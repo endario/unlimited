@@ -16,6 +16,7 @@ from datetime import datetime
 from . import outcomes
 from .catalog import Catalog, live
 from .identity import names as identity_names
+from .schema import number
 
 SCORED = ("ok", "timeout", "error", "unavailable")  # the outcomes an attempt given to rank may have
 KAPPA = 5.0  # quota price steepness: 1 / (1 + exp(−κ(ρ − 1)))
@@ -27,7 +28,11 @@ def price(rho: float | None) -> float:
     """What spending this account now costs, in runs displaced from later in its window: near zero
     where the quota would expire unused, a half at the limit, approaching one past it (a run spent
     now displaces at most itself). Unknown is priced as at the limit."""
-    return 1.0 / (1.0 + math.exp(-KAPPA * ((1.0 if rho is None else rho) - 1.0)))
+    x = KAPPA * ((1.0 if rho is None else rho) - 1.0)
+    if x >= 0:
+        return 1.0 / (1.0 + math.exp(-x))
+    exp_x = math.exp(x)
+    return exp_x / (1.0 + exp_x)
 
 
 def named(cat: Catalog, tier: str, names: list[str], now: datetime) -> list[dict]:
@@ -218,6 +223,13 @@ def rank(cat: Catalog, *, tier: str, candidates: list[str], attempts: list[dict]
     if not ((temperature is None or (math.isfinite(temperature) and temperature >= 0))
             and math.isfinite(quota_weight) and quota_weight >= 0 and math.isfinite(deadline) and deadline > 0):
         raise ValueError("temperature and quota weight must be finite and not negative, the deadline positive")
+    for name, rho in quota.items():
+        try:
+            valid = rho is None or number(rho) is not None
+        except OverflowError:
+            valid = False
+        if not valid:
+            raise ValueError(f"quota {name}: projection must be a finite number or None")
     if contexts is not None and incentives is not None:
         raise ValueError("contexts and incentives cannot both be supplied")
     prefer = prefer or {}
