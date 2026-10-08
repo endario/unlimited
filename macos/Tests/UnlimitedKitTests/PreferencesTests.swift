@@ -38,6 +38,36 @@ func tiles() throws -> [Tile] { try Tile.strip(fixture(), now: now) }  // CL1 CL
     #expect(prefs.apply(try tiles()).prefix(2).map(\.label) == ["CL1", "CDX"])
 }
 
+@Test func aLongAccountListReordersVisibleAndBannedRowsAndSurvivesRelaunch() throws {
+    let ids = ["a", "b", "c", "d", "e", "f", "g", "h", "i", "j", "k", "l"]
+    let accounts = ids.map { id in
+        var tile = Tile(id: id, label: id.uppercased(), value: .percent(10), dimmed: false)
+        tile.off = id == "h"
+        return tile
+    }
+    var prefs = Preferences()
+    _ = prefs.apply(accounts)
+    for id in ["b", "g", "k"] { prefs.hide(id, true) }
+    #expect(prefs.apply(accounts).map(\.id) == ["a", "c", "d", "e", "f", "h", "i", "j", "l"])
+
+    prefs.step("a", by: -1)
+    prefs.step("l", by: 1)
+    #expect(prefs.apply(accounts).map(\.id) == ["a", "c", "d", "e", "f", "h", "i", "j", "l"])
+    prefs.step("a", by: 1)
+    prefs.step("a", by: 1)
+    prefs.step("l", by: -1)
+    prefs.step("h", by: -1)
+    #expect(prefs.apply(accounts).map(\.id) == ["c", "d", "a", "e", "h", "f", "i", "l", "j"])
+    #expect(prefs.apply(accounts).first { $0.id == "h" }?.off == true)
+    let beforeHiddenMove = prefs.order
+    prefs.step("g", by: 1)
+    #expect(prefs.order == beforeHiddenMove)
+
+    var back = try JSONDecoder().decode(Preferences.self, from: JSONEncoder().encode(prefs))
+    #expect(back.apply(accounts).map(\.id) == ["c", "d", "a", "e", "h", "f", "i", "l", "j"])
+    #expect(back.hidden == ["b", "g", "k"])
+}
+
 @Test func preferencesSurviveARoundTrip() throws {
     var prefs = Preferences()
     _ = prefs.apply(try tiles())
