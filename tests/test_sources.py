@@ -339,6 +339,28 @@ class OpenCodeGo(Base):
         got = opencode.read(Credential("a", {"key": "k"}), NOW, self.up(Answer(None, 403, "http-403")))
         self.assertEqual((got["status"], got["why"]), ("unread", "no-subscription"))
 
+    def test_go_models_read_lists_the_plans_routes_dispatchable(self):
+        got = opencode.models(Credential("a", {"key": "k"}), NOW,
+                              self.up(Answer({"data": [{"id": "gpt-6-luna"}, {"id": "minimax-m3"},
+                                                       {"id": "space-bunny"}]}, 200, None)))
+        self.assertEqual(got["status"], "ok")
+        self.assertEqual([r["id"] for r in got["routes"]],
+                         ["gpt-6-luna", "minimax-m3", "space-bunny"])
+        self.assertTrue(all(r["dispatchable"] for r in got["routes"]))
+
+    def test_go_models_read_without_a_subscription_is_unread_not_refused(self):
+        got = opencode.models(Credential("a", {"key": "k"}), NOW, self.up(Answer(None, 403, "http-403")))
+        self.assertEqual((got["status"], got["why"], got["routes"]), ("unread", "no-subscription", []))
+
+    def test_two_accounts_models_reads_union_in_the_caller(self):
+        # Offering existence is vendor-level: each account's read names its own plan's routes.
+        a = opencode.models(Credential("acct-1", {"key": "k1"}), NOW,
+                            self.up(Answer({"data": [{"id": "glm-5.3"}]}, 200, None)))
+        b = opencode.models(Credential("acct-2", {"key": "k2"}), NOW,
+                            self.up(Answer({"data": [{"id": "minimax-m3"}]}, 200, None)))
+        self.assertEqual({r["id"] for got in (a, b) for r in got["routes"]}, {"glm-5.3", "minimax-m3"})
+
+
     def test_the_go_key_is_found_in_opencodes_auth_file_and_never_shown(self):
         d = self.tmp / "data" / "opencode"
         d.mkdir(parents=True)
