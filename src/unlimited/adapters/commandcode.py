@@ -93,3 +93,19 @@ def read(cred: Credential, now: datetime, get) -> dict:
         return reading(VENDOR, cred.account, now, UNREAD, why="no-limits")
     plan = sub.get("planId") if isinstance(sub.get("planId"), str) else None
     return reading(VENDOR, cred.account, now, OK, limits=found, plan=plan, credits=spend)
+
+
+MODELS_URL = BASE + "/provider/v1/models"
+
+
+def models(cred: Credential, now: datetime, get) -> dict:
+    """The provider's whole catalog as a routes reading: every route `{"id", "dispatchable":
+    False}`. The endpoint is not plan-scoped — it names paid and out-of-plan models too — so
+    none of its routes is dispatchable on this reading alone (verified live 2026-10-08)."""
+    ans = get(MODELS_URL, {"Authorization": f"Bearer {cred.secret['key']}"}, now)
+    if ans.body is None:
+        return dict(failed(VENDOR, cred.account, now, ans), routes=[])
+    ids = sorted(m["id"] for m in ans.body.get("data", [])
+                 if isinstance(m, dict) and isinstance(m.get("id"), str))
+    return dict(reading(VENDOR, cred.account, now, OK, why=ans.why, retry_until=ans.retry_until),
+                routes=[{"id": i, "dispatchable": False} for i in ids])

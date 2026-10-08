@@ -543,6 +543,23 @@ class CommandCode(Base):
     def ok(self, body):
         return Answer(body, 200, None)
 
+    CATALOG = {"data": [{"id": "zai-org/GLM-5.3"}, {"id": "stealth/glyph-cluster:free"},
+                        {"id": "tencent/hy3-paid"}]}
+
+    def test_models_read_lists_the_full_catalog_none_dispatchable(self):
+        got = commandcode.models(Credential("a", {"key": "k"}), NOW,
+                                 self.up(Answer(self.CATALOG, 200, None)))
+        self.assertEqual(got["status"], "ok")
+        self.assertEqual([r["id"] for r in got["routes"]],
+                         ["stealth/glyph-cluster:free", "tencent/hy3-paid", "zai-org/GLM-5.3"])
+        self.assertTrue(all(not r["dispatchable"] for r in got["routes"]))
+
+    def test_models_read_refused_keeps_the_refusal_vocabulary(self):
+        got = commandcode.models(Credential("a", {"key": "k"}), NOW,
+                                 self.up(Answer(None, 403, "http-403")))
+        self.assertEqual((got["status"], got["why"], got["routes"]), ("refused", "http-403", []))
+
+
     def test_both_windows_and_the_month_are_read_with_their_resets(self):
         got = commandcode.read(Credential("a", {"key": "k"}), NOW, self.api(self.ok(self.CREDITS), self.ok(self.SUB)))
         five, week, month = got["limits"]
