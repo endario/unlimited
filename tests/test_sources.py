@@ -10,6 +10,7 @@ import unittest
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from types import SimpleNamespace
+from contextlib import redirect_stdout
 from unittest import mock
 
 from unlimited import cache, cli
@@ -339,6 +340,28 @@ class OpenCodeGo(Base):
         got = opencode.read(Credential("a", {"key": "k"}), NOW, self.up(Answer(None, 403, "http-403")))
         self.assertEqual((got["status"], got["why"]), ("unread", "no-subscription"))
 
+    def test_go_models_read_lists_the_plans_routes_dispatchable(self):
+        got = opencode.models(Credential("a", {"key": "k"}), NOW,
+                              self.up(Answer({"data": [{"id": "gpt-6-luna"}, {"id": "minimax-m3"},
+                                                       {"id": "space-bunny"}]}, 200, None)))
+        self.assertEqual(got["status"], "ok")
+        self.assertEqual([r["id"] for r in got["routes"]],
+                         ["gpt-6-luna", "minimax-m3", "space-bunny"])
+        self.assertTrue(all(r["dispatchable"] for r in got["routes"]))
+
+    def test_go_models_read_without_a_subscription_is_unread_not_refused(self):
+        got = opencode.models(Credential("a", {"key": "k"}), NOW, self.up(Answer(None, 403, "http-403")))
+        self.assertEqual((got["status"], got["why"], got["routes"]), ("unread", "no-subscription", []))
+
+    def test_two_accounts_models_reads_union_in_the_caller(self):
+        # Offering existence is vendor-level: each account's read names its own plan's routes.
+        a = opencode.models(Credential("acct-1", {"key": "k1"}), NOW,
+                            self.up(Answer({"data": [{"id": "glm-5.3"}]}, 200, None)))
+        b = opencode.models(Credential("acct-2", {"key": "k2"}), NOW,
+                            self.up(Answer({"data": [{"id": "minimax-m3"}]}, 200, None)))
+        self.assertEqual({r["id"] for got in (a, b) for r in got["routes"]}, {"glm-5.3", "minimax-m3"})
+
+
     def test_the_go_key_is_found_in_opencodes_auth_file_and_never_shown(self):
         d = self.tmp / "data" / "opencode"
         d.mkdir(parents=True)
@@ -520,6 +543,23 @@ class CommandCode(Base):
 
     def ok(self, body):
         return Answer(body, 200, None)
+
+    CATALOG = {"data": [{"id": "zai-org/GLM-5.3"}, {"id": "stealth/glyph-cluster:free"},
+                        {"id": "tencent/hy3-paid"}]}
+
+    def test_models_read_lists_the_full_catalog_none_dispatchable(self):
+        got = commandcode.models(Credential("a", {"key": "k"}), NOW,
+                                 self.up(Answer(self.CATALOG, 200, None)))
+        self.assertEqual(got["status"], "ok")
+        self.assertEqual([r["id"] for r in got["routes"]],
+                         ["stealth/glyph-cluster:free", "tencent/hy3-paid", "zai-org/GLM-5.3"])
+        self.assertTrue(all(not r["dispatchable"] for r in got["routes"]))
+
+    def test_models_read_refused_keeps_the_refusal_vocabulary(self):
+        got = commandcode.models(Credential("a", {"key": "k"}), NOW,
+                                 self.up(Answer(None, 403, "http-403")))
+        self.assertEqual((got["status"], got["why"], got["routes"]), ("refused", "http-403", []))
+
 
     def test_both_windows_and_the_month_are_read_with_their_resets(self):
         got = commandcode.read(Credential("a", {"key": "k"}), NOW, self.api(self.ok(self.CREDITS), self.ok(self.SUB)))
@@ -1118,3 +1158,115 @@ class CodexSessionLog(Base):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class RoutesCache(Base):
+    def adapter(self):
+        return SimpleNamespace(VENDOR="opencode", discover=lambda: [Credential("acct-1", {"key": "k"})],
+                               models=opencode.models)
+
+    def test_a_fresh_routes_read_answers_without_asking_again(self):
+        got = cache.routes_through(self.adapter(), max_age=600, clock=lambda: NOW,
+                                   get=self.up(Answer({"data": [{"id": "glm-5.3"}]}, 200, None)))
+        self.assertEqual([r["id"] for r in got[0]["routes"]], ["glm-5.3"])
+        again = cache.routes_through(self.adapter(), max_age=600, clock=lambda: NOW,
+                                     get=self.up(Answer(None, 403, "http-403")))
+        self.assertEqual((self.calls, again[0]["status"]), (["https://opencode.ai/zen/go/v1/models"], "ok"))
+
+    def test_an_expired_throttled_read_keeps_the_last_good_list(self):
+        cache.routes_through(self.adapter(), max_age=0, clock=lambda: NOW,
+                             get=self.up(Answer({"data": [{"id": "glm-5.3"}]}, 200, None)))
+        got = cache.routes_through(self.adapter(), max_age=0, clock=lambda: NOW + timedelta(hours=2),
+                                   get=self.up(Answer(None, 429, "http-429")))
+        self.assertEqual((got[0]["status"], [r["id"] for r in got[0]["routes"]]), ("ok", ["glm-5.3"]))
+
+    def test_an_expired_read_without_a_subscription_is_news_and_replaces(self):
+        cache.routes_through(self.adapter(), max_age=0, clock=lambda: NOW,
+                             get=self.up(Answer({"data": [{"id": "glm-5.3"}]}, 200, None)))
+        got = cache.routes_through(self.adapter(), max_age=0, clock=lambda: NOW + timedelta(hours=2),
+                                   get=self.up(Answer(None, 403, "http-403")))
+        self.assertEqual((got[0]["status"], got[0]["why"], got[0]["routes"]),
+                         ("unread", "no-subscription", []))
+
+    def test_a_throttled_first_read_holds_every_caller_off(self):
+        got = cache.routes_through(self.adapter(), max_age=0, clock=lambda: NOW,
+                                   get=self.up(Answer(None, 429, "http-429")))
+        self.assertEqual((got[0]["status"], got[0]["why"]), ("refused", "http-429"))
+        until = datetime.fromisoformat(got[0]["retry_until"])
+        self.assertGreaterEqual(until - NOW, cache.MIN_BACKOFF)
+        again = cache.routes_through(self.adapter(), max_age=0, clock=lambda: NOW + timedelta(minutes=2),
+                                     get=self.up(Answer(None, 429, "http-429")))
+        self.assertEqual(len(self.calls), 1, "a backing-off refusal must not be re-asked")
+
+
+class RoutesCli(Base):
+    def test_routes_prints_each_accounts_plan_models_as_json(self):
+        from unlimited import transport
+        body = Answer({"data": [{"id": "glm-5.3"}]}, 200, None)
+        with mock.patch.object(opencode, "discover", lambda: [Credential("acct-1", {"key": "k"})]), \
+                mock.patch.object(transport, "get", self.up(body)):
+            buf = io.StringIO()
+            with redirect_stdout(buf):
+                self.assertEqual(cli.main(["routes", "--json"]), 0)
+        (got,) = json.loads(buf.getvalue())
+        self.assertEqual((got["vendor"], got["account"], got["status"]), ("opencode", "acct-1", "ok"))
+        self.assertEqual([r["id"] for r in got["routes"]], ["glm-5.3"])
+        self.assertTrue(got["taken_at"])
+
+    def test_a_refused_run_keeps_what_discovery_already_recorded(self):
+        from unlimited import catalog as cat
+        import pathlib
+        d = pathlib.Path(scratch.mkdtemp())
+        with mock.patch.object(opencode, "discover", lambda: [Credential("acct-1", {"key": "k"})]), \
+                mock.patch.dict(os.environ, {"XDG_CONFIG_HOME": str(d)}):
+            from unlimited import transport
+            with mock.patch.object(transport, "get", self.up(Answer({"data": [{"id": "glm-5.3"}]}, 200, None))):
+                buf = io.StringIO()
+                with redirect_stdout(buf):
+                    self.assertEqual(cli.main(["routes", "--max-age", "0", "--json"]), 0)
+            self.assertEqual(cat.read_discovered(), {"opencode": ["glm-5.3"]})
+            with mock.patch.object(transport, "get", self.up(Answer(None, 403, "http-403"))):
+                buf = io.StringIO()
+                with redirect_stdout(buf):
+                    self.assertEqual(cli.main(["routes", "--max-age", "0", "--json"]), 0)
+            self.assertEqual(cat.read_discovered(), {"opencode": ["glm-5.3"]},
+                             "a vendor this run could not read keeps its recorded discovery")
+
+    def test_two_accounts_of_one_vendor_union_their_plans_into_one_entry(self):
+        from unlimited import catalog as cat
+        import pathlib
+        d = pathlib.Path(scratch.mkdtemp())
+        two = [Credential("acct-1", {"key": "k1"}), Credential("acct-2", {"key": "k2"})]
+        plans = {Credential("acct-1", {"key": "k1"}).secret["key"]: {"data": [{"id": "glm-5.3"}]},
+                 Credential("acct-2", {"key": "k2"}).secret["key"]: {"data": [{"id": "minimax-m3"}]}}
+        def get(url, headers, now):
+            self.calls.append(url)
+            return Answer(plans[headers["Authorization"].split()[-1]], 200, None)
+        with mock.patch.object(opencode, "discover", lambda: two),                 mock.patch.dict(os.environ, {"XDG_CONFIG_HOME": str(d)}):
+            from unlimited import transport
+            with mock.patch.object(transport, "get", get):
+                buf = io.StringIO()
+                with redirect_stdout(buf):
+                    self.assertEqual(cli.main(["routes", "--max-age", "0", "--json"]), 0)
+        self.assertEqual(cat.read_discovered(d / "unlimited" / "discovered.json"),
+                         {"opencode": ["glm-5.3", "minimax-m3"]})
+
+    def test_a_vendor_scoped_run_keeps_the_other_vendors_recorded_discovery(self):
+        from unlimited import catalog as cat
+        import pathlib
+        d = pathlib.Path(scratch.mkdtemp())
+        cat.write_discovered({"opencode": ["glm-5.3"]}, d / "discovered.json")
+        with mock.patch.dict(os.environ, {"XDG_CONFIG_HOME": str(d)}):
+            from unlimited import transport
+            with mock.patch.object(transport, "get", self.up(Answer(None, 403, "http-403"))):
+                buf = io.StringIO()
+                with redirect_stdout(buf):
+                    self.assertEqual(cli.main(["routes", "--vendor", "commandcode",
+                                               "--max-age", "0", "--json"]), 0)
+        self.assertEqual(cat.read_discovered(d / "discovered.json"), {"opencode": ["glm-5.3"]})
+
+    def test_a_body_whose_data_is_not_a_list_reads_empty_not_crashing(self):
+        for adapter in (opencode, commandcode):
+            got = adapter.models(Credential("a", {"key": "k"}), NOW,
+                                 self.up(Answer({"data": None}, 200, None)))
+            self.assertEqual((got["status"], got["routes"]), ("ok", []), adapter.VENDOR)

@@ -18,6 +18,7 @@ uv tool install unlimited                # or: pipx install unlimited
 ```
 unlimited                                # usage per account, for people
 unlimited read [--vendor V]... [--max-age SECONDS] --json
+unlimited routes [--vendor V]... [--max-age SECONDS] --json   # each plan's models
 unlimited capture claude-statusline      # in a Claude Code statusline script
 unlimited COMMAND --help
 ```
