@@ -38,9 +38,7 @@ struct AppDelegateHostTests {
         let finished = try #require(collapsed)
         #expect(exited.duration(to: started) >= .seconds(5))
         #expect(widthAtFade == 349)
-        if !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion {
-            #expect(started.duration(to: finished) >= .seconds(0.7))
-        }
+        #expect(started.duration(to: finished) >= .seconds(0.7))
         #expect(fixture.hostingWidth == 30)
         #expect(!fixture.model.fadingNormal)
     }
@@ -94,6 +92,7 @@ struct AppDelegateHostTests {
         let fixture = try await DelegateHost()
         defer { fixture.close() }
         fixture.enter()
+        let beginning = fixture.recordedWidths.count
         var reentered = false
         let fade = fixture.model.$fadingNormal.sink { value in
             guard value else { return }
@@ -108,8 +107,24 @@ struct AppDelegateHostTests {
         try await Task.sleep(for: .seconds(1))
         #expect(fixture.model.hoverExpanded)
         #expect(!fixture.model.fadingNormal)
+        #expect(!fixture.recordedWidths.dropFirst(beginning).contains(30))
         #expect(fixture.hostingWidth == 349)
         #expect(fixture.window.contentView?.bounds.width == 349)
+    }
+
+    @Test func reducedMotionFitsCompactGeometryWithoutAFadeSuspension() async throws {
+        let fixture = try await DelegateHost(reduceMotion: true)
+        defer { fixture.close() }
+        fixture.enter()
+        var widthOnNextTurn: CGFloat?
+        let fade = fixture.model.$fadingNormal.sink { value in
+            guard value else { return }
+            DispatchQueue.main.async { widthOnNextTurn = fixture.hostingWidth }
+        }
+        defer { fade.cancel() }
+        fixture.leave()
+        try await waitUntil("reduced-motion host did not become compact") { widthOnNextTurn != nil && fixture.hostingWidth == 30 }
+        #expect(widthOnNextTurn == 30)
     }
 }
 
@@ -121,12 +136,15 @@ private final class DelegateHost {
     let button: NSButton
     let delegate: AppDelegate
     private let pointer: Pointer
+    private let geometry: Geometry
+
+    var recordedWidths: [CGFloat] { geometry.widths }
 
     var hostingWidth: CGFloat? {
         button.subviews.compactMap { $0 as? NSHostingView<StripView> }.first?.frame.width
     }
 
-    init() async throws {
+    init(reduceMotion: Bool = false) async throws {
         _ = NSApplication.shared
         let cli = try UsageCLI()
         var complete = false
@@ -144,10 +162,12 @@ private final class DelegateHost {
         window.contentView = button
         window.orderFront(nil)
         let pointer = Pointer()
-        let delegate = AppDelegate(model: model, pointer: { pointer.position })
+        let geometry = Geometry()
+        let delegate = AppDelegate(model: model, pointer: { pointer.position }, reduceMotion: { reduceMotion })
         delegate.mount(in: button) { [weak window, weak button] width in
             button?.frame.size.width = width
             window?.setContentSize(NSSize(width: width, height: 22))
+            if let actual = window?.contentView?.bounds.width { geometry.widths.append(actual) }
         }
         delegate.popover.animates = false
         self.cli = cli
@@ -155,6 +175,7 @@ private final class DelegateHost {
         self.window = window
         self.button = button
         self.pointer = pointer
+        self.geometry = geometry
         self.delegate = delegate
         complete = true
     }
@@ -187,4 +208,9 @@ private final class DelegateHost {
 @MainActor
 private final class Pointer {
     var position = NSPoint.zero
+}
+
+@MainActor
+private final class Geometry {
+    var widths: [CGFloat] = []
 }

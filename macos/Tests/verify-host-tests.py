@@ -18,6 +18,8 @@ def verify_report(path: Path) -> None:
         name = case.get('name', '').removesuffix('()')
         if any(case.find(outcome) is not None for outcome in ('failure', 'error', 'skipped')):
             raise ValueError(f'native host test did not pass: {name}')
+        if case.get('time') is None:
+            raise ValueError(f'native host test did not finish: {name}')
         completed.add(name)
     missing = REQUIRED - completed
     if missing:

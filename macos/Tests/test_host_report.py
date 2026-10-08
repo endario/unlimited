@@ -14,7 +14,7 @@ HOST_CASES = (
 
 
 class HostReportTests(unittest.TestCase):
-    def report(self, names=HOST_CASES, outcome=None):
+    def report(self, names=HOST_CASES, outcome=None, unfinished=None):
         directory = tempfile.TemporaryDirectory()
         self.addCleanup(directory.cleanup)
         path = pathlib.Path(directory.name) / 'report.xml'
@@ -23,6 +23,8 @@ class HostReportTests(unittest.TestCase):
         ET.SubElement(suite, 'testcase', classname='UnlimitedKitTests', name='kitPassed()')
         for name in names:
             case = ET.SubElement(suite, 'testcase', classname='UnlimitedTests.AppDelegateHostTests', name=name)
+            if name != unfinished:
+                case.set('time', '0.01')
             if outcome:
                 ET.SubElement(case, outcome)
         ET.ElementTree(root).write(path)
@@ -39,6 +41,11 @@ class HostReportTests(unittest.TestCase):
         for missing in HOST_CASES:
             with self.subTest(missing=missing), self.assertRaises(ValueError):
                 verify_report(self.report(names=tuple(name for name in HOST_CASES if name != missing)))
+
+    def test_started_but_unfinished_native_cases_are_not_green(self):
+        for name in HOST_CASES:
+            with self.subTest(name=name), self.assertRaises(ValueError):
+                verify_report(self.report(unfinished=name))
 
     def test_native_failures_errors_and_skips_are_not_green(self):
         for outcome in ('failure', 'error', 'skipped'):

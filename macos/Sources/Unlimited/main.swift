@@ -7,6 +7,7 @@ import UnlimitedKit
 final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
     private let model: StripModel
     private let pointer: () -> NSPoint
+    private let reduceMotion: () -> Bool
     private var item: NSStatusItem!
     private var button: NSButton?
     private var host: NSHostingView<StripView>?
@@ -21,9 +22,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
     private var hoverCollapse: Task<Void, Never>?
     private var geometryObservers: [NSObjectProtocol] = []
 
-    init(model: StripModel = StripModel(), pointer: @escaping () -> NSPoint = { NSEvent.mouseLocation }) {
+    init(model: StripModel = StripModel(), pointer: @escaping () -> NSPoint = { NSEvent.mouseLocation },
+         reduceMotion: @escaping () -> Bool = { NSWorkspace.shared.accessibilityDisplayShouldReduceMotion }) {
         self.model = model
         self.pointer = pointer
+        self.reduceMotion = reduceMotion
         super.init()
     }
 
@@ -134,7 +137,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
             hoverCollapse = nil
             if model.fadingNormal { model.fadingNormal = false }
             if !model.hoverExpanded {
-                let animation: Animation? = NSWorkspace.shared.accessibilityDisplayShouldReduceMotion ? nil : .easeInOut(duration: StripView.fadeDuration)
+                let animation: Animation? = reduceMotion() ? nil : .easeInOut(duration: StripView.fadeDuration)
                 withAnimation(animation) { model.hoverExpanded = true }
                 fit()
             }
@@ -144,7 +147,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
                     try await Task.sleep(until: deadline, clock: .continuous)
                     guard let self, self.hoverDelay.collapse(now: .now) else { return }
                     self.model.fadingNormal = true
-                    if !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion {
+                    if !self.reduceMotion() {
                         try await Task.sleep(for: .seconds(StripView.fadeDuration))
                     }
                     try Task.checkCancellation()
