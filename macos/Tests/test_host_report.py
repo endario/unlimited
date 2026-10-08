@@ -48,6 +48,29 @@ class HostReportTests(unittest.TestCase):
             with self.subTest(name=name), self.assertRaises(ValueError):
                 verify_report(self.report(unfinished=name))
 
+    def test_legacy_swift_output_requires_each_passed_host_case(self):
+        for missing in (None, *HOST_CASES):
+            with self.subTest(missing=missing):
+                report = self.report()
+                report.write_text('')
+                output = report.with_name('output.log')
+                names = tuple(name for name in HOST_CASES if name != missing)
+                output.write_text('\n'.join(f'✔ Test {name} passed after 0.1 seconds.' for name in names)
+                                  + '\n✔ Suite AppDelegateHostTests passed after 1 seconds.\n')
+                if missing is None:
+                    verify_report(report, output)
+                else:
+                    with self.assertRaises(ValueError):
+                        verify_report(report, output)
+
+    def test_legacy_output_requires_suite_completion(self):
+        report = self.report()
+        report.write_text('')
+        output = report.with_name('output.log')
+        output.write_text('\n'.join(f'✔ Test {name} passed after 0.1 seconds.' for name in HOST_CASES))
+        with self.assertRaises(ValueError):
+            verify_report(report, output)
+
     def test_native_failures_errors_and_skips_are_not_green(self):
         for outcome in ('failure', 'error', 'skipped'):
             with self.subTest(outcome=outcome), self.assertRaises(ValueError):
