@@ -109,3 +109,21 @@ def read(cred: Credential, now: datetime, get) -> dict:
     if not found:
         return reading(VENDOR, cred.account, now, UNREAD, why="no-limits")
     return reading(VENDOR, cred.account, now, OK, limits=found)
+
+
+MODELS_URL = "https://opencode.ai/zen/go/v1/models"
+
+
+def models(cred: Credential, now: datetime, get) -> dict:
+    """The Go key's plan's models as a routes reading: `routes` each `{"id", "dispatchable"}`.
+    The endpoint is plan-scoped."""
+    ans = get(MODELS_URL, {"Authorization": f"Bearer {cred.secret['key']}"}, now)
+    if ans.body is None:
+        if ans.status == 403:
+            return dict(reading(VENDOR, cred.account, now, UNREAD, why="no-subscription"), routes=[])
+        return dict(failed(VENDOR, cred.account, now, ans), routes=[])
+    rows = ans.body.get("data")
+    ids = sorted(m["id"] for m in (rows if isinstance(rows, list) else [])
+                 if isinstance(m, dict) and isinstance(m.get("id"), str))
+    return dict(reading(VENDOR, cred.account, now, OK, why=ans.why, retry_until=ans.retry_until),
+                routes=[{"id": i, "dispatchable": True} for i in ids])

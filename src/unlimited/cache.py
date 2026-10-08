@@ -12,6 +12,7 @@ from pathlib import Path
 
 from . import projection
 from .schema import iso, moment, role_of, settled
+from .state import write_json
 
 
 def default_dir() -> Path:
@@ -124,3 +125,42 @@ def through(adapter, *, max_age: float, clock, get, directory: Path | None = Non
         done = [projection.attach(settled(r, now), history) for r in out]
         return [dict(r, names=names.get(r.get("account"), []), limits=[_roled(adapter, l) for l in r.get("limits", [])])
                 for r in done]
+
+
+def routes_through(adapter, *, max_age: float, clock, get, directory: Path | None = None) -> list[dict]:
+    """This vendor's routes readings (adapter.models), one freshness and refusal discipline
+    with `through`."""
+    directory = directory or default_dir()
+    directory.mkdir(parents=True, exist_ok=True, mode=0o700)
+    path = directory / f"{adapter.VENDOR}.routes.json"
+    with open(directory / f"{adapter.VENDOR}.routes.lock", "a") as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        now = clock()  # after the wait: a reader that queued behind a fresh read sees it as fresh
+        try:
+            held = json.loads(path.read_text()).get("routes")
+        except (OSError, ValueError, AttributeError):
+            held = None
+        cached = {r.get("account"): r for r in held or [] if isinstance(r, dict)}
+        out = []
+        for cred in adapter.discover():
+            prior = cached.get(cred.account)
+            age = _age(prior, now) if prior else None
+            if prior is not None and prior.get("status") == "ok" and age is not None and 0 <= age < max_age:
+                out.append(prior)
+            elif prior is not None and _backing_off(prior, now):
+                out.append(prior)
+            else:
+                got = adapter.models(cred, now, get)
+                if got["status"] != "ok" and _throttled(got):
+                    until = moment(got.get("retry_until"))
+                    got = dict(got, retry_until=iso(max(until or now, now + MIN_BACKOFF)))
+                if got["status"] != "ok" and prior is not None and got.get("why") in TRANSIENT:
+                    got = prior
+                elif got["status"] != "ok" and prior is not None and _throttled(got):
+                    # A fault that says nothing about the account keeps the last good list,
+                    # carrying the deadline before anyone asks again; any other refusal (an
+                    # unread no-subscription among them) is news and replaces it.
+                    got = dict(prior, retry_until=got["retry_until"])
+                out.append(got)
+        write_json({"routes": out}, path)
+        return out
