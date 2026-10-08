@@ -35,6 +35,10 @@ vertical fast-forward glyph beside the account name has single, double or triple
 Clear removes the selected scope, so an inherited setting may apply again. Steering is local to
 this machine, and the quota-room underline is independent of it.
 
+Native host tests use transparent off-screen AppKit windows and isolated fixture data. The test
+command checks xUnit completion as well as exit status: a native tracking loop can end the async
+runner before its tests finish.
+
 ```
 make test     # Swift Testing, under Command Line Tools
 python3 Tests/verify-resources.py --build-system native
