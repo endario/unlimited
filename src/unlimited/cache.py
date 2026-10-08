@@ -124,3 +124,47 @@ def through(adapter, *, max_age: float, clock, get, directory: Path | None = Non
         done = [projection.attach(settled(r, now), history) for r in out]
         return [dict(r, names=names.get(r.get("account"), []), limits=[_roled(adapter, l) for l in r.get("limits", [])])
                 for r in done]
+
+
+def routes_through(adapter, *, max_age: float, clock, get, directory: Path | None = None) -> list[dict]:
+    """This vendor's routes readings (adapter.models), under the usage cache's discipline: per
+    account the newest cached reading stands while younger than `max_age`; a refusal's deadline
+    binds every caller; a throttle or transient fault keeps the last good list with its own
+    `taken_at`, so a consumer can see how old it is."""
+    directory = directory or default_dir()
+    directory.mkdir(parents=True, exist_ok=True, mode=0o700)
+    path = directory / f"{adapter.VENDOR}.routes.json"
+    with open(directory / f"{adapter.VENDOR}.routes.lock", "a") as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        now = clock()  # after the wait: a reader that queued behind a fresh read sees it as fresh
+        try:
+            held = json.loads(path.read_text()).get("routes")
+        except (OSError, ValueError, AttributeError):
+            held = None
+        cached = {r.get("account"): r for r in held or [] if isinstance(r, dict)}
+        out = []
+        for cred in adapter.discover():
+            prior = cached.get(cred.account)
+            age = _age(prior, now) if prior else None
+            if prior is not None and prior.get("status") == "ok" and age is not None and 0 <= age < max_age:
+                out.append(prior)
+            elif prior is not None and _backing_off(prior, now):
+                out.append(prior)
+            else:
+                got = adapter.models(cred, now, get)
+                if got["status"] != "ok" and _throttled(got):
+                    until = moment(got.get("retry_until"))
+                    got = dict(got, retry_until=iso(max(until or now, now + MIN_BACKOFF)))
+                if got["status"] != "ok" and prior is not None:
+                    # A routes list is a slowly-changing fact, and this edge's refusals say
+                    # nothing about the credential (bot walls answer 403 too): the last good
+                    # list stands with its own `taken_at`, carrying the deadline, if any.
+                    got = dict(prior, **({"retry_until": got["retry_until"]} if got.get("retry_until") else {}))
+                out.append(got)
+        tmp = path.with_suffix(".tmp")
+        fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+        with os.fdopen(fd, "w") as f:
+            os.fchmod(f.fileno(), 0o600)
+            json.dump({"routes": out}, f)
+        os.replace(tmp, path)
+        return out

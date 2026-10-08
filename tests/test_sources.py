@@ -1157,3 +1157,35 @@ class CodexSessionLog(Base):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class RoutesCache(Base):
+    def adapter(self):
+        return SimpleNamespace(VENDOR="opencode", discover=lambda: [Credential("acct-1", {"key": "k"})],
+                               models=opencode.models)
+
+    def test_a_fresh_routes_read_answers_without_asking_again(self):
+        got = cache.routes_through(self.adapter(), max_age=600, clock=lambda: NOW,
+                                   get=self.up(Answer({"data": [{"id": "glm-5.3"}]}, 200, None)))
+        self.assertEqual([r["id"] for r in got[0]["routes"]], ["glm-5.3"])
+        again = cache.routes_through(self.adapter(), max_age=600, clock=lambda: NOW,
+                                     get=self.up(Answer(None, 403, "http-403")))
+        self.assertEqual((self.calls, again[0]["status"]), (["https://opencode.ai/zen/go/v1/models"], "ok"))
+
+    def test_an_expired_read_the_edge_refuses_keeps_the_last_good_list(self):
+        first = cache.routes_through(self.adapter(), max_age=0, clock=lambda: NOW,
+                                     get=self.up(Answer({"data": [{"id": "glm-5.3"}]}, 200, None)))
+        second = cache.routes_through(self.adapter(), max_age=0, clock=lambda: NOW + timedelta(hours=2),
+                                      get=self.up(Answer(None, 403, "http-403")))
+        self.assertEqual(first[0]["routes"], second[0]["routes"])
+        self.assertEqual(second[0]["status"], "ok")
+
+    def test_a_throttled_first_read_holds_every_caller_off(self):
+        got = cache.routes_through(self.adapter(), max_age=0, clock=lambda: NOW,
+                                   get=self.up(Answer(None, 429, "http-429")))
+        self.assertEqual((got[0]["status"], got[0]["why"]), ("refused", "http-429"))
+        until = datetime.fromisoformat(got[0]["retry_until"])
+        self.assertGreaterEqual(until - NOW, cache.MIN_BACKOFF)
+        again = cache.routes_through(self.adapter(), max_age=0, clock=lambda: NOW + timedelta(minutes=2),
+                                     get=self.up(Answer(None, 429, "http-429")))
+        self.assertEqual(len(self.calls), 1, "a backing-off refusal must not be re-asked")
