@@ -49,6 +49,35 @@ def switches_path(local: Path | None = None) -> Path:
     return (local or local_path()).with_name("switches.json")
 
 
+def discovered_path(local: Path | None = None) -> Path:
+    """Also beside the local catalog: this machine's live-discovered route ids per vendor,
+    written by `unlimited routes`."""
+    return (local or local_path()).with_name("discovered.json")
+
+
+def read_discovered(path: Path | None = None) -> dict[str, list[str]]:
+    """The discovered route ids per vendor (`{"opencode": ["minimax-m3", ...]}`). A file that
+    does not parse is an error, as the switches' is, since discovery that silently stops
+    applying is the failure it exists to prevent."""
+    path = path or discovered_path()
+    try:
+        got = json.loads(path.read_text())
+    except FileNotFoundError:
+        return {}
+    except (OSError, ValueError) as e:
+        raise CatalogError(f"{path}: {e}") from None
+    if not isinstance(got, dict) or not all(isinstance(v, list) and all(isinstance(i, str) for i in v)
+                                            for v in got.values()):
+        raise CatalogError(f'{path}: expected {{"vendor": ["route id", ...]}}')
+    return got
+
+
+def write_discovered(vendors: dict[str, list[str]], path: Path | None = None) -> None:
+    path = path or discovered_path()
+    with _flock(path):
+        write_json(vendors, path, indent=1)
+
+
 def read_switches(path: Path | None = None) -> list[dict]:
     """This machine's switched-off targets: `{"target", "until", "why"}` and, for a switch on one
     account of a vendor, `"account"` (its account id or an identity name), `until` an ISO time or
@@ -461,6 +490,52 @@ def moment_utc(v: object) -> datetime | None:
     return t if t.tzinfo else t.replace(tzinfo=timezone.utc)
 
 
+def _fold_discovered(data: dict, local: Path | None) -> dict:
+    """Discovery overlays the merged catalog: a live-discovered dispatchable route the catalog
+    does not ship becomes a model at the `unproven` tier (provider `stealth` unless the maker is
+    already known) with one offering on its vendor, id-prefixed as that vendor's shipped
+    offerings are. Discovery never demotes or removes — a route the catalog ships stands as
+    shipped, and whether a route still answers is outcomes' to say, not existence's."""
+    if "unproven" not in data.get("tiers", []):
+        return data
+    discovered = read_discovered(discovered_path(local))
+    if not discovered:
+        return data
+    prefix: dict[str, str] = {}
+    for o in data.get("offerings", []):
+        v, oid = o.get("vendor"), o.get("id")
+        if isinstance(v, str) and v not in prefix and isinstance(oid, str):
+            head, sep, _ = oid.partition("/")
+            # Only a slashed id lends its head: a vendor whose shipped ids carry no prefix has
+            # no discovery spelling, and discovery names none of its routes.
+            if sep:
+                prefix[v] = head
+    models = {k: dict(v) for k, v in data.get("models", {}).items()}
+    offerings = [dict(o) for o in data.get("offerings", [])]
+    ids = {o["id"] for o in offerings if isinstance(o.get("id"), str)}
+    for vendor, found in discovered.items():
+        p = prefix.get(vendor)
+        if p is None:
+            continue
+        for rid in found:
+            if not rid or "/" in rid:
+                # An id carrying its own prefix names nothing this fold can spell.
+                continue
+            oid = f"{p}/{rid}"
+            if oid in ids:
+                continue
+            name = rid.replace(".", "-")
+            m = models.get(name)
+            tiers = m.get("tiers") if isinstance(m, dict) else None
+            if m is None:
+                models[name] = {"provider": "stealth", "tiers": ["unproven"]}
+            elif isinstance(tiers, list) and "unproven" not in tiers:
+                models[name] = dict(m, tiers=tiers + ["unproven"])
+            offerings.append({"id": oid, "model": name, "vendor": vendor})
+            ids.add(oid)
+    return {**data, "models": models, "offerings": offerings}
+
+
 def load_metadata(path: Path | None = None) -> Catalog:
     shipped = _parse(resources.files(__package__).joinpath("catalog.toml").read_text(), "shipped catalog")
     path = path or local_path()
@@ -472,6 +547,7 @@ def load_metadata(path: Path | None = None) -> Catalog:
         raise CatalogError(f"{path}: {e}") from None
     else:
         data = _merge(shipped, _parse(text, str(path)))
+    data = _fold_discovered(data, path)
     _check(data)
     return Catalog(data, local=path)
 
