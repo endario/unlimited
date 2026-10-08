@@ -5,6 +5,28 @@ import UnlimitedKit
 @MainActor
 final class StripModel: ObservableObject {
     @Published private(set) var tiles: [Tile] = [.waiting]
+    @Published var hoverExpanded = false
+    @Published var fadingNormal = false
+    private static let normalSummary = Tile(id: "auto-hidden-normal", label: "", value: .waiting, dimmed: false)
+
+    private var autoCollapsing: Bool { prefs.autoHideNormal && !hoverExpanded && !open && problem == nil }
+    var collapsedNormal: Bool { autoCollapsing && !tiles.isEmpty && tiles.allSatisfy(\.isRoutine) }
+
+    func fades(_ tile: Tile) -> Bool {
+        fadingNormal && prefs.autoHideNormal && problem == nil && !open && tile.isRoutine
+    }
+
+    var displayedTiles: [Tile] {
+        guard autoCollapsing else { return tiles }
+        let shown = tiles.filter { !$0.isRoutine }
+        return shown.isEmpty ? [Self.normalSummary] : shown
+    }
+
+    func displayedAccount(at x: Double) -> Tile? {
+        let layout = StripLayout(tiles: displayedTiles, spacing: Double(StripView.spacing), padding: Double(StripView.padding))
+        let hit = collapsedNormal ? tiles.first : layout.tile(at: x)
+        return hit.flatMap { $0.id.isEmpty ? nil : $0 }
+    }
     @Published private(set) var readings: [String: Reading] = [:]
     /// How to open each account's Claude Code, by tile id; absent where it has no wrapper.
     @Published private(set) var launches: [String: Launch] = [:]

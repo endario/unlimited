@@ -58,6 +58,12 @@ public struct Tile: Identifiable, Equatable, Sendable {
             (id, label, value, dimmed, health, alternate, best, indicator)
     }
 
+    public var isRoutine: Bool {
+        value.showsData && health == .normal && !dimmed && !off &&
+            (indicator?.count ?? 0) == 0 &&
+            (alternate.map { $0.value.showsData && $0.health == .normal } ?? true)
+    }
+
     /// The same tile under another label.
     public func labelled(_ label: String) -> Tile {
         var t = Tile(id: id, label: label, value: value, dimmed: dimmed, health: health, alternate: alternate, best: best, indicator: indicator)
