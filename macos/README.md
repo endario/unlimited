@@ -4,7 +4,7 @@ One tile per account, showing its monthly window where the plan enforces one, el
 window, drawn from `unlimited read --json`. A switched-off account (`unlimited off`, whole
 vendor or one account) is ghosted — its exact colours at half transparency — and never the
 one to use next; Settings can flip those switches per account. The app reads no credential, calls
-no vendor, and writes only through the CLI (`unlimited off`/`on`). It needs `unlimited` 0.0.23 or
+no vendor, and writes only through the CLI (`unlimited off`/`on`/`incentive`). It needs `unlimited` 0.0.23 or
 later in `~/.local/bin`, `/opt/homebrew/bin` or `/usr/local/bin` (0.1.1 or later for the
 switching; an older CLI simply loses the greying).
 
@@ -12,6 +12,15 @@ Unavailable or stale usage displays `?`; the popover explains the reported failu
 sign-in failures, **Sign in** opens iTerm and runs the account's executable wrapper from
 `~/.local/bin` with `auth login --claudeai`. Choose the correct account in the browser, then
 refresh. Without a matching wrapper, sign in through that account's Claude Code setup.
+
+Settings keeps each account's controls together: the eye shows or hides its menu-bar tile;
+ban prevents offering it and fades the row. Neither stops tracking. The multiplier button opens
+an account override editor with a multiplier, Until reset, and a duration picker when reset is
+off. Apply writes the override; Clear override removes that scope without clearing inherited
+policies. Right-click a picker for custom values. Other policies lists existing vendor/model/route
+policies and switches for accounts not read here; broader policies can be created through the CLI.
+Account/reset steering requires caller account bindings (`choose --account OFFERING=ACCOUNT`, or
+`rank(accounts=...)`).
 
 With unlimited 0.1.10, Settings can encourage or discourage vendors, accounts, models and routes.
 Until reset is the default; an explicit duration overrides it. A green upward or red downward
