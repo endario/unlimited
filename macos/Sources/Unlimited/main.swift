@@ -5,11 +5,15 @@ import UnlimitedKit
 
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
-    private let model = StripModel()
+    private let model: StripModel
+    private let pointer: () -> NSPoint
+    private let reduceMotion: () -> Bool
     private var item: NSStatusItem!
-    private var host: NSHostingView<StripView>!
+    private var button: NSButton?
+    private var host: NSHostingView<StripView>?
+    private var setLength: (CGFloat) -> Void = { _ in }
     private var sizeWatch: Any?
-    private let popover = NSPopover()
+    let popover = NSPopover()
     /// Closes the popover on a click anywhere outside the app. It is not `.transient`: that
     /// would close it on the very click that switches accounts, and reopen it, a visible flicker.
     private var outside: Any?, escape: Any?
@@ -18,10 +22,29 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
     private var hoverCollapse: Task<Void, Never>?
     private var geometryObservers: [NSObjectProtocol] = []
 
+    init(model: StripModel = StripModel(), pointer: @escaping () -> NSPoint = { NSEvent.mouseLocation },
+         reduceMotion: @escaping () -> Bool = { NSWorkspace.shared.accessibilityDisplayShouldReduceMotion }) {
+        self.model = model
+        self.pointer = pointer
+        self.reduceMotion = reduceMotion
+        super.init()
+    }
+
     func applicationDidFinishLaunching(_ notification: Notification) {
         item = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
-        host = NSHostingView(rootView: StripView(model: model))
-        item.button?.addSubview(host)
+        if let button = item.button {
+            mount(in: button) { [weak self] width in self?.item.length = width }
+        }
+        watchHover()
+        model.start()
+    }
+
+    func mount(in button: NSButton, setLength: @escaping (CGFloat) -> Void) {
+        self.button = button
+        self.setLength = setLength
+        let host = NSHostingView(rootView: StripView(model: model))
+        self.host = host
+        button.addSubview(host)
         fit()
         // The strip's width follows its tiles.
         sizeWatch = model.objectWillChange.sink { [weak self] _ in
@@ -31,22 +54,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
         popover.delegate = self
         popover.contentViewController = NSHostingController(rootView: PopoverView(model: model))
         model.closePopover = { [weak self] in self?.popover.performClose(nil) }
-        item.button?.target = self
-        item.button?.action = #selector(toggle)
-        watchHover()
-        model.start()
+        button.target = self
+        button.action = #selector(toggle)
     }
 
     private func fit() {
-        syncHoverMonitors()
+        guard let button, let host else { return }
+        if item != nil { syncHoverMonitors() }
         let layout = StripLayout(tiles: model.displayedTiles, spacing: Double(StripView.spacing), padding: Double(StripView.padding))
         let width = model.displayedTiles.last.map { layout.rect(of: $0).maxX + Double(StripView.padding) } ?? 0
         host.frame = NSRect(x: 0, y: 0, width: width, height: 22)
-        item.length = width
+        setLength(width)
         let summary = "\(model.tiles.count) normal accounts hidden. Show accounts."
-        item.button?.setAccessibilityLabel(model.collapsedNormal ? summary : "Account usage")
-        item.button?.toolTip = model.collapsedNormal ? "Normal accounts hidden automatically. Hover to show; click to open." : nil
-        if popover.isShown, let button = item.button { popover.positioningRect = rect(of: button) }
+        button.setAccessibilityLabel(model.collapsedNormal ? summary : "Account usage")
+        button.toolTip = model.collapsedNormal ? "Normal accounts hidden automatically. Hover to show; click to open." : nil
+        if popover.isShown { popover.positioningRect = rect(of: button) }
     }
 
     private func syncHoverMonitors() {
@@ -68,7 +90,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
     }
 
     private func watchHover() {
-        if let window = host.window {
+        if let window = button?.window {
             for name in [NSWindow.didMoveNotification, NSWindow.didChangeScreenNotification] {
                 geometryObservers.append(NotificationCenter.default.addObserver(
                     forName: name, object: window, queue: .main) { [weak self] _ in
@@ -105,16 +127,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
         NSMouseInRect(point, rect, false)
     }
 
-    private func updateHover() {
-        guard model.prefs.autoHideNormal, let window = item.button?.window else { return }
-        let inside = Self.hoverContains(NSEvent.mouseLocation, in: window.frame)
+    func updateHover() {
+        guard model.prefs.autoHideNormal, let window = button?.window else { return }
+        let inside = Self.hoverContains(pointer(), in: window.frame)
         hoverDelay.update(inside: inside, open: model.open, now: .now)
         if inside || model.open {
             hoverCollapse?.cancel()
             hoverCollapse = nil
             if model.fadingNormal { model.fadingNormal = false }
             if !model.hoverExpanded {
-                let animation: Animation? = NSWorkspace.shared.accessibilityDisplayShouldReduceMotion ? nil : .easeInOut(duration: StripView.fadeDuration)
+                let animation: Animation? = reduceMotion() ? nil : .easeInOut(duration: StripView.fadeDuration)
                 withAnimation(animation) { model.hoverExpanded = true }
                 fit()
             }
@@ -124,7 +146,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
                     try await Task.sleep(until: deadline, clock: .continuous)
                     guard let self, self.hoverDelay.collapse(now: .now) else { return }
                     self.model.fadingNormal = true
-                    if !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion {
+                    if !self.reduceMotion() {
                         try await Task.sleep(for: .seconds(StripView.fadeDuration))
                     }
                     try Task.checkCancellation()
@@ -138,7 +160,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
     }
 
     func applicationWillTerminate(_ notification: Notification) {
-        hoverCollapse?.cancel()
+        sizeWatch = nil
+        cancelHover()
+        popover.close()
+        host?.removeFromSuperview()
+        host = nil
+        button = nil
         for monitor in [hoverGlobal, hoverLocal, outside, escape].compactMap({ $0 }) { NSEvent.removeMonitor(monitor) }
         for observer in geometryObservers {
             NotificationCenter.default.removeObserver(observer)
@@ -150,9 +177,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
     /// another switches to it, and a click on the open one closes it.
     @objc private func toggle() {
         // The pointer on screen: the current event can belong to the popover's own window.
-        guard let button = item.button, let window = button.window else { return }
+        guard let button, let window = button.window else { return }
         fit()
-        let x = button.convert(window.convertPoint(fromScreen: NSEvent.mouseLocation), from: nil).x
+        let x = button.convert(window.convertPoint(fromScreen: pointer()), from: nil).x
         let hit = model.displayedAccount(at: Double(x))
         if popover.isShown {
             if hit?.id == model.selected { return popover.performClose(nil) }
@@ -167,18 +194,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
     }
 
     /// The selected tile, in the button's coordinates.
-    private func rect(of button: NSStatusBarButton) -> NSRect {
+    private func rect(of button: NSButton) -> NSRect {
         let selected = model.displayedTiles.first { $0.id == model.selected } ?? model.displayedTiles.first
         let layout = StripLayout(tiles: model.displayedTiles, spacing: Double(StripView.spacing), padding: Double(StripView.padding))
         let rect = selected.map(layout.rect(of:)) ?? .init(x: Double(StripView.padding), width: Double(TileView.width))
         return NSRect(x: rect.x, y: 0, width: rect.width, height: button.bounds.height)
     }
 
-    private func anchor(_ button: NSStatusBarButton) {
+    private func anchor(_ button: NSButton) {
         model.open = true
         updateHover()
         fit()
         popover.show(relativeTo: rect(of: button), of: button, preferredEdge: .minY)
+        guard item != nil else { return }
         outside = NSEvent.addGlobalMonitorForEvents(matching: [.leftMouseDown, .rightMouseDown]) { [weak self] _ in
             Task { @MainActor in self?.popover.performClose(nil) }
         }
