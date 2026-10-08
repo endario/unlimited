@@ -3,7 +3,10 @@ PLUGINS := $(shell xcrun --find swift | xargs dirname)/../lib/swift/host/plugins
 APP := .build/Unlimited.app
 
 test:
-	swift test -Xswiftc -plugin-path -Xswiftc $(PLUGINS)
+	python3 -m unittest discover -s Tests -p 'test_*.py'
+	@report=$$(mktemp); output=$$(mktemp); trap 'rm -f "$$report" "$$output"' EXIT; set -o pipefail; \
+		swift test -Xswiftc -plugin-path -Xswiftc $(PLUGINS) --xunit-output "$$report" 2>&1 | tee "$$output" && \
+		python3 Tests/verify-host-tests.py "$$report" --output "$$output"
 
 app:
 	swift build -c release --product Unlimited

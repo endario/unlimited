@@ -57,7 +57,7 @@ struct SettingsView: View {
                     get: { model.prefs.autoHideNormal },
                     set: { value in model.arrange { $0.autoHideNormal = value } }))
                     .help("Hide normal menu-bar accounts until hover. Accounts hidden with the eye stay hidden; tracking is unchanged.")
-                Toggle("Open at login", isOn: Binding(get: { state.atLogin }, set: setLogin))
+                Toggle("Open at login", isOn: Binding(get: { state.atLogin }, set: { setLogin($0) }))
                 if let e = state.loginError { Text(e).font(.caption).foregroundStyle(.red) }
                 TextField("unlimited path", text: $state.path, prompt: Text("found automatically"))
                     .disabled(model.steeringPending)

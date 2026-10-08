@@ -329,15 +329,15 @@ import UnlimitedKit
 }
 
 @MainActor
-private func waitUntil(_ condition: () -> Bool) async throws {
+func waitUntil(_ message: String = "the CLI refresh did not finish", _ condition: () -> Bool) async throws {
     let deadline = Date().addingTimeInterval(15)
     while !condition(), Date() < deadline {
         try await Task.sleep(for: .milliseconds(10))
     }
-    try #require(condition(), "the CLI refresh did not finish")
+    try #require(condition(), "\(message)")
 }
 
-private struct UsageCLI {
+struct UsageCLI {
     let directory: URL
     let suiteName: String
     let defaults: UserDefaults
