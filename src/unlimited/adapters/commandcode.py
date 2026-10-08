@@ -100,8 +100,7 @@ MODELS_URL = BASE + "/provider/v1/models"
 
 def models(cred: Credential, now: datetime, get) -> dict:
     """The provider's whole catalog as a routes reading: every route `{"id", "dispatchable":
-    False}`. The endpoint is not plan-scoped — it names paid and out-of-plan models too — so
-    none of its routes is dispatchable on this reading alone."""
+    False}`. The endpoint is not plan-scoped: it names paid and out-of-plan models too."""
     ans = get(MODELS_URL, {"Authorization": f"Bearer {cred.secret['key']}"}, now)
     if ans.body is None:
         return dict(failed(VENDOR, cred.account, now, ans), routes=[])

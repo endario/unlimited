@@ -116,7 +116,7 @@ MODELS_URL = "https://opencode.ai/zen/go/v1/models"
 
 def models(cred: Credential, now: datetime, get) -> dict:
     """The Go key's plan's models as a routes reading: `routes` each `{"id", "dispatchable"}`.
-    The endpoint is plan-scoped, so every route it names is dispatchable."""
+    The endpoint is plan-scoped."""
     ans = get(MODELS_URL, {"Authorization": f"Bearer {cred.secret['key']}"}, now)
     if ans.body is None:
         if ans.status == 403:

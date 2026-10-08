@@ -128,10 +128,8 @@ def through(adapter, *, max_age: float, clock, get, directory: Path | None = Non
 
 
 def routes_through(adapter, *, max_age: float, clock, get, directory: Path | None = None) -> list[dict]:
-    """This vendor's routes readings (adapter.models): per account the newest cached reading
-    stands while younger than `max_age`; a refusal's deadline binds every caller; a throttle or
-    transient fault keeps the last good list with its own `taken_at`, and any other failure is
-    news and replaces it."""
+    """This vendor's routes readings (adapter.models), one freshness and refusal discipline
+    with `through`."""
     directory = directory or default_dir()
     directory.mkdir(parents=True, exist_ok=True, mode=0o700)
     path = directory / f"{adapter.VENDOR}.routes.json"

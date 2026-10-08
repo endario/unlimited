@@ -709,10 +709,8 @@ def main(argv: list[str] | None = None) -> int:
         for v in (a.vendor or [v for v in sorted(REGISTRY) if hasattr(REGISTRY[v], "models")]):
             out += cache.routes_through(REGISTRY[v], max_age=a.max_age,
                                          clock=lambda: datetime.now(timezone.utc), get=transport.get)
-        # The read is the recorder: this run's ok readings union per vendor across accounts (a
-        # plan's set per account, the union for the vendor), a vendor with no ok reading keeps
-        # what discovery already recorded, and an ok reading with no dispatchable ids keeps it
-        # too — an empty page is not news that the plan is empty.
+        # The read is the recorder: ok readings union per vendor across accounts; a vendor
+        # with nothing dispatchable this run keeps what discovery already recorded.
         from . import catalog
         try:
             recorded = catalog.read_discovered()
