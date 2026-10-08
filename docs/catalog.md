@@ -11,7 +11,7 @@ with `unlimited models --catalog`, or `unlimited.catalog.load()`.
 
 ```toml
 schema = 2
-tiers = ["standard", "heavy"]          # capability classes; the file's keeper names them
+tiers = ["standard", "heavy", "unproven"]  # capability classes; the file's keeper names them
 banned = ["some-model"]                # a provider, model, vendor or offering id, never offered
 tie_preference = ["meta", "deepseek"]  # providers preferred among near-equal candidates
 
@@ -61,6 +61,16 @@ states an unknown `schema`, or holds a top-level key a schema-2 file does not ha
 never ignored.
 
 A local `schema = 1` file is still read.
+
+## Discovery
+
+`unlimited routes` records, beside the local catalog in `discovered.json`, every dispatchable
+route id each account's plan names that this file does not ship. Loading folds each one in as a
+model at the `unproven` tier (provider `stealth` unless the maker is already known), with one
+offering id-prefixed as its vendor's shipped offerings are. Discovery adds, never demotes or
+removes: a route this file ships stands as shipped, and whether a route still answers is
+outcomes' to say, not existence's. A `tiers` list without `unproven` leaves discovery out
+entirely. A `discovered.json` that does not parse is an error, never ignored.
 
 ## Switches
 
