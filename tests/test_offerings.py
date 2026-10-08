@@ -180,3 +180,45 @@ class Routes(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class Discovered(unittest.TestCase):
+    def setUp(self):
+        self.d = Path(scratch.mkdtemp())
+        (self.d / "catalog.toml").write_text("schema = 2\n")
+
+    def load(self):
+        return catalog.load(self.d / "catalog.toml")
+
+    def test_a_discovered_go_route_becomes_an_unproven_offering_of_a_stealth_model(self):
+        catalog.write_discovered({"opencode": ["minimax-m3"]}, self.d / "discovered.json")
+        c = self.load()
+        r = c.route("opencode-go/minimax-m3")
+        self.assertIsNotNone(r)
+        self.assertEqual((r["tiers"], r["vendor"]), (["unproven"], "opencode"))
+        self.assertEqual(c.models["minimax-m3"]["provider"], "stealth")
+
+    def test_a_discovered_route_the_catalog_ships_adds_nothing(self):
+        before = sorted(o["id"] for o in self.load().offerings)
+        catalog.write_discovered({"opencode": ["deepseek-v4.1-flash"]}, self.d / "discovered.json")
+        self.assertEqual(sorted(o["id"] for o in self.load().offerings), before)
+
+    def test_a_discovered_maker_already_known_keeps_its_provider_and_gains_the_tier(self):
+        catalog.write_discovered({"opencode": ["glm-5.3"]}, self.d / "discovered.json")
+        c = self.load()
+        r = c.route("opencode-go/glm-5.3")
+        self.assertEqual((r["provider"], r["tiers"]), ("glm", ["heavy", "unproven"]))
+
+    def test_a_local_tiers_list_without_unproven_leaves_discovery_out(self):
+        (self.d / "catalog.toml").write_text('schema = 2\ntiers = ["standard"]\n')
+        catalog.write_discovered({"opencode": ["minimax-m3"]}, self.d / "discovered.json")
+        self.assertIsNone(self.load().route("opencode-go/minimax-m3"))
+
+    def test_an_unparsable_discovered_file_is_an_error(self):
+        (self.d / "discovered.json").write_text("{nope")
+        with self.assertRaises(catalog.CatalogError):
+            self.load()
+
+    def test_a_vendor_with_no_shipped_offering_lends_no_prefix_and_is_skipped(self):
+        catalog.write_discovered({"zai": ["some-model"]}, self.d / "discovered.json")
+        self.assertIsNone(self.load().route("zai/some-model"))

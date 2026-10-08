@@ -4,8 +4,9 @@
 schema = 2
 
 # The tiers a model may serve: capability classes, named by whoever keeps this file. A local list
-# replaces this one.
-tiers = ["standard", "heavy"]
+# replaces this one. `unproven` is where live discovery enters a route (docs/catalog.md); its
+# offerings come from `unlimited routes`, not this file.
+tiers = ["standard", "heavy", "unproven"]
 
 # Never offered: a provider, model, vendor or offering id. A local list adds to this one.
 banned = []
