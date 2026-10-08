@@ -683,3 +683,18 @@ class Choose(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class DiscoveredRoutes(unittest.TestCase):
+    def test_a_discovered_route_serves_only_its_unproven_tier(self):
+        d = Path(scratch.mkdtemp())
+        local = d / "catalog.toml"
+        local.write_text("schema = 2\n")
+        catalog.write_discovered({"opencode": ["minimax-m3"]}, d / "discovered.json")
+        cat = catalog.load(local)
+        # Naming an offering id is tier-less by design (a caller naming the exact route gets it);
+        # the tier boundary is the tier-scoped candidate list's.
+        self.assertEqual([r["model"] for r in choice.named(cat, "unproven", ["opencode-go/minimax-m3"], NOW)],
+                         ["opencode-go/minimax-m3"])
+        self.assertIn("opencode-go/minimax-m3", [c.model for c in cat.candidates("unproven", NOW)])
+        self.assertNotIn("opencode-go/minimax-m3", [c.model for c in cat.candidates("standard", NOW)])
