@@ -56,6 +56,8 @@ import UnlimitedKit
     #expect(model.tiles.first?.value == .percent(42))
     #expect(model.tiles.first?.dimmed == false)
     #expect(model.problem != nil)
+    model.fadingNormal = true
+    #expect(!model.fades(model.tiles[0]))
 }
 
 @MainActor
@@ -253,6 +255,77 @@ import UnlimitedKit
     #expect(model.customPath == replacement.binary.path)
     #expect(StripModel(defaults: replacement.defaults).customPath.isEmpty)
     #expect(replacement.defaults.string(forKey: "unlimitedPath") == nil)
+}
+
+@MainActor
+@Test func autoHideFiltersPresentationWithoutChangingManualVisibilityOrTracking() async throws {
+    let cli = try UsageCLI()
+    defer { cli.remove() }
+    let takenAt = Date(timeIntervalSince1970: 1_790_985_600)
+    try cli.succeedMany(takenAt: takenAt)
+    try cli.publishSwitches([Runner.Switch(target: "anthropic", account: "fixture-2")])
+    let model = StripModel(runner: Runner(binary: cli.binary), defaults: cli.defaults, now: { takenAt })
+    model.refresh()
+    try await waitUntil { model.accounts.count == 12 }
+    #expect(model.tiles.count == 12)
+    #expect(model.displayedTiles.map(\.id) == ["anthropic/fixture-2"])
+    #expect(model.displayedAccount(at: 4)?.id == "anthropic/fixture-2")
+    model.arrange { $0.hide("anthropic/fixture-3", true) }
+    let saved = cli.defaults.data(forKey: "preferences")
+    model.hoverExpanded = true
+    #expect(model.displayedTiles == model.tiles)
+    #expect(!model.displayedTiles.contains { $0.id == "anthropic/fixture-3" })
+    #expect(model.readings.count == 12)
+    #expect(cli.defaults.data(forKey: "preferences") == saved)
+    #expect(!FileManager.default.fileExists(atPath: cli.directory.appending(path: "command").path))
+    model.hoverExpanded = false
+    model.open = true
+    #expect(model.displayedTiles == model.tiles)
+    model.open = false
+    #expect(model.displayedTiles.map(\.id) == ["anthropic/fixture-2"])
+    model.arrange { $0.autoHideNormal = false }
+    #expect(model.displayedTiles == model.tiles)
+    #expect(!StripModel(defaults: cli.defaults).prefs.autoHideNormal)
+}
+
+@MainActor
+@Test func allNormalSummaryOpensTheFirstManualAccountAndDoesNotEnterPreferences() async throws {
+    let cli = try UsageCLI()
+    defer { cli.remove() }
+    let takenAt = Date(timeIntervalSince1970: 1_790_985_600)
+    try cli.succeed(takenAt: takenAt, used: 0.42)
+    let model = StripModel(runner: Runner(binary: cli.binary), defaults: cli.defaults, now: { takenAt })
+    model.refresh()
+    try await waitUntil { model.readings.count == 1 }
+    #expect(model.collapsedNormal)
+    model.fadingNormal = true
+    #expect(model.fades(model.tiles[0]))
+    model.open = true
+    #expect(!model.fades(model.tiles[0]))
+    model.open = false
+    model.fadingNormal = false
+    #expect(model.displayedTiles.count == 1)
+    #expect(model.displayedTiles != [.waiting])
+    #expect(model.displayedAccount(at: 10)?.id == "openai/fixture")
+    #expect(model.prefs.order == ["openai/fixture"])
+    model.hoverExpanded = true
+    try cli.succeed(takenAt: takenAt, used: 0.71)
+    model.refresh()
+    try await waitUntil { model.readings["openai/fixture"]?.primary?.usedAtLeast == 0.71 }
+    #expect(model.hoverExpanded)
+    #expect(model.displayedTiles == model.tiles)
+    #expect(model.displayedTiles.first?.value == .percent(71))
+    model.hoverExpanded = false
+    #expect(model.collapsedNormal)
+    try cli.fail()
+    model.refresh()
+    try await waitUntil { model.problem != nil }
+    #expect(!model.collapsedNormal)
+    #expect(model.displayedTiles == model.tiles)
+    model.arrange { $0.hide("openai/fixture", true) }
+    model.hoverExpanded = true
+    #expect(model.displayedTiles == [.waiting])
+    #expect(model.displayedAccount(at: 10) == nil)
 }
 
 @MainActor

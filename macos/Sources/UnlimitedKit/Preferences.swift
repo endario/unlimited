@@ -5,8 +5,19 @@ public struct Preferences: Codable, Equatable, Sendable {
     public var labels: [String: String] = [:]
     public var hidden: Set<String> = []
     public var order: [String] = []
+    public var autoHideNormal = true
 
     public init() {}
+
+    enum CodingKeys: String, CodingKey { case labels, hidden, order, autoHideNormal }
+
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        labels = try c.decodeIfPresent([String: String].self, forKey: .labels) ?? [:]
+        hidden = try c.decodeIfPresent(Set<String>.self, forKey: .hidden) ?? []
+        order = try c.decodeIfPresent([String].self, forKey: .order) ?? []
+        autoHideNormal = try c.decodeIfPresent(Bool.self, forKey: .autoHideNormal) ?? true
+    }
 
     /// The strip as the owner arranged it. An account seen for the first time keeps the label it
     /// arrives with from then on, so a newly discovered identity never renames an existing tile.

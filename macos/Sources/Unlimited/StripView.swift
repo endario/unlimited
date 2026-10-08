@@ -94,12 +94,25 @@ struct TileView: View {
 
 struct StripView: View {
     static let spacing: CGFloat = 3, padding: CGFloat = 2
+    static let fadeDuration = 0.7
     @ObservedObject var model: StripModel
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
         HStack(spacing: Self.spacing) {
-            ForEach(model.tiles) { t in
-                TileView(tile: t, focused: model.open && t.id == model.selected, alternating: model.alternating)
+            ForEach(model.displayedTiles) { t in
+                if model.collapsedNormal {
+                    Image(systemName: "ellipsis")
+                        .font(.system(size: 12, weight: .medium))
+                        .frame(width: TileView.width, height: 22)
+                        .help("Normal accounts hidden automatically. Hover to show; click to open.")
+                        .accessibilityLabel("\(model.tiles.count) normal accounts hidden. Show accounts.")
+                } else {
+                    TileView(tile: t, focused: model.open && t.id == model.selected, alternating: model.alternating)
+                        .opacity(model.fades(t) ? 0 : 1)
+                        .animation(reduceMotion ? nil : .easeInOut(duration: Self.fadeDuration), value: model.fadingNormal)
+                        .transition(reduceMotion || !t.isRoutine ? .identity : .opacity)
+                }
             }
         }
         .padding(.horizontal, Self.padding)
