@@ -12,6 +12,7 @@ from pathlib import Path
 
 from . import projection
 from .schema import iso, moment, role_of, settled
+from .state import write_json
 
 
 def default_dir() -> Path:
@@ -155,16 +156,13 @@ def routes_through(adapter, *, max_age: float, clock, get, directory: Path | Non
                 if got["status"] != "ok" and _throttled(got):
                     until = moment(got.get("retry_until"))
                     got = dict(got, retry_until=iso(max(until or now, now + MIN_BACKOFF)))
-                if got["status"] != "ok" and prior is not None:
-                    # A routes list is a slowly-changing fact, and this edge's refusals say
-                    # nothing about the credential (bot walls answer 403 too): the last good
-                    # list stands with its own `taken_at`, carrying the deadline, if any.
-                    got = dict(prior, **({"retry_until": got["retry_until"]} if got.get("retry_until") else {}))
+                if got["status"] != "ok" and prior is not None and got.get("why") in TRANSIENT:
+                    got = prior
+                elif got["status"] != "ok" and prior is not None and _throttled(got):
+                    # A fault that says nothing about the account keeps the last good list,
+                    # carrying the deadline before anyone asks again; any other refusal (an
+                    # unread no-subscription among them) is news and replaces it.
+                    got = dict(prior, retry_until=got["retry_until"])
                 out.append(got)
-        tmp = path.with_suffix(".tmp")
-        fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
-        with os.fdopen(fd, "w") as f:
-            os.fchmod(f.fileno(), 0o600)
-            json.dump({"routes": out}, f)
-        os.replace(tmp, path)
+        write_json({"routes": out}, path)
         return out

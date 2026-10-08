@@ -219,6 +219,8 @@ class Discovered(unittest.TestCase):
         with self.assertRaises(catalog.CatalogError):
             self.load()
 
-    def test_a_vendor_with_no_shipped_offering_lends_no_prefix_and_is_skipped(self):
+    def test_a_vendor_whose_shipped_ids_carry_no_prefix_is_skipped_whole(self):
+        before = (sorted(self.load().offerings, key=lambda o: o["id"]))
         catalog.write_discovered({"zai": ["some-model"]}, self.d / "discovered.json")
-        self.assertIsNone(self.load().route("zai/some-model"))
+        self.assertEqual(sorted(self.load().offerings, key=lambda o: o["id"]), before,
+                         "no offering, shipped or discovered, may appear for such a vendor")

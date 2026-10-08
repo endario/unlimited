@@ -709,18 +709,28 @@ def main(argv: list[str] | None = None) -> int:
         for v in (a.vendor or [v for v in sorted(REGISTRY) if hasattr(REGISTRY[v], "models")]):
             out += cache.routes_through(REGISTRY[v], max_age=a.max_age,
                                          clock=lambda: datetime.now(timezone.utc), get=transport.get)
-        # The read is the recorder: dispatchable route ids per vendor persist beside the
-        # switches, where the catalog's load folds them in at the `unproven` tier.
+        # The read is the recorder: a vendor with a fresh ok reading records exactly that
+        # reading's dispatchable ids; a vendor this run did not read ok keeps what discovery
+        # already knows — discovery adds and refreshes, never wipes.
         from . import catalog
-        fresh: dict[str, list[str]] = {}
-        for r in out:
-            ids = sorted({x["id"] for x in r.get("routes") or [] if x.get("dispatchable")})
-            if r.get("status") == "ok" and ids:
-                fresh[r["vendor"]] = sorted(set(fresh.get(r["vendor"], [])) | set(ids))
         try:
-            catalog.write_discovered(fresh)
-        except (catalog.CatalogError, OSError) as e:
+            recorded = catalog.read_discovered()
+        except catalog.CatalogError as e:
             print(f"unlimited: discovery: {e}", file=sys.stderr)
+            recorded = None
+        if recorded is not None:
+            for r in out:
+                if r.get("status") != "ok":
+                    continue
+                ids = sorted({x["id"] for x in r.get("routes") or [] if x.get("dispatchable")})
+                if ids:
+                    recorded[r["vendor"]] = ids
+                else:
+                    recorded.pop(r["vendor"], None)
+            try:
+                catalog.write_discovered(recorded)
+            except (catalog.CatalogError, OSError) as e:
+                print(f"unlimited: discovery: {e}", file=sys.stderr)
         json.dump(out, sys.stdout)
         sys.stdout.write("\n")
         return 0

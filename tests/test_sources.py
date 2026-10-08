@@ -1173,13 +1173,20 @@ class RoutesCache(Base):
                                      get=self.up(Answer(None, 403, "http-403")))
         self.assertEqual((self.calls, again[0]["status"]), (["https://opencode.ai/zen/go/v1/models"], "ok"))
 
-    def test_an_expired_read_the_edge_refuses_keeps_the_last_good_list(self):
-        first = cache.routes_through(self.adapter(), max_age=0, clock=lambda: NOW,
-                                     get=self.up(Answer({"data": [{"id": "glm-5.3"}]}, 200, None)))
-        second = cache.routes_through(self.adapter(), max_age=0, clock=lambda: NOW + timedelta(hours=2),
-                                      get=self.up(Answer(None, 403, "http-403")))
-        self.assertEqual(first[0]["routes"], second[0]["routes"])
-        self.assertEqual(second[0]["status"], "ok")
+    def test_an_expired_throttled_read_keeps_the_last_good_list(self):
+        cache.routes_through(self.adapter(), max_age=0, clock=lambda: NOW,
+                             get=self.up(Answer({"data": [{"id": "glm-5.3"}]}, 200, None)))
+        got = cache.routes_through(self.adapter(), max_age=0, clock=lambda: NOW + timedelta(hours=2),
+                                   get=self.up(Answer(None, 429, "http-429")))
+        self.assertEqual((got[0]["status"], [r["id"] for r in got[0]["routes"]]), ("ok", ["glm-5.3"]))
+
+    def test_an_expired_read_without_a_subscription_is_news_and_replaces(self):
+        cache.routes_through(self.adapter(), max_age=0, clock=lambda: NOW,
+                             get=self.up(Answer({"data": [{"id": "glm-5.3"}]}, 200, None)))
+        got = cache.routes_through(self.adapter(), max_age=0, clock=lambda: NOW + timedelta(hours=2),
+                                   get=self.up(Answer(None, 403, "http-403")))
+        self.assertEqual((got[0]["status"], got[0]["why"], got[0]["routes"]),
+                         ("unread", "no-subscription", []))
 
     def test_a_throttled_first_read_holds_every_caller_off(self):
         got = cache.routes_through(self.adapter(), max_age=0, clock=lambda: NOW,
@@ -1205,3 +1212,22 @@ class RoutesCli(Base):
         self.assertEqual((got["vendor"], got["account"], got["status"]), ("opencode", "acct-1", "ok"))
         self.assertEqual([r["id"] for r in got["routes"]], ["glm-5.3"])
         self.assertTrue(got["taken_at"])
+
+    def test_a_refused_run_keeps_what_discovery_already_recorded(self):
+        from unlimited import catalog as cat
+        import pathlib
+        d = pathlib.Path(scratch.mkdtemp())
+        with mock.patch.object(opencode, "discover", lambda: [Credential("acct-1", {"key": "k"})]), \
+                mock.patch.dict(os.environ, {"XDG_CONFIG_HOME": str(d)}):
+            from unlimited import transport
+            with mock.patch.object(transport, "get", self.up(Answer({"data": [{"id": "glm-5.3"}]}, 200, None))):
+                buf = io.StringIO()
+                with redirect_stdout(buf):
+                    self.assertEqual(cli.main(["routes", "--json"]), 0)
+            self.assertEqual(cat.read_discovered(), {"opencode": ["glm-5.3"]})
+            with mock.patch.object(transport, "get", self.up(Answer(None, 403, "http-403"))):
+                buf = io.StringIO()
+                with redirect_stdout(buf):
+                    self.assertEqual(cli.main(["routes", "--json"]), 0)
+            self.assertEqual(cat.read_discovered(), {"opencode": ["glm-5.3"]},
+                             "a vendor this run could not read keeps its recorded discovery")

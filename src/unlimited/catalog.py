@@ -503,13 +503,16 @@ def _fold_discovered(data: dict, local: Path | None) -> dict:
         return data
     prefix: dict[str, str] = {}
     for o in data.get("offerings", []):
-        v = o.get("vendor")
-        if isinstance(v, str) and v not in prefix and isinstance(o.get("id"), str):
-            head, sep, _ = o["id"].partition("/")
-            prefix[v] = head if sep else o["id"]
+        v, oid = o.get("vendor"), o.get("id")
+        if isinstance(v, str) and v not in prefix and isinstance(oid, str):
+            head, sep, _ = oid.partition("/")
+            # Only a slashed id lends its head: a vendor whose shipped ids carry no prefix has
+            # no discovery spelling, and discovery names none of its routes.
+            if sep:
+                prefix[v] = head
     models = {k: dict(v) for k, v in data.get("models", {}).items()}
     offerings = [dict(o) for o in data.get("offerings", [])]
-    ids = {o["id"] for o in offerings}
+    ids = {o["id"] for o in offerings if isinstance(o.get("id"), str)}
     for vendor, found in discovered.items():
         p = prefix.get(vendor)
         if p is None:
@@ -520,10 +523,11 @@ def _fold_discovered(data: dict, local: Path | None) -> dict:
                 continue
             name = rid.replace(".", "-")
             m = models.get(name)
+            tiers = m.get("tiers") if isinstance(m, dict) else None
             if m is None:
                 models[name] = {"provider": "stealth", "tiers": ["unproven"]}
-            elif "unproven" not in m["tiers"]:
-                models[name] = dict(m, tiers=m["tiers"] + ["unproven"])
+            elif isinstance(tiers, list) and "unproven" not in tiers:
+                models[name] = dict(m, tiers=tiers + ["unproven"])
             offerings.append({"id": oid, "model": name, "vendor": vendor})
             ids.add(oid)
     return {**data, "models": models, "offerings": offerings}
