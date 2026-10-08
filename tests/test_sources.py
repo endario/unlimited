@@ -1223,11 +1223,50 @@ class RoutesCli(Base):
             with mock.patch.object(transport, "get", self.up(Answer({"data": [{"id": "glm-5.3"}]}, 200, None))):
                 buf = io.StringIO()
                 with redirect_stdout(buf):
-                    self.assertEqual(cli.main(["routes", "--json"]), 0)
+                    self.assertEqual(cli.main(["routes", "--max-age", "0", "--json"]), 0)
             self.assertEqual(cat.read_discovered(), {"opencode": ["glm-5.3"]})
             with mock.patch.object(transport, "get", self.up(Answer(None, 403, "http-403"))):
                 buf = io.StringIO()
                 with redirect_stdout(buf):
-                    self.assertEqual(cli.main(["routes", "--json"]), 0)
+                    self.assertEqual(cli.main(["routes", "--max-age", "0", "--json"]), 0)
             self.assertEqual(cat.read_discovered(), {"opencode": ["glm-5.3"]},
                              "a vendor this run could not read keeps its recorded discovery")
+
+    def test_two_accounts_of_one_vendor_union_their_plans_into_one_entry(self):
+        from unlimited import catalog as cat
+        import pathlib
+        d = pathlib.Path(scratch.mkdtemp())
+        two = [Credential("acct-1", {"key": "k1"}), Credential("acct-2", {"key": "k2"})]
+        plans = {Credential("acct-1", {"key": "k1"}).secret["key"]: {"data": [{"id": "glm-5.3"}]},
+                 Credential("acct-2", {"key": "k2"}).secret["key"]: {"data": [{"id": "minimax-m3"}]}}
+        def get(url, headers, now):
+            self.calls.append(url)
+            return Answer(plans[headers["Authorization"].split()[-1]], 200, None)
+        with mock.patch.object(opencode, "discover", lambda: two),                 mock.patch.dict(os.environ, {"XDG_CONFIG_HOME": str(d)}):
+            from unlimited import transport
+            with mock.patch.object(transport, "get", get):
+                buf = io.StringIO()
+                with redirect_stdout(buf):
+                    self.assertEqual(cli.main(["routes", "--max-age", "0", "--json"]), 0)
+        self.assertEqual(cat.read_discovered(d / "unlimited" / "discovered.json"),
+                         {"opencode": ["glm-5.3", "minimax-m3"]})
+
+    def test_a_vendor_scoped_run_keeps_the_other_vendors_recorded_discovery(self):
+        from unlimited import catalog as cat
+        import pathlib
+        d = pathlib.Path(scratch.mkdtemp())
+        cat.write_discovered({"opencode": ["glm-5.3"]}, d / "discovered.json")
+        with mock.patch.dict(os.environ, {"XDG_CONFIG_HOME": str(d)}):
+            from unlimited import transport
+            with mock.patch.object(transport, "get", self.up(Answer(None, 403, "http-403"))):
+                buf = io.StringIO()
+                with redirect_stdout(buf):
+                    self.assertEqual(cli.main(["routes", "--vendor", "commandcode",
+                                               "--max-age", "0", "--json"]), 0)
+        self.assertEqual(cat.read_discovered(d / "discovered.json"), {"opencode": ["glm-5.3"]})
+
+    def test_a_body_whose_data_is_not_a_list_reads_empty_not_crashing(self):
+        for adapter in (opencode, commandcode):
+            got = adapter.models(Credential("a", {"key": "k"}), NOW,
+                                 self.up(Answer({"data": None}, 200, None)))
+            self.assertEqual((got["status"], got["routes"]), ("ok", []), adapter.VENDOR)

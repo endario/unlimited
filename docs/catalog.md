@@ -67,9 +67,8 @@ A local `schema = 1` file is still read.
 `unlimited routes` records, beside the local catalog in `discovered.json`, every dispatchable
 route id each account's plan names that this file does not ship. Loading folds each one in as a
 model at the `unproven` tier (provider `stealth` unless the maker is already known), with one
-offering id-prefixed as its vendor's shipped offerings are. Discovery adds, never demotes or
-removes: a route this file ships stands as shipped, and whether a route still answers is
-outcomes' to say, not existence's. A `tiers` list without `unproven` leaves discovery out
+offering id-prefixed as its vendor's shipped offerings are. A route this file ships stands as
+shipped. A `tiers` list without `unproven` leaves discovery out
 entirely. A `discovered.json` that does not parse is an error, never ignored.
 
 ## Switches

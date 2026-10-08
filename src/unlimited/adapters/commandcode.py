@@ -101,11 +101,12 @@ MODELS_URL = BASE + "/provider/v1/models"
 def models(cred: Credential, now: datetime, get) -> dict:
     """The provider's whole catalog as a routes reading: every route `{"id", "dispatchable":
     False}`. The endpoint is not plan-scoped — it names paid and out-of-plan models too — so
-    none of its routes is dispatchable on this reading alone (verified live 2026-10-08)."""
+    none of its routes is dispatchable on this reading alone."""
     ans = get(MODELS_URL, {"Authorization": f"Bearer {cred.secret['key']}"}, now)
     if ans.body is None:
         return dict(failed(VENDOR, cred.account, now, ans), routes=[])
-    ids = sorted(m["id"] for m in ans.body.get("data", [])
+    rows = ans.body.get("data")
+    ids = sorted(m["id"] for m in (rows if isinstance(rows, list) else [])
                  if isinstance(m, dict) and isinstance(m.get("id"), str))
     return dict(reading(VENDOR, cred.account, now, OK, why=ans.why, retry_until=ans.retry_until),
                 routes=[{"id": i, "dispatchable": False} for i in ids])

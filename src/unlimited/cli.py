@@ -709,9 +709,10 @@ def main(argv: list[str] | None = None) -> int:
         for v in (a.vendor or [v for v in sorted(REGISTRY) if hasattr(REGISTRY[v], "models")]):
             out += cache.routes_through(REGISTRY[v], max_age=a.max_age,
                                          clock=lambda: datetime.now(timezone.utc), get=transport.get)
-        # The read is the recorder: a vendor with a fresh ok reading records exactly that
-        # reading's dispatchable ids; a vendor this run did not read ok keeps what discovery
-        # already knows — discovery adds and refreshes, never wipes.
+        # The read is the recorder: this run's ok readings union per vendor across accounts (a
+        # plan's set per account, the union for the vendor), a vendor with no ok reading keeps
+        # what discovery already recorded, and an ok reading with no dispatchable ids keeps it
+        # too — an empty page is not news that the plan is empty.
         from . import catalog
         try:
             recorded = catalog.read_discovered()
@@ -719,18 +720,21 @@ def main(argv: list[str] | None = None) -> int:
             print(f"unlimited: discovery: {e}", file=sys.stderr)
             recorded = None
         if recorded is not None:
+            union: dict[str, set[str]] = {}
             for r in out:
                 if r.get("status") != "ok":
                     continue
-                ids = sorted({x["id"] for x in r.get("routes") or [] if x.get("dispatchable")})
+                union.setdefault(r["vendor"], set()).update(
+                    x["id"] for x in r.get("routes") or []
+                    if isinstance(x, dict) and x.get("dispatchable"))
+            for vendor, ids in union.items():
                 if ids:
-                    recorded[r["vendor"]] = ids
-                else:
-                    recorded.pop(r["vendor"], None)
-            try:
-                catalog.write_discovered(recorded)
-            except (catalog.CatalogError, OSError) as e:
-                print(f"unlimited: discovery: {e}", file=sys.stderr)
+                    recorded[vendor] = sorted(ids)
+            if union:
+                try:
+                    catalog.write_discovered(recorded)
+                except (catalog.CatalogError, OSError) as e:
+                    print(f"unlimited: discovery: {e}", file=sys.stderr)
         json.dump(out, sys.stdout)
         sys.stdout.write("\n")
         return 0

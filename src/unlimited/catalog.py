@@ -518,6 +518,9 @@ def _fold_discovered(data: dict, local: Path | None) -> dict:
         if p is None:
             continue
         for rid in found:
+            if not rid or "/" in rid:
+                # An id carrying its own prefix names nothing this fold can spell.
+                continue
             oid = f"{p}/{rid}"
             if oid in ids:
                 continue
