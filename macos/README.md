@@ -22,6 +22,12 @@ policies and switches for accounts not read here; broader policies can be create
 Account/reset steering requires caller account bindings (`choose --account OFFERING=ACCOUNT`, or
 `rank(accounts=...)`).
 
+Auto-hide normal accounts is enabled by default in General. White, readable accounts without
+warnings, bans or steering disappear from the compact strip; hover restores them. After leaving,
+the strip holds for five seconds before fading back. An open popover keeps it expanded. The eye's
+manual hiding still applies, tracking is unchanged, and Reduce Motion disables the fade. When all
+visible accounts are normal, an ellipsis remains available to hover or activate.
+
 With unlimited 0.1.10, Settings can encourage or discourage vendors, accounts, models and routes.
 Until reset is the default; an explicit duration overrides it. A green upward or red downward
 vertical fast-forward glyph beside the account name has single, double or triple stacked heads:
