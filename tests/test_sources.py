@@ -10,6 +10,7 @@ import unittest
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from types import SimpleNamespace
+from contextlib import redirect_stdout
 from unittest import mock
 
 from unlimited import cache, cli
@@ -1189,3 +1190,18 @@ class RoutesCache(Base):
         again = cache.routes_through(self.adapter(), max_age=0, clock=lambda: NOW + timedelta(minutes=2),
                                      get=self.up(Answer(None, 429, "http-429")))
         self.assertEqual(len(self.calls), 1, "a backing-off refusal must not be re-asked")
+
+
+class RoutesCli(Base):
+    def test_routes_prints_each_accounts_plan_models_as_json(self):
+        from unlimited import transport
+        body = Answer({"data": [{"id": "glm-5.3"}]}, 200, None)
+        with mock.patch.object(opencode, "discover", lambda: [Credential("acct-1", {"key": "k"})]), \
+                mock.patch.object(transport, "get", self.up(body)):
+            buf = io.StringIO()
+            with redirect_stdout(buf):
+                self.assertEqual(cli.main(["routes", "--json"]), 0)
+        (got,) = json.loads(buf.getvalue())
+        self.assertEqual((got["vendor"], got["account"], got["status"]), ("opencode", "acct-1", "ok"))
+        self.assertEqual([r["id"] for r in got["routes"]], ["glm-5.3"])
+        self.assertTrue(got["taken_at"])

@@ -423,6 +423,27 @@ examples:
                    help=VENDOR_HELP + f": {', '.join(sorted(REGISTRY))}")
     r.add_argument("--max-age", type=float, default=300.0, metavar="SECONDS", help=READ_HELP)
     r.add_argument("--json", action="store_true", help="JSON output (the only format; accepted for clarity)")
+    ROUTES_HELP = ("the youngest cached answer younger than this, else one upstream read; "
+                   "a plan's model set changes on days, not minutes")
+    rt = add("routes", "each account's plan's models, as JSON", f"""\
+Prints a JSON array, one routes reading per account of a vendor that names its plans' models:
+vendor, account id, status, and `routes` — every model id the plan includes, each with whether
+a caller may dispatch to it on this reading alone. A vendor whose endpoint names its whole
+catalog, not the plan's set, marks every route not dispatchable. unlimited reports what the
+vendor says; which route to use is the caller's.
+
+Readings are cached per vendor, beside the usage readings, and share their discipline: a
+refusal's deadline binds every caller and the last good list stands.
+Format: https://github.com/endario/unlimited#readme""", """\
+examples:
+  unlimited routes --json
+  unlimited routes --vendor opencode --max-age 0 --json""")
+    rt.add_argument("--vendor", action="append",
+                    choices=[v for v in sorted(REGISTRY) if hasattr(REGISTRY[v], "models")],
+                    metavar="VENDOR",
+                    help=VENDOR_HELP + f": {', '.join(v for v in sorted(REGISTRY) if hasattr(REGISTRY[v], 'models'))}")
+    rt.add_argument("--max-age", type=float, default=21600.0, metavar="SECONDS", help=ROUTES_HELP)
+    rt.add_argument("--json", action="store_true", help="JSON output (the only format; accepted for clarity)")
     vd = add("verdict", "whether each account can take a unit of work, as JSON", f"""\
 For each account, whether it can take a unit of work of --work seconds now: `unread` (no fresh
 reading), `excluded` (the vendor stopped it, a window is used up, one runs out before the work
@@ -683,6 +704,14 @@ def main(argv: list[str] | None = None) -> int:
         return _choose(a)
     if a.cmd == "cards":
         return _cards(a)
+    if a.cmd == "routes":
+        out = []
+        for v in (a.vendor or [v for v in sorted(REGISTRY) if hasattr(REGISTRY[v], "models")]):
+            out += cache.routes_through(REGISTRY[v], max_age=a.max_age,
+                                         clock=lambda: datetime.now(timezone.utc), get=transport.get)
+        json.dump(out, sys.stdout)
+        sys.stdout.write("\n")
+        return 0
     off = None
     verdict_cat = None
     vendors = getattr(a, "vendor", None) or sorted(REGISTRY)
