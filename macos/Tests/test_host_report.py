@@ -10,6 +10,7 @@ HOST_CASES = (
     'delayedCollapseUpdatesTheNativeHostingGeometryAfterTheFade()',
     'aRealPopoverPinsExpansionAndClosingStartsAFreshGracePeriod()',
     'reentryCancelsAnInFlightFadeBeforeItCanShrinkTheHost()',
+    'reducedMotionFitsCompactGeometryWithoutAFadeSuspension()',
 )
 
 

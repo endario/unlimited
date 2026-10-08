@@ -61,7 +61,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
     private func fit() {
         guard let button, let host else { return }
         if item != nil { syncHoverMonitors() }
-        else if !model.prefs.autoHideNormal { cancelHover() }
         let layout = StripLayout(tiles: model.displayedTiles, spacing: Double(StripView.spacing), padding: Double(StripView.padding))
         let width = model.displayedTiles.last.map { layout.rect(of: $0).maxX + Double(StripView.padding) } ?? 0
         host.frame = NSRect(x: 0, y: 0, width: width, height: 22)
