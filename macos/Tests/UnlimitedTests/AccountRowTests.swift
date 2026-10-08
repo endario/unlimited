@@ -17,6 +17,7 @@ private func offerReading(_ account: String?, names: [String] = []) throws -> Re
         #expect(offer.change?.target == "openai")
         #expect(offer.change?.account == id)
         #expect(offer.change?.off == true)
+        #expect(!offer.requiresVendorConfirmation)
     }
 }
 
@@ -27,7 +28,10 @@ private func offerReading(_ account: String?, names: [String] = []) throws -> Re
     #expect(offer.change?.account == nil)
     #expect(offer.change?.off == false)
     #expect(offer.row?.off == true)
-    #expect(AccountOffer(reading: reading, switches: []).change == nil)
+    #expect(offer.requiresVendorConfirmation)
+    let unbanned = AccountOffer(reading: reading, switches: [])
+    #expect(unbanned.change == nil)
+    #expect(!unbanned.requiresVendorConfirmation)
 }
 
 @Test func anExistingAliasBanIsUndoneWithItsStoredSpelling() throws {
@@ -35,4 +39,5 @@ private func offerReading(_ account: String?, names: [String] = []) throws -> Re
                              switches: [Runner.Switch(target: "openai", account: "work")])
     #expect(offer.change?.account == "work")
     #expect(offer.change?.off == false)
+    #expect(!offer.requiresVendorConfirmation)
 }

@@ -10,6 +10,8 @@ struct AccountOffer {
         row = reading.flatMap { Tile.offerRows(readings: [$0], switches: switches).first { $0.readHere } }
     }
 
+    var requiresVendorConfirmation: Bool { row?.off == true && row?.account == nil }
+
     var change: (target: String, account: String?, off: Bool)? {
         guard let row else { return nil }
         if row.off { return (row.target, row.account, false) }
@@ -117,7 +119,7 @@ struct AccountRow: View {
             .confirmationDialog("Allow all \(Tile.vendorName(tile.vendor)) accounts?", isPresented: $state.confirmVendor) {
                 Button("Allow all \(Tile.vendorName(tile.vendor)) accounts") {
                     let current = AccountOffer(reading: reading, switches: model.offSwitches)
-                    if let change = current.change, !change.off, change.account == nil {
+                    if current.requiresVendorConfirmation, let change = current.change {
                         model.offer(change.target, account: nil, false)
                     }
                 }
@@ -149,7 +151,7 @@ struct AccountRow: View {
 
     private func flipOffer(_ offer: AccountOffer) {
         guard let change = offer.change else { return }
-        if !change.off && change.account == nil { state.confirmVendor = true }
+        if offer.requiresVendorConfirmation { state.confirmVendor = true }
         else { model.offer(change.target, account: change.account, change.off) }
     }
 }
