@@ -15,7 +15,7 @@ import Testing
 }
 
 @Test func activeRouteWinnersSummarizeBothDirectionsAtReciprocalThresholds() throws {
-    let readings = try Reading.decode(Data(#"[{"schema":1,"vendor":"openai","account":"a","status":"ok","steering":{"settings":[],"routes":[{"id":"up","target":"openai","account":null,"multiplier":10,"until":"2026-10-03T00:00:00Z"},{"id":"down","target":"gpt","account":null,"multiplier":0.1,"until":"2026-10-03T00:00:00Z"},{"id":"expired","target":"old","account":null,"multiplier":100,"until":"2026-10-01T00:00:00Z"}]}}]"#.utf8))
+    let readings = try Reading.decode(Data(#"[{"schema":1,"vendor":"openai","account":"a","status":"ok","steering":{"settings":[],"routes":[{"id":"up","target":"openai","account":"a","multiplier":10,"until":"2026-10-03T00:00:00Z"},{"id":"down","target":"gpt","account":"a","multiplier":0.1,"until":"2026-10-03T00:00:00Z"},{"id":"expired","target":"old","account":"a","multiplier":100,"until":"2026-10-01T00:00:00Z"}]}}]"#.utf8))
     let tile = try #require(Tile.strip(readings, now: Date(timeIntervalSince1970: 1_790_870_400)).first)
     #expect(tile.indicator?.up?.triangles == 3)
     #expect(tile.indicator?.down?.triangles == 3)
@@ -23,8 +23,25 @@ import Testing
     #expect(tile.indicator?.tooltip.contains("0.1x") == true)
 }
 
+@Test func globalIncentivesDoNotDrawAccountArrows() throws {
+    let readings = try Reading.decode(Data(#"[{"schema":1,"vendor":"opencode","account":"a","status":"ok","steering":{"routes":[{"id":"meta-route","target":"meta","account":null,"multiplier":5,"until":"2030-01-01T00:00:00Z"}]}}]"#.utf8))
+    let tile = try #require(Tile.strip(readings, now: Date(timeIntervalSince1970: 1_790_870_400)).first)
+    #expect(tile.indicator == nil)
+    #expect(StripLayout(tiles: [tile], spacing: 3, padding: 2).width(of: tile) == 26)
+}
+
+@Test func accountArrowsExcludeGlobalAndOtherAccountRoutes() throws {
+    let readings = try Reading.decode(Data(#"[{"schema":1,"vendor":"opencode","account":"a","status":"ok","steering":{"routes":[{"id":"global","target":"meta","account":null,"multiplier":10,"until":"2030-01-01T00:00:00Z"},{"id":"own","target":"opencode","account":"a","multiplier":0.5,"until":"2030-01-01T00:00:00Z"},{"id":"other","target":"opencode","account":"b","multiplier":5,"until":"2030-01-01T00:00:00Z"}]}}]"#.utf8))
+    let tile = try #require(Tile.strip(readings, now: Date(timeIntervalSince1970: 1_790_870_400)).first)
+    #expect(tile.indicator?.up == nil)
+    #expect(tile.indicator?.down?.multiplier == 0.5)
+    #expect(tile.indicator?.tooltip.contains("own") == true)
+    #expect(tile.indicator?.tooltip.contains("global") == false)
+    #expect(tile.indicator?.tooltip.contains("other") == false)
+}
+
 @Test func neutralRouteOverrideHasNoIndicator() throws {
-    let readings = try Reading.decode(Data(#"[{"schema":1,"vendor":"openai","account":"a","status":"ok","steering":{"settings":[],"routes":[{"id":"neutral","target":"openai","account":null,"multiplier":1,"until":"2026-10-03T00:00:00Z"}]}}]"#.utf8))
+    let readings = try Reading.decode(Data(#"[{"schema":1,"vendor":"openai","account":"a","status":"ok","steering":{"settings":[],"routes":[{"id":"neutral","target":"openai","account":"a","multiplier":1,"until":"2026-10-03T00:00:00Z"}]}}]"#.utf8))
     #expect(Tile.strip(readings, now: Date(timeIntervalSince1970: 1_790_870_400)).first?.indicator == nil)
 }
 
