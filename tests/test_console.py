@@ -24,7 +24,8 @@ BOOT = {"uuid": ACCOUNT, "memberships": [
     {"organization": {"uuid": ORG, "capabilities": ["api", "api_individual"]}}]}
 CREDITS = {"balance": {"money": None, "credits": {"amount_minor": 19950, "exponent": 2}}, "tranches": [],
            "promo_tranches": [
-               {"remaining_amount_minor_units": 19950, "expires_at": "2026-11-04T00:00:00Z"},
+               {"id": "g1", "remaining_amount_minor_units": 19950, "granted_amount_minor_units": 20000,
+                "granted_at": "2026-10-08T05:36:26.021000Z", "expires_at": "2026-11-04T00:00:00Z"},
                # A spent grant's expiry says nothing about the credit still held.
                {"remaining_amount_minor_units": 0, "expires_at": "2026-10-12T00:00:00Z"}]}
 CRED = Credential("chrome:Default", {"session": "sk-ant-sid02-x"})
@@ -57,7 +58,16 @@ class Read(unittest.TestCase):
         self.assertEqual(r["credits"]["expires_at"], "2026-11-04T00:00:00+00:00")
         # The organisation asked is the API one, not the chat subscription's.
         self.assertIn(f"/organizations/{ORG}/prepaid/credits", get.calls[1][0])
-        self.assertEqual(get.calls[1][1], {"Cookie": "sessionKey=sk-ant-sid02-x"})
+        self.assertEqual(get.calls[1][1]["Cookie"], "sessionKey=sk-ant-sid02-x")
+
+    def test_a_grant_is_a_window_from_its_grant_to_its_expiry_used_by_its_spent_share(self):
+        r = console.read(CRED, NOW, api(account=ok(BOOT), prepaid__credits=ok(CREDITS)))
+        (w,) = r["limits"]
+        self.assertEqual((w["name"], w["role"], w["scope"]), ("api_credit", "extra", "API credit"))
+        self.assertAlmostEqual(w["used_at_least"], 50 / 20000)
+        self.assertEqual(w["resets_at"], "2026-11-04T00:00:00+00:00")
+        self.assertEqual(w["window_minutes"], round((datetime(2026, 11, 4, tzinfo=timezone.utc)
+                         - datetime(2026, 10, 8, 5, 36, 26, 21000, tzinfo=timezone.utc)).total_seconds() / 60))
 
     def test_no_cookie_is_unread_and_asks_nothing(self):
         get = api()

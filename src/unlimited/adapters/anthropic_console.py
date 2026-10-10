@@ -14,11 +14,11 @@ import subprocess
 import sys
 import tempfile
 from collections.abc import Mapping
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 
 from ..credential import Credential
-from ..schema import OK, UNREAD, credits, failed, moment, number, reading
+from ..schema import OK, UNREAD, credits, failed, limit, moment, number, reading
 from . import anthropic
 
 VENDOR = "anthropic-console"
@@ -109,7 +109,8 @@ def discover() -> list[Credential]:
 
 
 def _headers(cred: Credential) -> dict[str, str]:
-    return {"Cookie": f"sessionKey={cred.secret['session']}"}
+    # The Console's edge cuts a non-browser agent's body off mid-chunk, most reads.
+    return {"Cookie": f"sessionKey={cred.secret['session']}", "User-Agent": "Mozilla/5.0"}
 
 
 def whoami(cred: Credential, now: datetime, get):
@@ -137,6 +138,28 @@ def _api_org(body: dict) -> str | None:
     return None
 
 
+def _end(t: dict) -> datetime | None:
+    return moment(t["expires_at"].replace("Z", "+00:00")) if isinstance(t.get("expires_at"), str) else None
+
+
+def windows(grants: list[dict], now: datetime) -> list[dict]:
+    """Each grant still holding credit as a window: granted at its open, lapsing at its reset, used
+    as its spent share. That is the shape every other window has, so it is projected like one."""
+    out = []
+    for t in sorted(grants, key=lambda t: _end(t) or datetime.max.replace(tzinfo=timezone.utc)):
+        start, end = (moment(t[k].replace("Z", "+00:00")) if isinstance(t.get(k), str) else None
+                      for k in ("granted_at", "expires_at"))
+        granted, left = number(t.get("granted_amount_minor_units")), number(t.get("remaining_amount_minor_units"))
+        if not (start and end and granted and left is not None and start < end):
+            continue
+        # One name across grants, so a new grant's window follows the last one's history as a
+        # new week follows the last; a second grant held at once is named apart.
+        out.append(limit("api_credit" + (f":{len(out) + 1}" if out else ""), window_minutes=round((end - start).total_seconds() / 60),
+                         used_at_least=max(granted - left, 0) / granted if end > now else None,
+                         resets_at=end, held=None, role="extra", scope="API credit"))
+    return out
+
+
 def read(cred: Credential, now: datetime, get) -> dict:
     if not cred.secret.get("session"):
         return reading(VENDOR, cred.account, now, UNREAD, why="no-credential")
@@ -161,6 +184,6 @@ def read(cred: Credential, now: datetime, get) -> dict:
               if isinstance(t, dict) and (number(t.get("remaining_amount_minor_units")) or 0) > 0]
     ends = [m for m in (moment(t["expires_at"].replace("Z", "+00:00")) for t in grants
                         if isinstance(t.get("expires_at"), str)) if m]
-    return reading(VENDOR, cred.account, now, OK,
+    return reading(VENDOR, cred.account, now, OK, limits=windows(grants, now),
                    credits=credits(now, enabled=balance > 0, used=None, limit=None, balance=balance,
                                    currency="USD", expires_at=min(ends) if ends else None))
