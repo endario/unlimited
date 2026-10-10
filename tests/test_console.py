@@ -19,9 +19,9 @@ import scratch
 
 NOW = datetime(2026, 10, 10, 12, 0, tzinfo=timezone.utc)
 ACCOUNT, ORG = "f230fcc1-0000-0000-0000-000000000000", "ef187d50-0000-0000-0000-000000000000"
-BOOT = {"account": {"uuid": ACCOUNT, "memberships": [
+BOOT = {"uuid": ACCOUNT, "memberships": [
     {"organization": {"uuid": "chat-org", "capabilities": ["claude_max"]}},
-    {"organization": {"uuid": ORG, "capabilities": ["api", "api_individual"]}}]}}
+    {"organization": {"uuid": ORG, "capabilities": ["api", "api_individual"]}}]}
 CREDITS = {"balance": {"money": None, "credits": {"amount_minor": 19950, "exponent": 2}}, "tranches": [],
            "promo_tranches": [
                {"remaining_amount_minor_units": 19950, "expires_at": "2026-11-04T00:00:00Z"},
@@ -49,7 +49,7 @@ def ok(body):
 
 class Read(unittest.TestCase):
     def test_the_api_organisations_balance_is_read_on_the_cookie_with_its_expiry(self):
-        get = api(bootstrap=ok(BOOT), prepaid__credits=ok(CREDITS))
+        get = api(account=ok(BOOT), prepaid__credits=ok(CREDITS))
         r = console.read(CRED, NOW, get)
         self.assertEqual(r["status"], "ok")
         self.assertEqual((r["credits"]["balance"], r["credits"]["currency"], r["credits"]["enabled"]),
@@ -66,38 +66,46 @@ class Read(unittest.TestCase):
         self.assertEqual(get.calls, [])
 
     def test_an_expired_session_is_a_refusal_not_a_zero_balance(self):
-        r = console.read(CRED, NOW, api(bootstrap=Answer(None, 403, "http-403")))
+        r = console.read(CRED, NOW, api(account=Answer(None, 403, "http-403")))
         self.assertEqual((r["status"], r["credits"]), ("refused", None))
 
     def test_a_login_with_no_api_organisation_says_so(self):
-        boot = {"account": {"uuid": ACCOUNT, "memberships": BOOT["account"]["memberships"][:1]}}
-        r = console.read(CRED, NOW, api(bootstrap=ok(boot)))
+        boot = {"uuid": ACCOUNT, "memberships": BOOT["memberships"][:1]}
+        r = console.read(CRED, NOW, api(account=ok(boot)))
         self.assertEqual((r["status"], r["why"]), ("unread", "no-api-organization"))
 
     def test_a_drifted_payload_is_unread_rather_than_a_crash_or_a_wrong_organisation(self):
-        boot = {"account": {"uuid": ACCOUNT, "memberships": [
+        boot = {"uuid": ACCOUNT, "memberships": [
             {"organization": {"uuid": "chat-org", "capabilities": "rapid"}},
-            {"organization": {"uuid": None, "capabilities": ["api"]}}]}}
-        self.assertEqual(console.read(CRED, NOW, api(bootstrap=ok(boot)))["why"], "no-api-organization")
+            {"organization": {"uuid": None, "capabilities": ["api"]}}]}
+        self.assertEqual(console.read(CRED, NOW, api(account=ok(boot)))["why"], "no-api-organization")
         for bal in ({"amount_minor": 1, "exponent": -2}, {"amount_minor": 1, "exponent": 2.0}):
             body = dict(CREDITS, balance={"credits": bal})
-            r = console.read(CRED, NOW, api(bootstrap=ok(BOOT), prepaid__credits=ok(body)))
+            r = console.read(CRED, NOW, api(account=ok(BOOT), prepaid__credits=ok(body)))
             self.assertEqual(r["why"], "no-balance")
-        r = console.read(CRED, NOW, api(bootstrap=ok(BOOT), prepaid__credits=ok(dict(CREDITS, tranches={"x": 1}))))
+        r = console.read(CRED, NOW, api(account=ok(BOOT), prepaid__credits=ok(dict(CREDITS, tranches={"x": 1}))))
         self.assertEqual(r["credits"]["expires_at"], "2026-11-04T00:00:00+00:00")
 
     def test_a_lapsed_grant_reads_expired(self):
-        r = console.read(CRED, NOW, api(bootstrap=ok(BOOT), prepaid__credits=ok(CREDITS)))
+        r = console.read(CRED, NOW, api(account=ok(BOOT), prepaid__credits=ok(CREDITS)))
         self.assertIn("· on · expired", show.render([r], datetime(2026, 12, 1, tzinfo=timezone.utc)))
 
     def test_whoami_is_the_logins_own_id(self):
-        self.assertEqual(console.whoami(CRED, NOW, api(bootstrap=ok(BOOT)))[0], ACCOUNT)
+        self.assertEqual(console.whoami(CRED, NOW, api(account=ok(BOOT)))[0], ACCOUNT)
 
     def test_a_balance_shows_with_its_expiry_and_no_empty_windows_line(self):
-        r = console.read(CRED, NOW, api(bootstrap=ok(BOOT), prepaid__credits=ok(CREDITS)))
+        r = console.read(CRED, NOW, api(account=ok(BOOT), prepaid__credits=ok(CREDITS)))
         out = show.render([dict(r, names=["account1"])], NOW)
         self.assertIn("USD 199.50 balance · on · expires in 24d 12h", out)
         self.assertNotIn("no usage windows reported", out)
+
+
+class Transport(unittest.TestCase):
+    def test_a_body_lost_mid_chunk_is_unreachable_not_a_crash_of_every_vendor(self):
+        import http.client
+        from unlimited import transport
+        with mock.patch("urllib.request.urlopen", side_effect=http.client.IncompleteRead(b"x")):
+            self.assertEqual(transport.get("https://example.invalid", {}, NOW).why, "unreachable")
 
 
 class Linking(unittest.TestCase):
