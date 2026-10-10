@@ -3,13 +3,13 @@ import SwiftUI
 import UnlimitedKit
 
 struct SteeringDraft: Equatable {
-    var multiplier = "1x"
+    var multiplier = "off"
     var duration = "12h"
     var untilReset = true
 
     init(target: String, account: String?, groups: [Runner.Incentive], now: Date = Date()) {
         guard let group = Self.group(target: target, account: account, groups: groups, now: now) else { return }
-        multiplier = SteeringIndicator.format(group.multiplier)
+        multiplier = group.multiplier == 1 ? "off" : SteeringIndicator.format(group.multiplier)
         untilReset = group.until == nil
         if let until = group.until {
             for (suffix, seconds) in [("m", 60.0), ("h", 3600), ("d", 86_400), ("w", 604_800)] {
@@ -46,7 +46,7 @@ struct SteeringEditor: View {
     let target: String
     let account: String?
     @StateObject private var state: SteeringEditorState
-    private let multipliers = ["10x", "5x", "2x", "1x", "0.5x", "0.2x", "0.1x"]
+    private let multipliers = ["10x", "5x", "2x", "off", "0.5x", "0.2x", "0.1x"]
     private let durations = ["1h", "6h", "12h", "24h", "3d", "7d"]
 
     init(model: StripModel, target: String, account: String?) {
@@ -57,11 +57,15 @@ struct SteeringEditor: View {
             draft: SteeringDraft(target: target, account: account, groups: model.incentives)))
     }
 
+    private var hasOverride: Bool {
+        SteeringDraft.group(target: target, account: account, groups: model.incentives) != nil
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             Picker("Multiplier", selection: $state.draft.multiplier) {
                 ForEach(multipliers, id: \.self) { factor in
-                    Text(factor == "1x" ? "1x · Neutral override" : factor).tag(factor)
+                    Text(factor == "off" ? "None" : factor).tag(factor)
                 }
                 if !multipliers.contains(state.draft.multiplier) {
                     Text(state.draft.multiplier).tag(state.draft.multiplier)
@@ -94,13 +98,15 @@ struct SteeringEditor: View {
                     model.steer(target: target, multiplier: "off", account: account)
                 }
                 .help("Remove this scope's override; inherited policies remain.")
+                .disabled(!hasOverride)
                 .accessibilityLabel("Clear override")
                 Spacer()
                 if model.steeringPending { ProgressView().controlSize(.small) }
                 Button("Apply") {
                     model.steer(target: target, multiplier: state.draft.multiplier, account: account,
-                                duration: state.draft.untilReset ? nil : state.draft.duration)
+                                duration: state.draft.multiplier == "off" || state.draft.untilReset ? nil : state.draft.duration)
                 }
+                .disabled(state.draft.multiplier == "off" && !hasOverride)
                 .accessibilityLabel("Apply")
             }
             Text(account == nil ? "This target's policy. Clear keeps inherited settings." :
