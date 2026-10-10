@@ -42,11 +42,18 @@ QUOTA = {"code": 200, "success": True, "data": {"level": "max", "limits": [
      "nextResetTime": int((NOW + timedelta(days=3)).timestamp() * 1000)}]}}
 
 
+# Z.ai's subscription list as answered on 2026-10-10, trimmed to the field read.
+SUBSCRIPTIONS = {"code": 200, "success": True, "data": [{"customerId": "customer-fixture", "status": "VALID"}]}
+
+
 class Upstream:
-    """A fake vendor side that records every request and can be told to refuse."""
+    """A fake vendor side that records every request and can be told to refuse. Identity requests
+    are recorded apart, so each usage contract below reads as it did before identities."""
 
     def __init__(self, delay: float = 0.0):
         self.calls: list[str] = []
+        self.identity: list[str] = []
+        self.refuse_identity: int | None = None
         self.refuse: int | None = None
         self.retry_after: timedelta | None = timedelta(seconds=120)
         self.delay = delay
@@ -54,9 +61,13 @@ class Upstream:
 
     def __call__(self, url, headers, now):
         with self._lock:
-            self.calls.append(url)
+            (self.identity if url == zai.WHOAMI_URL else self.calls).append(url)
         time.sleep(self.delay)
-        if url == openai.URL:
+        if url == zai.WHOAMI_URL:
+            if self.refuse_identity:
+                return Answer(None, self.refuse_identity, f"http-{self.refuse_identity}")
+            body = SUBSCRIPTIONS
+        elif url == openai.URL:
             assert headers["Authorization"] == f"Bearer {OPENAI_SECRET}"
             body = {"acct-fixture": WHAM, "acct-other": WHAM_OTHER}[headers["ChatGPT-Account-Id"]]
         else:
@@ -341,6 +352,101 @@ class Version(unittest.TestCase):
             self.assertEqual(cli._version(), "unknown")
 
 
+
+class Identity(unittest.TestCase):
+    """Each key's vendor account id: asked once, kept, and never in the way of a usage read."""
+
+    setUp, read = Contract.setUp, Contract.read
+
+    def identities(self):
+        from unlimited import identities
+        return identities.load("zai", self.tmp / "cache" / "unlimited")
+
+    def test_a_reading_carries_the_vendors_account_id_resolved_once(self):
+        first = self.read(zai)
+        self.assertEqual([r["vendor_account"] for r in first], ["customer-fixture"])
+        self.now += timedelta(hours=1)
+        again = self.read(zai, max_age=0)
+        self.assertEqual([r["vendor_account"] for r in again], ["customer-fixture"])
+        # A key belongs to one account for its life: never asked twice.
+        self.assertEqual(self.up.identity, [zai.WHOAMI_URL])
+
+    def test_an_account_that_is_already_the_vendors_id_needs_no_request(self):
+        [r] = self.read(openai)
+        self.assertEqual(r["vendor_account"], "acct-fixture")
+        self.assertEqual(self.up.identity, [])
+
+    def test_a_failing_identity_leaves_usage_and_its_pacing_as_they_were(self):
+        self.up.refuse_identity = 503
+        [r] = self.read(zai)
+        self.assertEqual((r["status"], r["vendor_account"]), ("ok", None))
+        self.assertEqual(self.up.calls, [zai.URL])
+        # Inside the backoff: usage is read as usual, identity is not asked.
+        self.now += timedelta(minutes=4)
+        self.read(zai, max_age=0)
+        self.assertEqual((self.up.calls, self.up.identity), ([zai.URL, zai.URL], [zai.WHOAMI_URL]))
+        # Past it: asked again, and the next window is twice as long.
+        self.now += timedelta(minutes=2)
+        self.read(zai)
+        self.assertEqual(len(self.up.identity), 2)
+        self.assertEqual(self.identities()[next(iter(self.identities()))]["failures"], 2)
+        self.now += timedelta(minutes=9)
+        self.read(zai)
+        self.assertEqual(len(self.up.identity), 2)
+
+    def test_a_later_answer_fills_the_id_without_another_usage_read(self):
+        self.up.refuse_identity = 503
+        self.read(zai)
+        self.up.refuse_identity = None
+        self.now += timedelta(minutes=6)
+        [r] = self.read(zai, max_age=3600)
+        self.assertEqual(r["vendor_account"], "customer-fixture")
+        self.assertEqual(self.up.calls, [zai.URL])
+
+    def test_the_mapping_is_known_offline_and_holds_nothing_but_ids(self):
+        from unlimited import identities
+        self.read(zai)
+        directory = self.tmp / "cache" / "unlimited"
+        self.assertEqual(list(identities.accounts("zai", directory).values()), ["customer-fixture"])
+        path = identities.path("zai", directory)
+        self.assertEqual(path.stat().st_mode & 0o777, 0o600)
+        text = path.read_text()
+        self.assertNotIn(ZAI_SECRET, text)
+        self.assertEqual([set(v) for v in json.loads(text).values()], [{"account"}])
+
+    def test_a_source_that_never_answers_is_asked_at_most_daily(self):
+        from unlimited import identities
+        self.assertEqual([identities.backoff(n) for n in (1, 2, 3)],
+                         [timedelta(minutes=5), timedelta(minutes=10), timedelta(minutes=20)])
+        self.assertEqual(identities.backoff(30), transport.MAX_BACKOFF)
+
+
+    def test_an_identity_that_raises_leaves_the_readings_whole(self):
+        with mock.patch.object(zai, "whoami", side_effect=OSError("identities unwritable")):
+            [r] = self.read(zai)
+        self.assertEqual((r["status"], r["vendor_account"]), ("ok", None))
+
+    def test_accounts_lists_both_ids_without_asking_a_vendor(self):
+        self.read(zai)
+        calls = list(self.up.calls) + list(self.up.identity)
+        buf = io.StringIO()
+        with mock.patch.object(transport, "get", self.up), redirect_stdout(buf):
+            self.assertEqual(cli.main(["accounts", "--vendor", "zai", "--vendor", "openai", "--json"]), 0)
+        rows = {r["vendor"]: r for r in json.loads(buf.getvalue())}
+        self.assertEqual(rows["zai"]["vendor_account"], "customer-fixture")
+        self.assertEqual((rows["openai"]["account"], rows["openai"]["vendor_account"]), ("acct-fixture", "acct-fixture"))
+        self.assertEqual(list(self.up.calls) + list(self.up.identity), calls)
+
+
+    def test_a_verdict_row_carries_the_vendors_account_id(self):
+        self.read(zai)
+        buf = io.StringIO()
+        with mock.patch.object(transport, "get", self.up), \
+                mock.patch.object(cli, "datetime") as dt, redirect_stdout(buf):
+            dt.now.return_value = self.now
+            self.assertEqual(cli.main(["verdict", "--vendor", "zai", "--work", "600", "--json"]), 0)
+        self.assertEqual([r["vendor_account"] for r in json.loads(buf.getvalue())], ["customer-fixture"])
+
+
 if __name__ == "__main__":
     unittest.main()
-

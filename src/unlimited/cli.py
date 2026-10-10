@@ -423,6 +423,17 @@ examples:
                    help=VENDOR_HELP + f": {', '.join(sorted(REGISTRY))}")
     r.add_argument("--max-age", type=float, default=300.0, metavar="SECONDS", help=READ_HELP)
     r.add_argument("--json", action="store_true", help="JSON output (the only format; accepted for clarity)")
+    ac = add("accounts", "each account found here and the vendor's id for it", """\
+One line per account on this machine: its vendor, the vendor's own id for the account, its names
+here, and unlimited's account id. Reads only this machine, never a vendor: an account a `read`
+has not yet identified shows no vendor id. Use the vendor id to name an account in another tool's
+configuration; it is the same on every machine.""", """\
+examples:
+  unlimited accounts
+  unlimited accounts --vendor zai --json""")
+    ac.add_argument("--vendor", action="append", choices=sorted(REGISTRY), metavar="VENDOR",
+                    help=VENDOR_HELP + f": {', '.join(sorted(REGISTRY))}")
+    ac.add_argument("--json", action="store_true", help="a JSON array of {vendor, account, vendor_account, names}")
     ROUTES_HELP = ("the youngest cached answer younger than this, else one upstream read; "
                    "a plan's model set changes on days, not minutes")
     rt = add("routes", "each account's plan's models, as JSON", f"""\
@@ -675,6 +686,30 @@ example (in the statusline script):
     return p
 
 
+def _accounts(a) -> int:
+    from . import identities
+    out = []
+    for v in a.vendor or sorted(REGISTRY):
+        adapter = REGISTRY[v]
+        try:
+            creds, names = adapter.discover(), getattr(adapter, "names", dict)()
+        except Exception as e:  # one vendor's unreadable credentials leave the others listed
+            print(f"unlimited: {v}: {type(e).__name__}", file=sys.stderr)
+            continue
+        ids = identities.accounts(v)
+        for c in creds:
+            out.append({"vendor": v, "account": c.account,
+                        "vendor_account": identities.vendor_account(adapter, c.account, ids),
+                        "names": names.get(c.account, [])})
+    if a.json:
+        json.dump(out, sys.stdout)
+        sys.stdout.write("\n")
+        return 0
+    for r in out:
+        print(f"{r['vendor']:<12} {r['vendor_account'] or '-':<38} {', '.join(r['names']) or '-':<24} {r['account']}")
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     p = _parser()
     a = p.parse_args(argv)
@@ -704,6 +739,8 @@ def main(argv: list[str] | None = None) -> int:
         return _choose(a)
     if a.cmd == "cards":
         return _cards(a)
+    if a.cmd == "accounts":
+        return _accounts(a)
     if a.cmd == "routes":
         out = []
         for v in (a.vendor or [v for v in sorted(REGISTRY) if hasattr(REGISTRY[v], "models")]):
@@ -813,6 +850,7 @@ def main(argv: list[str] | None = None) -> int:
                     account=r.get("account"), offering=a.offering, now=now)
                 rows.append({
                     "vendor": r.get("vendor"), "account": r.get("account"),
+                    "vendor_account": r.get("vendor_account"),
                     "names": r.get("names", []), "steering": r["steering"],
                     "verdict": verdict(
                         r, model_scope=a.model_scope, now=now,

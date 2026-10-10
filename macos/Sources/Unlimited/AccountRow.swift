@@ -63,11 +63,10 @@ struct AccountRow: View {
             .frame(width: 44)
             .font(.system(.body, design: .monospaced))
             SteeringIndicatorView(indicator: tile.indicator)
-            Text(description)
+            DescribedAccount(description: description, help: description, reading: reading)
                 .foregroundStyle(.secondary)
                 .lineLimit(1)
                 .truncationMode(.middle)
-                .help(description)
             Spacer(minLength: 0)
             controls(offer)
         }

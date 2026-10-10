@@ -22,6 +22,8 @@ from ..credential import Credential
 from ..schema import OK, UNREAD, credits, failed, limit, reading
 
 VENDOR = "anthropic"
+# `account` is already the vendor's own id (`accountUuid`).
+ACCOUNT_IS_VENDOR_ID = True
 URL = "https://api.anthropic.com/api/oauth/usage"
 PROFILE_URL = "https://api.anthropic.com/api/oauth/profile"
 WINDOWS = {"five_hour": 300, "seven_day": 10080, "seven_day_opus": 10080, "seven_day_sonnet": 10080}
