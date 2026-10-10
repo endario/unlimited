@@ -850,6 +850,7 @@ def main(argv: list[str] | None = None) -> int:
                     account=r.get("account"), offering=a.offering, now=now)
                 rows.append({
                     "vendor": r.get("vendor"), "account": r.get("account"),
+                    "vendor_account": r.get("vendor_account"),
                     "names": r.get("names", []), "steering": r["steering"],
                     "verdict": verdict(
                         r, model_scope=a.model_scope, now=now,

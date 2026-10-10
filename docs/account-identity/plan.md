@@ -52,4 +52,5 @@
 
 ## Task 6: release
 
-- [ ] Bump `pyproject.toml` (0.1.36), review, merge, tag, publish, install.
+- [x] Bump `pyproject.toml` to 0.1.36.
+- [ ] Review, merge, tag, publish, install.

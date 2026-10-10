@@ -1,5 +1,5 @@
-"""Each key's vendor account id, asked once per key and kept. One file per vendor, written only under
-that vendor's cache lock: `{key_id: {"account": id}}` once resolved, `{key_id: {"retry_until": iso,
+"""Each key's vendor account id, asked once per key and kept. One file per vendor, under its own
+lock: `{key_id: {"account": id}}` once resolved, `{key_id: {"retry_until": iso,
 "failures": n}}` while the vendor has not said. A key belongs to one account for its life, so a
 mapping is never asked again; deleting the file makes every key resolve anew."""
 
@@ -79,8 +79,8 @@ def _resolve(whoami, p: Path, vendor: str, keys: list, now: datetime, get, direc
             failures = entry.get("failures") if isinstance(entry.get("failures"), int) else 0
             failures += 1
             due = now + backoff(failures)
-            vendor = getattr(ans, "retry_until", None)
-            held[kid] = {"retry_until": iso(max(due, vendor) if vendor else due), "failures": failures}
+            deadline = getattr(ans, "retry_until", None)
+            held[kid] = {"retry_until": iso(max(due, deadline) if deadline else due), "failures": failures}
         changed = True
     if changed:
         write_json(held, p)

@@ -62,7 +62,7 @@ the id it parsed.
 
 ### CLI
 
-- `read`, `status --json` and `verdict --json` carry `vendor_account`.
+- `read` and `verdict --json` carry `vendor_account`.
 - `unlimited accounts [--json]` lists, offline, each account here: vendor, `account`,
   `vendor_account`, names. It is how a person finds the id to write in a caller's configuration.
 

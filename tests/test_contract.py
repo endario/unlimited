@@ -438,5 +438,15 @@ class Identity(unittest.TestCase):
         self.assertEqual(list(self.up.calls) + list(self.up.identity), calls)
 
 
+    def test_a_verdict_row_carries_the_vendors_account_id(self):
+        self.read(zai)
+        buf = io.StringIO()
+        with mock.patch.object(transport, "get", self.up), \
+                mock.patch.object(cli, "datetime") as dt, redirect_stdout(buf):
+            dt.now.return_value = self.now
+            self.assertEqual(cli.main(["verdict", "--vendor", "zai", "--work", "600", "--json"]), 0)
+        self.assertEqual([r["vendor_account"] for r in json.loads(buf.getvalue())], ["customer-fixture"])
+
+
 if __name__ == "__main__":
     unittest.main()
