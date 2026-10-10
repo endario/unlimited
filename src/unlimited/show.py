@@ -81,7 +81,8 @@ def _credits(c: dict, taken: datetime | None, now: datetime, color: bool) -> str
         bar = _paint("█" * filled + "░" * (BAR - filled) + f" {frac * 100:5.1f}%", frac, not on, color) + "  "
     parts = [f"{money(used)} of {money(limit, '')}" if limit is not None and used is not None
              else f"{money(used)} used" if used is not None else None,
-             f"{money(bal)} balance" if bal is not None else None, state]
+             f"{money(bal)} balance" if bal is not None else None, state,
+             f"expires in {_until(moment(c['expires_at']), now)}" if moment(c.get("expires_at")) else None]
     age = moment(c.get("taken_at"))
     stale = f"  (read {_until(now, age)} ago)" if age and taken and (taken - age).total_seconds() >= 60 else ""
     return f"  {'credits':<15} {bar}" + " · ".join(p for p in parts if p) + stale
@@ -144,7 +145,7 @@ def render(readings: list[dict], now: datetime, *, color: bool = False, all_limi
             lines.append(f"  {name:<15} " + _paint(f"{bar} {pct}", used, held, color) + f"  {when}{flag}")
             if l.get("projection") and not held and (used or 0) < 1:
                 lines.append(" " * 18 + _forecast(l["projection"], now, color))
-        if not shown:
+        if not shown and not r.get("credits"):
             lines.append("  no usage windows reported")
         if r.get("credits"):
             lines.append(_credits(r["credits"], taken, now, color))
