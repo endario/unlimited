@@ -23,6 +23,9 @@ from . import anthropic
 
 VENDOR = "anthropic-console"
 BASE = "https://platform.claude.com/api"
+# The login and its memberships. `/bootstrap` answers the same and more, in some 600 KB, which
+# urllib was seen to lose mid-chunk.
+ACCOUNT_URL = BASE + "/account"
 HOST = ".platform.claude.com"
 CHROME = Path.home() / "Library/Application Support/Google/Chrome"
 
@@ -112,9 +115,8 @@ def _headers(cred: Credential) -> dict[str, str]:
 def whoami(cred: Credential, now: datetime, get):
     if not cred.secret.get("session"):
         return None, None
-    ans = get(BASE + "/bootstrap", _headers(cred), now)
-    acct = (ans.body or {}).get("account") if isinstance((ans.body or {}).get("account"), dict) else {}
-    who = acct.get("uuid")
+    ans = get(ACCOUNT_URL, _headers(cred), now)
+    who = (ans.body or {}).get("uuid")
     return (who if isinstance(who, str) and who else None), ans
 
 
@@ -126,8 +128,8 @@ def names() -> dict[str, list[str]]:
 
 
 def _api_org(body: dict) -> str | None:
-    acct = body.get("account") if isinstance(body.get("account"), dict) else {}
-    for m in acct.get("memberships") or []:
+    members = body.get("memberships")
+    for m in members if isinstance(members, list) else []:
         org = m.get("organization") if isinstance(m, dict) else None
         caps = org.get("capabilities") if isinstance(org, dict) else None
         if isinstance(caps, list) and "api" in caps and isinstance(org.get("uuid"), str) and org["uuid"]:
@@ -138,7 +140,7 @@ def _api_org(body: dict) -> str | None:
 def read(cred: Credential, now: datetime, get) -> dict:
     if not cred.secret.get("session"):
         return reading(VENDOR, cred.account, now, UNREAD, why="no-credential")
-    boot = get(BASE + "/bootstrap", _headers(cred), now)
+    boot = get(ACCOUNT_URL, _headers(cred), now)
     if boot.body is None:
         return failed(VENDOR, cred.account, now, boot)
     org = _api_org(boot.body)
