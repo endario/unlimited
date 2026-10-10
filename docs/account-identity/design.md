@@ -28,7 +28,9 @@ Each reading gains three fields; `schema` stays 1, since both are additive:
 - `account_source`: `"vendor"` when `account` is the vendor's id, `"key"` when it is a key id.
 - `key_ids`: the key ids on this machine that resolve to this account, like `names` local and never
   cached. Empty for vendors without API keys.
-- `provisional`: `true` only for a key whose vendor id is not yet known (see Resolution).
+- `provisional`: `null`, or why the key's vendor id is not yet known: `"identity-unread"` (the
+  request failed) or `"identity-none"` (the source answered without one). `why` keeps its meaning,
+  the reason a usage read failed, so nothing that reads `why` sees an identity reason.
 
 `account` changes value for zai, kimi and commandcode. That is the breaking part, so the release is
 0.2.0.
@@ -38,9 +40,10 @@ Each reading gains three fields; `schema` stays 1, since both are additive:
 An adapter with a vendor source exposes `whoami(key, now, get) -> Answer-like (account | None, why,
 retry_until)`. Resolution is per key and permanent: a key belongs to one account for its life.
 
-- `~/.cache/unlimited/identities.json` (0600, atomic write) maps `{vendor: {key_id: account}}` for
-  resolved keys and `{vendor: {key_id: {"retry_until": iso}}}` for a failed attempt. It holds no
-  secret and no personal data. It is the only way an offline caller (`discover`, `names`,
+- `~/.cache/unlimited/identities/<vendor>.json` (0600, atomic write, written only under that
+  vendor's lock, so vendors never contend for it) maps `{key_id: account}` for resolved keys and
+  `{key_id: {"retry_until": iso, "failures": n}}` for a failed attempt. It holds no secret and no
+  personal data. It is the only way an offline caller (`discover`, `names`,
   `choice.vendors_here`, `incentives.account_context`) learns a key's account.
 - `cache.through` resolves, under the vendor lock and before the read loop, every discovered key
   that has no mapping and is not backing off. A failure records the backoff (`MIN_BACKOFF` floor,
@@ -49,16 +52,20 @@ retry_until)`. Resolution is per key and permanent: a key belongs to one account
   the same account (the first key by key id reads; all are listed in `key_ids`). A key whose
   vendor-sourced account is not yet known is a provisional `Credential` whose account is its key id.
 - An unresolved key is still read, so a machine whose identity requests fail sees what it sees
-  today. Its reading is **provisional**: `account` is the key id, `account_source` is `"key"`,
-  `provisional` is `true`, and `why` says why the vendor id is missing (`identity-unread`, or
-  `identity-none` when the source answered without one, as for a Z.ai key with no subscription). A
+  today. Its reading is **provisional**: `account` is the key id, `account_source` is `"key"`, and
+  `provisional` says why the vendor id is missing (`identity-none` covers a Z.ai key with no
+  subscription). A
   provisional reading is never written to the reading cache or the projection history, so no state
   binds to an id the account is about to leave. Callers must not persist it either. It still
   carries its key id as an alias, so a switch naming that key excludes it.
-- A failed identity request backs off from `MIN_BACKOFF`, doubling on each further failure up to the
-  transport's cap, so a source that never answers costs a request per cap interval, not per read.
-- A mapping is permanent. Should a vendor ever re-identify an account, deleting `identities.json`
-  makes every key resolve again on the next read.
+- A failed identity request backs off with the reading cache's own `retry_until` and
+  `_backing_off`, from `MIN_BACKOFF`, doubling on each further failure up to the transport's cap, so
+  a source that never answers costs a request per cap interval, not per read.
+- Keys of one account resolve independently. While one is resolved and another backs off, the
+  account shows twice: once under its vendor id and once provisionally.
+- A mapping is permanent. Should a vendor ever re-identify an account, the person sees it as a
+  break in that account's usage; deleting `identities/<vendor>.json` makes its keys resolve again on
+  the next read.
 - `discover()` depends on a previous `cache.through` having resolved the keys. On a machine's first
   run every key of these vendors is unresolved until that read completes.
 - For opencode and neuralwatt, `account` is the key id and `account_source` is `"key"`, resolved
@@ -85,9 +92,10 @@ keyed by key id; sharing one file would make each side miss the other's entries,
 and drop the other's rows on write. Two files cost a second vendor read per interval while both
 generations run, and nothing else.
 
-On first write of a `.v2` file, its projection history is seeded from the legacy file's, re-keyed
-`key_id\tname` → `account\tname` through `identities.json`; where two keys share an account the first
-key id's history wins. Readings are not imported: the first call reads upstream.
+Projection history follows each account across, whenever it resolves: when an account has no
+history in the `.v2` file and the legacy file holds history under one of its key ids
+(`key_id\tname`), that history is copied in as `account\tname`, the first key id's where several
+have some. The legacy file is only read. Readings are not imported: the first call reads upstream.
 
 ## CLI
 
