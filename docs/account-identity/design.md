@@ -23,11 +23,12 @@ account.
 
 ## Shape
 
-Each reading gains two fields; `schema` stays 1, since both are additive:
+Each reading gains three fields; `schema` stays 1, since both are additive:
 
 - `account_source`: `"vendor"` when `account` is the vendor's id, `"key"` when it is a key id.
 - `key_ids`: the key ids on this machine that resolve to this account, like `names` local and never
   cached. Empty for vendors without API keys.
+- `provisional`: `true` only for a key whose vendor id is not yet known (see Resolution).
 
 `account` changes value for zai, kimi and commandcode. That is the breaking part, so the release is
 0.2.0.
@@ -46,11 +47,20 @@ retry_until)`. Resolution is per key and permanent: a key belongs to one account
   the transport's deadline when longer).
 - `discover()` stays offline: it returns one `Credential` per **account**, grouping keys that map to
   the same account (the first key by key id reads; all are listed in `key_ids`). A key whose
-  vendor-sourced account is not yet known is a `Credential(account=None, key_ids=(kid,))`.
-- An unresolved key yields an `unread` reading with `why="identity-unread"`, `account=None` and its
-  `key_ids`, no limits. It is never cached as a reading and never falls back to the key id: an
-  account must not change id once it has readings. A vendor whose source answers without an id (a
-  Z.ai key with no subscription) is the same `identity-unread` case, with `why="identity-none"`.
+  vendor-sourced account is not yet known is a provisional `Credential` whose account is its key id.
+- An unresolved key is still read, so a machine whose identity requests fail sees what it sees
+  today. Its reading is **provisional**: `account` is the key id, `account_source` is `"key"`,
+  `provisional` is `true`, and `why` says why the vendor id is missing (`identity-unread`, or
+  `identity-none` when the source answered without one, as for a Z.ai key with no subscription). A
+  provisional reading is never written to the reading cache or the projection history, so no state
+  binds to an id the account is about to leave. Callers must not persist it either. It still
+  carries its key id as an alias, so a switch naming that key excludes it.
+- A failed identity request backs off from `MIN_BACKOFF`, doubling on each further failure up to the
+  transport's cap, so a source that never answers costs a request per cap interval, not per read.
+- A mapping is permanent. Should a vendor ever re-identify an account, deleting `identities.json`
+  makes every key resolve again on the next read.
+- `discover()` depends on a previous `cache.through` having resolved the keys. On a machine's first
+  run every key of these vendors is unresolved until that read completes.
 - For opencode and neuralwatt, `account` is the key id and `account_source` is `"key"`, resolved
   locally with no request.
 
@@ -61,14 +71,16 @@ Every key id becomes an alias of its account, alongside `names`. `identity.names
 written against the old id:
 
 - A switch (`off --account <hash>`) keeps excluding the account: it fails closed, never released.
-- An incentive group or reset binding frozen with the old hash keeps matching: `_group_identity`
-  accepts a frozen account that is the canonical account or one of its key ids.
+- An incentive group or reset binding frozen with the old hash keeps matching: the exact comparison
+  in `incentives._group_identity` (`canonical == binding["account"]`) accepts a frozen account that
+  is the canonical account or one of its key ids.
 - New writes keep today's rule: the selector as typed.
 
 ## Cache namespace
 
 zai, kimi and commandcode move to `<vendor>.v2.json` and `<vendor>.v2.lock`. Older installs on the
-same machine (an agent pinned to an older unlimited, a Go port of it) keep writing `<vendor>.json`
+same machine keep writing `<vendor>.json`: today 2mw2lt's Python agent runs unlimited 0.1.31 from its
+own environment through `cache.through`, and its Go agent ports the same cache, both
 keyed by key id; sharing one file would make each side miss the other's entries, read upstream again,
 and drop the other's rows on write. Two files cost a second vendor read per interval while both
 generations run, and nothing else.
@@ -83,17 +95,18 @@ key id's history wins. Readings are not imported: the first call reads upstream.
 - `unlimited accounts [--json]` lists, offline, each account here: vendor, account, source, names,
   key ids. It is how a person finds the id to write in a caller's configuration.
 - `status` labels by names first, as today; an account with no names shows its id's first 8
-  characters, and an unresolved key shows `key <key id[:8]>?`.
+  characters, and a provisional reading is marked `(identifying)`.
 
 ## macOS app
 
-- `Reading` decodes `accountSource` and `keyIds` (absent on older CLIs: `nil` / `[]`).
-- A tile's id stays `vendor/account`; an unresolved key's is `vendor/key:<key id>`.
+- `Reading` decodes `accountSource`, `keyIds` and `provisional` (absent on older CLIs).
+- A tile's id stays `vendor/account`. A provisional tile moves to its account's id once resolved,
+  carrying its preferences the same way as below.
 - On load, a `Preferences` entry (label, hidden, order) keyed `vendor/<key id>` moves to the
   account's tile id when no entry exists there yet. Nothing else is rewritten.
 - The account row and popover header show the account id, shortened, with a `key` marker when
-  `account_source` is `"key"`; the full id is in the tooltip and copyable. An unresolved key shows
-  "Identifying…" with its `why`.
+  `account_source` is `"key"`; the full id is in the tooltip and copyable. A provisional reading shows
+  its usage with "Identifying…" in place of the id.
 
 ## Out of scope
 
@@ -108,7 +121,10 @@ key id's history wins. Readings are not imported: the first call reads upstream.
   `account_source: "vendor"` and their `customerId`s; the same keys on a second machine give the
   same ids.
 - Two env files holding keys of one account produce one reading with both key ids.
-- An existing `off zai --account <old hash>` still excludes the account after upgrade.
+- An existing `off zai --account <old hash>` still excludes the account after upgrade, and excludes
+  its provisional reading before the account resolves.
+- With every identity request failing, a key's usage is still shown, marked provisional, and nothing
+  under its key id reaches the cache files.
 - Offline (`get` raising), `discover()` and `names()` return the same ids as online once resolved.
 - The app keeps a hidden account hidden and a custom label across the upgrade.
 - No cache or identity file contains a key, an email or a name the vendor returned.
