@@ -225,7 +225,7 @@ class Discovery(Base):
         self.assertEqual(got["credits"], {
             "taken_at": NOW.isoformat(), "enabled": False, "used": 150.62, "limit": 150.0, "balance": 40.5,
             "currency": "SGD", "severity": "critical", "disabled_reason": "org_level_disabled_until",
-            "can_purchase": False})
+            "can_purchase": False, "expires_at": None})
         self.assertEqual([l["name"] for l in got["limits"] if l["name"] == "extra_usage"], [],
                          "spend is not a window; it must not also appear as a limit with no figure")
 
