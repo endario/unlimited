@@ -139,7 +139,7 @@ def render(readings: list[dict], now: datetime, *, color: bool = False, all_limi
         for l in shown:
             used, held = l.get("used_at_least"), l.get("held")
             name = (f"weekly {l['scope']}" if l.get("role") == "weekly_model" and l.get("scope")
-                    else WINDOW_NAMES.get(l.get("name"), l.get("name")))
+                    else WINDOW_NAMES.get(l.get("name"), WINDOW_NAMES.get(str(l.get("name")).split(":")[0], l.get("name"))))
             filled = round((used or 0) * BAR) if used is not None else 0
             bar = "█" * min(filled, BAR) + "░" * (BAR - min(filled, BAR))
             pct = f"{used * 100:5.1f}%" if used is not None else "    ?"

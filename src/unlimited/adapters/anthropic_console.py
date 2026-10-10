@@ -14,7 +14,7 @@ import subprocess
 import sys
 import tempfile
 from collections.abc import Mapping
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 
 from ..credential import Credential
@@ -138,11 +138,15 @@ def _api_org(body: dict) -> str | None:
     return None
 
 
+def _end(t: dict) -> datetime | None:
+    return moment(t["expires_at"].replace("Z", "+00:00")) if isinstance(t.get("expires_at"), str) else None
+
+
 def windows(grants: list[dict], now: datetime) -> list[dict]:
     """Each grant still holding credit as a window: granted at its open, lapsing at its reset, used
     as its spent share. That is the shape every other window has, so it is projected like one."""
     out = []
-    for t in sorted(grants, key=lambda t: str(t.get("expires_at"))):
+    for t in sorted(grants, key=lambda t: _end(t) or datetime.max.replace(tzinfo=timezone.utc)):
         start, end = (moment(t[k].replace("Z", "+00:00")) if isinstance(t.get(k), str) else None
                       for k in ("granted_at", "expires_at"))
         granted, left = number(t.get("granted_amount_minor_units")), number(t.get("remaining_amount_minor_units"))
