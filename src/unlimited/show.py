@@ -12,7 +12,8 @@ VENDOR_NAMES = {"anthropic": "Claude", "openai": "Codex", "zai": "Z.ai GLM", "op
                 "kimi": "Kimi Code", "neuralwatt": "Neuralwatt", "commandcode": "Command Code"}
 WINDOW_NAMES = {"five_hour": "5-hour", "seven_day": "weekly", "month": "monthly", "codex": "weekly",
                 "gpt-reserve": "weekly reserve", "seven_day_opus": "weekly Opus",
-                "seven_day_sonnet": "weekly Sonnet", "period": "billing period"}
+                "seven_day_sonnet": "weekly Sonnet", "period": "billing period",
+                "api_credit": "API credit"}
 BAR = 20
 # Vendor plan words a person would not recognise, in the words they would.
 PLANS = {"default_claude_max_20x": "Max 20x", "default_claude_max_5x": "Max 5x", "default_claude_ai": "Pro",
@@ -138,7 +139,7 @@ def render(readings: list[dict], now: datetime, *, color: bool = False, all_limi
         for l in shown:
             used, held = l.get("used_at_least"), l.get("held")
             name = (f"weekly {l['scope']}" if l.get("role") == "weekly_model" and l.get("scope")
-                    else WINDOW_NAMES.get(l.get("name"), l.get("name")))
+                    else WINDOW_NAMES.get(l.get("name"), WINDOW_NAMES.get(str(l.get("name")).split(":")[0], l.get("name"))))
             filled = round((used or 0) * BAR) if used is not None else 0
             bar = "█" * min(filled, BAR) + "░" * (BAR - min(filled, BAR))
             pct = f"{used * 100:5.1f}%" if used is not None else "    ?"
