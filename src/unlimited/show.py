@@ -65,6 +65,10 @@ def _forecast(p: dict, now: datetime, color: bool) -> str:
     return ITALIC + text.replace("\033[0m", "\033[0m" + ITALIC) + "\033[0m" if color and guess else text
 
 
+def _expiry(t: datetime | None, now: datetime) -> str | None:
+    return None if t is None else "expired" if t <= now else f"expires in {_until(t, now)}"
+
+
 def _credits(c: dict, taken: datetime | None, now: datetime, color: bool) -> str:
     """One row: what the account may spend once its windows are used, and whether that is on."""
     used, limit, bal, cur = c.get("used"), c.get("limit"), c.get("balance"), c.get("currency") or ""
@@ -82,7 +86,7 @@ def _credits(c: dict, taken: datetime | None, now: datetime, color: bool) -> str
     parts = [f"{money(used)} of {money(limit, '')}" if limit is not None and used is not None
              else f"{money(used)} used" if used is not None else None,
              f"{money(bal)} balance" if bal is not None else None, state,
-             f"expires in {_until(moment(c['expires_at']), now)}" if moment(c.get("expires_at")) else None]
+             _expiry(moment(c.get("expires_at")), now)]
     age = moment(c.get("taken_at"))
     stale = f"  (read {_until(now, age)} ago)" if age and taken and (taken - age).total_seconds() >= 60 else ""
     return f"  {'credits':<15} {bar}" + " · ".join(p for p in parts if p) + stale

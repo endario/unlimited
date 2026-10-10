@@ -74,6 +74,22 @@ class Read(unittest.TestCase):
         r = console.read(CRED, NOW, api(bootstrap=ok(boot)))
         self.assertEqual((r["status"], r["why"]), ("unread", "no-api-organization"))
 
+    def test_a_drifted_payload_is_unread_rather_than_a_crash_or_a_wrong_organisation(self):
+        boot = {"account": {"uuid": ACCOUNT, "memberships": [
+            {"organization": {"uuid": "chat-org", "capabilities": "rapid"}},
+            {"organization": {"uuid": None, "capabilities": ["api"]}}]}}
+        self.assertEqual(console.read(CRED, NOW, api(bootstrap=ok(boot)))["why"], "no-api-organization")
+        for bal in ({"amount_minor": 1, "exponent": -2}, {"amount_minor": 1, "exponent": 2.0}):
+            body = dict(CREDITS, balance={"credits": bal})
+            r = console.read(CRED, NOW, api(bootstrap=ok(BOOT), prepaid__credits=ok(body)))
+            self.assertEqual(r["why"], "no-balance")
+        r = console.read(CRED, NOW, api(bootstrap=ok(BOOT), prepaid__credits=ok(dict(CREDITS, tranches={"x": 1}))))
+        self.assertEqual(r["credits"]["expires_at"], "2026-11-04T00:00:00+00:00")
+
+    def test_a_lapsed_grant_reads_expired(self):
+        r = console.read(CRED, NOW, api(bootstrap=ok(BOOT), prepaid__credits=ok(CREDITS)))
+        self.assertIn("· on · expired", show.render([r], datetime(2026, 12, 1, tzinfo=timezone.utc)))
+
     def test_whoami_is_the_logins_own_id(self):
         self.assertEqual(console.whoami(CRED, NOW, api(bootstrap=ok(BOOT)))[0], ACCOUNT)
 

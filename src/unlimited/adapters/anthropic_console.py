@@ -43,9 +43,12 @@ def _row(profile: Path) -> tuple[bytes, int] | None:
                               (HOST,)).fetchone()
             ver = con.execute("select value from meta where key = 'version'").fetchone()
             con.close()
-        except (OSError, sqlite3.Error):
+        except (OSError, sqlite3.Error, ValueError, TypeError):
             return None
-    return (row[0], int(ver[0]) if ver else 0) if row else None
+    try:
+        return (row[0], int(ver[0]) if ver else 0) if row else None
+    except (ValueError, TypeError):
+        return None
 
 
 def _password() -> str | None:
@@ -126,8 +129,9 @@ def _api_org(body: dict) -> str | None:
     acct = body.get("account") if isinstance(body.get("account"), dict) else {}
     for m in acct.get("memberships") or []:
         org = m.get("organization") if isinstance(m, dict) else None
-        if isinstance(org, dict) and "api" in (org.get("capabilities") or []):
-            return org.get("uuid")
+        caps = org.get("capabilities") if isinstance(org, dict) else None
+        if isinstance(caps, list) and "api" in caps and isinstance(org.get("uuid"), str) and org["uuid"]:
+            return org["uuid"]
     return None
 
 
@@ -145,12 +149,13 @@ def read(cred: Credential, now: datetime, get) -> dict:
         return failed(VENDOR, cred.account, now, ans)
     bal = ans.body.get("balance") if isinstance(ans.body.get("balance"), dict) else {}
     c = bal.get("credits") if isinstance(bal.get("credits"), dict) else {}
-    minor, exp = number(c.get("amount_minor")), number(c.get("exponent"))
-    if minor is None or exp is None:
+    minor, exp = c.get("amount_minor"), c.get("exponent")
+    if not all(isinstance(x, int) and not isinstance(x, bool) for x in (minor, exp)) or not 0 <= exp <= 6:
         return reading(VENDOR, cred.account, now, UNREAD, why="no-balance")
-    balance = minor / 10 ** int(exp)
+    balance = minor / 10 ** exp
     # The earliest expiry among the grants still holding credit, in the vendor's own date.
-    grants = [t for t in (ans.body.get("promo_tranches") or []) + (ans.body.get("tranches") or [])
+    lists = [ans.body.get(k) for k in ("promo_tranches", "tranches")]
+    grants = [t for l in lists if isinstance(l, list) for t in l
               if isinstance(t, dict) and (number(t.get("remaining_amount_minor_units")) or 0) > 0]
     ends = [m for m in (moment(t["expires_at"].replace("Z", "+00:00")) for t in grants
                         if isinstance(t.get("expires_at"), str)) if m]
