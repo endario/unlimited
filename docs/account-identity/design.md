@@ -41,12 +41,13 @@ Each reading gains one field; `schema` stays 1:
 An adapter with a source exposes `whoami(cred, now, get) -> (account | None, Answer)`, returning only
 the id it parsed.
 
-- `~/.cache/unlimited/identities/<vendor>.json`, written with `state.write_json` only under that
-  vendor's cache lock, maps a key id to `{"account": id}` when resolved, or to
+- `~/.cache/unlimited/identities/<vendor>.json`, written with `state.write_json` under its own lock,
+  maps a key id to `{"account": id}` when resolved, or to
   `{"retry_until": iso, "failures": n}` after a failed attempt. It holds key ids and vendor account
   ids, which are linkable identifiers, so it is owner-only like the reading cache, and only those
   allowlisted fields are written, never a response.
-- `cache.through` resolves after its read loop, so a usage read never waits on an identity request:
+- `cache.through` resolves after its read loop and outside the readings' lock, so no other reader
+  of the vendor waits on an identity request:
   each discovered key with no mapping and no live `retry_until` is asked once. Its outcome is
   attached to this call's readings too.
 - A failure sets `retry_until` to `MIN_BACKOFF × 2^(failures-1)`, capped at the transport's
