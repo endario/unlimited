@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import email.utils
+import http.client
 import json
 import urllib.error
 import urllib.request
@@ -52,7 +53,7 @@ def get(url: str, headers: dict[str, str], now: datetime, timeout: float = 20, d
             body = json.loads(r.read())
     except urllib.error.HTTPError as e:
         return Answer(None, e.code, f"http-{e.code}", retry_until(e.headers.get("Retry-After"), now))
-    except (urllib.error.URLError, OSError):
+    except (urllib.error.URLError, OSError, http.client.HTTPException):
         return Answer(None, None, "unreachable")
     except ValueError:
         return Answer(None, 200, "not-json")
