@@ -38,6 +38,11 @@ struct SettingsView: View {
                 .font(.caption)
                 .frame(maxWidth: .infinity, alignment: .leading)
             }
+            if !globalIncentives.isEmpty {
+                Section("Global rules") {
+                    ForEach(globalIncentives) { StoredPolicyRow(model: model, group: $0) }
+                }
+            }
             if !otherIncentives.isEmpty || !unmatchedOffers.isEmpty {
                 Section("Other policies") {
                     ForEach(otherIncentives) { StoredPolicyRow(model: model, group: $0) }
@@ -75,9 +80,13 @@ struct SettingsView: View {
         Tile.offerRows(readings: Array(model.readings.values), switches: model.offSwitches).filter { !$0.readHere }
     }
 
-    private var otherIncentives: [Runner.Incentive] {
+    var globalIncentives: [Runner.Incentive] {
+        model.incentives.filter { $0.account == nil }
+    }
+
+    var otherIncentives: [Runner.Incentive] {
         model.incentives.filter { group in
-            !model.readings.values.contains { reading in
+            group.account != nil && !model.readings.values.contains { reading in
                 reading.account != nil && group.target == reading.vendor && group.account == reading.account &&
                     SteeringDraft.group(target: reading.vendor, account: reading.account, groups: [group]) != nil
             }

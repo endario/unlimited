@@ -5,7 +5,7 @@ The owner wants visibility, incentive and never-offer controls in each macOS Set
 ## Account rows
 
 - Eye changes Preferences.hidden through StripModel.arrange. Tracking, availability and saved policy are independent of visibility; hidden accounts remain in Settings.
-- Multiplier opens an account-scoped editor. A numeric button label names only a stored canonical account/vendor override; otherwise show the sliders icon. Existing route indicators continue showing inherited/mixed policy without inventing one account-wide factor.
+- Multiplier opens an account-scoped editor. A numeric button label names only a stored canonical account/vendor override; otherwise show the sliders icon. Account route indicators show only account-scoped policy without inventing one account-wide factor; global incentives have no account arrow.
 - Ban uses Tile.offerRows switch matching and StripModel.offer. New bans select the canonical account ID; undo preserves the matched switch's spelling. A covering vendor ban needs confirmation before allowing all its accounts, including identity-free readings; overlapping account bans may remain after vendor undo. Banned rows fade to 0.5 opacity but remain editable.
 - Up/down retain Preferences.step's visible-account ordering and skip hidden rows. Hidden rows' arrows are disabled; boundary presses do not move a row.
 
@@ -17,7 +17,7 @@ One steering editor serves account popovers and existing broader-policy entries.
 
 Drafts load an exact live target/account group. Canonical account identity is used for account-row steering, separately from the matched switch spelling used for ban undo. Alias/orphan/broader groups remain in Other policies rather than appearing as canonical row overrides. Unconfigured editors start fresh; reset groups retain reset mode, including alias-selected groups edited by their stored selector; timed groups use a parser-compatible remaining duration. An explicit Apply reactivates the chosen duration and is last-writer-wins.
 
-Other policies is only an existing-policy list with compact Edit/Clear popovers and unmatched-switch Allow actions. New vendor/model/route policies are CLI-only, as selected by the owner. No empty target composer remains. The owner subsequently clarified that steering should be per-account and authorized clearing the existing shared boosts rather than copying them into account overrides. With no broader policies left, this section disappears.
+Global rules lists incentives without an account selector, using the shared Edit/Clear rows. Other policies keeps account-specific policies not represented by a canonical account row and unmatched-switch Allow actions. New vendor/model/route policies remain CLI-only. No empty target composer remains.
 
 Account-scoped steering depends on callers supplying account bindings to choose/rank; setting a policy in this app does not retrofit caller configuration.
 

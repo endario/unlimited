@@ -17,20 +17,23 @@ Settings keeps each account's controls together: the eye shows or hides its menu
 ban prevents offering it and fades the row. Neither stops tracking. The multiplier button opens
 an account override editor with a multiplier, Until reset, and a duration picker when reset is
 off. Apply writes the override; Clear override removes that scope without clearing inherited
-policies. Right-click a picker for custom values. Other policies lists existing vendor/model/route
-policies and switches for accounts not read here; broader policies can be created through the CLI.
+policies. None removes the override rather than storing a neutral multiplier. Right-click a picker
+for custom values. Global rules lists incentives without an account selector, with their own
+Edit/Clear controls. Other policies keeps account-specific policies and switches not represented
+by an account row; broader policies can be created through the CLI.
 Account/reset steering requires caller account bindings (`choose --account OFFERING=ACCOUNT`, or
 `rank(accounts=...)`).
 
 Auto-hide normal accounts is enabled by default in General. White, readable accounts without
-warnings, bans or steering disappear from the compact strip; hover restores them. After leaving,
+warnings, bans or account steering disappear from the compact strip; hover restores them. After leaving,
 the strip holds for five seconds before fading back. An open popover keeps it expanded. The eye's
 manual hiding still applies, tracking is unchanged, and Reduce Motion disables the fade. When all
 visible accounts are normal, an ellipsis remains available to hover or activate.
 
 With unlimited 0.1.10, Settings can encourage or discourage vendors, accounts, models and routes.
 Until reset is the default; an explicit duration overrides it. A green upward or red downward
-vertical fast-forward glyph beside the account name has single, double or triple stacked heads:
+vertical fast-forward glyph beside the account name reflects only account-scoped incentives and
+has single, double or triple stacked heads. Global rules do not add account glyphs.
 `10x` and `0.1x` use triple heads; `1x` has no glyph. Help gives the route, multiplier and expiry.
 Clear removes the selected scope, so an inherited setting may apply again. Steering is local to
 this machine, and the quota-room underline is independent of it.
