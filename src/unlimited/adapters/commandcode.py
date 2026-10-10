@@ -15,6 +15,8 @@ VENDOR = "commandcode"
 BASE = "https://api.commandcode.ai"
 CREDITS_URL = BASE + "/alpha/billing/credits"
 SUBSCRIPTION_URL = BASE + "/alpha/billing/subscriptions"
+# The key's user, with or without a subscription. It also answers name and email, never kept.
+WHOAMI_URL = BASE + "/alpha/whoami"
 WINDOWS = {"fiveHour": ("five_hour", 300), "weekly": ("seven_day", 10080)}
 # Each plan's monthly allowance in dollars, as command-code 1.65.2 ships it. The API answers only
 # what is left, so the allowance is needed to say how much is used.
@@ -74,6 +76,12 @@ def _credits(credit: dict, now: datetime) -> dict | None:
         return None
     balance = (bought or 0) + (free or 0)
     return credits(now, enabled=balance > 0, used=None, limit=None, balance=balance, currency="USD")
+
+
+def whoami(cred: Credential, now: datetime, get):
+    ans = get(WHOAMI_URL, {"Authorization": f"Bearer {cred.secret['key']}"}, now)
+    who = _dict(ans.body, "user").get("id")
+    return (who if isinstance(who, str) and who else None), ans
 
 
 def read(cred: Credential, now: datetime, get) -> dict:

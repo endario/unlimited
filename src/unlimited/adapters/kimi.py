@@ -12,6 +12,8 @@ VENDOR = "kimi"
 BASE_URL = "https://api.kimi.com/coding/v1"
 URL = f"{BASE_URL}/usages"
 FALLBACK_URL = f"{BASE_URL}/usage"
+# The key's user. It also answers the email and nickname, which are never kept.
+WHOAMI_URL = f"{BASE_URL}/me"
 # Minutes per Kimi window unit, keyed by the confirmed real string with its "TIME_UNIT_" prefix
 # stripped. Only 5-hour and 7-day windows are confirmed on the Kimi Code coding plan.
 UNIT_MINUTES = {"MINUTE": 1, "HOUR": 60, "DAY": 1440}
@@ -138,6 +140,12 @@ def limits(body: dict, now: datetime) -> list[dict]:
         for name, l in _ratio_limits(usages, now).items():
             found.setdefault(name, l)
     return list(found.values())
+
+
+def whoami(cred: Credential, now: datetime, get):
+    ans = get(WHOAMI_URL, {"Authorization": f"Bearer {cred.secret['key']}"}, now)
+    who = ans.body.get("user_id") if isinstance(ans.body, dict) else None
+    return (who if isinstance(who, str) and who else None), ans
 
 
 def read(cred: Credential, now: datetime, get) -> dict:

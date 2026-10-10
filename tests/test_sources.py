@@ -824,6 +824,44 @@ class Kimi(Base):
         self.assertEqual((got["status"], got["why"]), ("unread", "no-limits"))
 
 
+class Whoami(unittest.TestCase):
+    """Each identity source answers only the id: nothing else it says leaves `whoami`."""
+
+    CRED = Credential("kid", {"key": "fixture-key"})
+
+    def ask(self, adapter, body, status=200):
+        seen = []
+
+        def get(url, headers, now):
+            seen.append((url, headers["Authorization"]))
+            return Answer(body, status, None if body is not None else f"http-{status}")
+        got, _ = adapter.whoami(self.CRED, NOW, get)
+        self.assertEqual(seen, [(adapter.WHOAMI_URL, "Bearer fixture-key")])
+        return got
+
+    def test_zai_names_the_customer_holding_the_subscriptions(self):
+        rows = [{"customerId": "17261781696668863", "productName": "GLM Coding Max"}] * 2
+        self.assertEqual(self.ask(zai, {"data": rows}), "17261781696668863")
+
+    def test_zai_names_no_one_for_no_subscription_or_two_customers(self):
+        self.assertIsNone(self.ask(zai, {"data": []}))
+        self.assertIsNone(self.ask(zai, {"data": [{"customerId": "a"}, {"customerId": "b"}]}))
+
+    def test_kimi_names_the_user_and_nothing_personal(self):
+        body = {"user_id": "d4mkekqn754e7ngc48v0", "email": "someone@example.com", "nickname": "Someone"}
+        self.assertEqual(self.ask(kimi, body), "d4mkekqn754e7ngc48v0")
+
+    def test_commandcode_names_the_user_and_nothing_personal(self):
+        body = {"success": True, "user": {"id": "c280f8f7", "email": "someone@example.com"}, "org": None}
+        self.assertEqual(self.ask(commandcode, body), "c280f8f7")
+
+    def test_a_refusal_or_a_malformed_answer_names_no_one(self):
+        for adapter in (zai, kimi, commandcode):
+            with self.subTest(vendor=adapter.VENDOR):
+                self.assertIsNone(self.ask(adapter, None, 503))
+                self.assertIsNone(self.ask(adapter, {"user_id": 7, "user": "x", "data": "x"}))
+
+
 class LastGood(Base):
     def adapter(self, answer):
         return SimpleNamespace(VENDOR="x", discover=lambda: [Credential("a", {})],

@@ -88,7 +88,8 @@ def through(adapter, *, max_age: float, clock, get, directory: Path | None = Non
         for r in getattr(adapter, "local", lambda now: [])(now):
             local[r["account"]] = _newer(local.get(r["account"]), r)
         out = []
-        for cred in adapter.discover():
+        creds = adapter.discover()
+        for cred in creds:
             prior = cached.get(cred.account)
             best = _newer(prior if prior and prior.get("status") == "ok" else None,
                           local.get(cred.account))
@@ -123,8 +124,17 @@ def through(adapter, *, max_age: float, clock, get, directory: Path | None = Non
         # Names describe this machine's directories now, not the vendor's answer: never cached.
         names = getattr(adapter, "names", dict)()
         done = [projection.attach(settled(r, now), history) for r in out]
-        return [dict(r, names=names.get(r.get("account"), []), limits=[_roled(adapter, l) for l in r.get("limits", [])])
-                for r in done]
+    # After the reads and outside their lock: no reader of this vendor waits on its identity
+    # endpoint. An identity that cannot be had leaves the readings as they are.
+    from . import identities
+    try:
+        ids = identities.resolve(adapter, creds, now, get, directory)
+    except Exception:
+        ids = {}
+    return [dict(r, names=names.get(r.get("account"), []),
+                 vendor_account=identities.vendor_account(adapter, r.get("account"), ids),
+                 limits=[_roled(adapter, l) for l in r.get("limits", [])])
+            for r in done]
 
 
 def routes_through(adapter, *, max_age: float, clock, get, directory: Path | None = None) -> list[dict]:

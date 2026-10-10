@@ -13,6 +13,14 @@ public struct Reading: Decodable, Sendable {
     public let names: [String]
     /// Absent on CLI releases before manual steering.
     public let steering: Steering
+    /// The vendor's own id for the account, the same on every machine; absent before account
+    /// identity, and `nil` until the CLI has identified the account or where the vendor has no id.
+    public let vendorAccount: String?
+
+    /// `vendorAccount` short enough to sit in a row; the whole id goes in its tooltip.
+    public var shortVendorAccount: String? {
+        vendorAccount.map { $0.count > 12 ? String($0.prefix(8)) + "…" : $0 }
+    }
 
     public static func decode(_ data: Data) throws -> [Reading] {
         let d = JSONDecoder()
@@ -37,7 +45,7 @@ public struct Reading: Decodable, Sendable {
     public let credits: Credits?
 
     enum CodingKeys: String, CodingKey {
-        case schema, vendor, account, takenAt, status, why, retryUntil, limits, names, plan, credits, steering
+        case schema, vendor, account, takenAt, status, why, retryUntil, limits, names, plan, credits, steering, vendorAccount
     }
 
     public init(from decoder: Decoder) throws {
@@ -54,6 +62,7 @@ public struct Reading: Decodable, Sendable {
         steering = try c.decodeIfPresent(Steering.self, forKey: .steering) ?? Steering()
         plan = try c.decodeIfPresent(String.self, forKey: .plan)
         credits = try c.decodeIfPresent(Credits.self, forKey: .credits)
+        vendorAccount = try c.decodeIfPresent(String.self, forKey: .vendorAccount)
     }
 
     /// The window the tile follows: a plan's monthly bucket where it enforces one, since that is the

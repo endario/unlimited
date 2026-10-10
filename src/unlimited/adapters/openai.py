@@ -12,6 +12,8 @@ from ..credential import Credential
 from ..schema import OK, UNREAD, failed, limit, reading
 
 VENDOR = "openai"
+# `account` is already the vendor's own id (the ChatGPT `account_id`).
+ACCOUNT_IS_VENDOR_ID = True
 URL = "https://chatgpt.com/backend-api/wham/usage"
 
 
