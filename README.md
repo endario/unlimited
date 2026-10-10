@@ -103,6 +103,7 @@ CLI and app share the builtin message definitions; JSON keeps the machine-readab
       "can_purchase": false
     },
     "names": ["work"],
+    "vendor_account": "11111111-2222-3333-4444-555555555555",
     "limits": [
       {
         "name": "seven_day",
@@ -139,6 +140,13 @@ Read `projection.at_reset` against `used_at_least` rather than either alone, and
 named in `scope` where the vendor names it), or `null` for an entry that repeats another or is not
 a window. `names` are this machine's names for the account: the config directories or wrappers
 holding its credential.
+
+`vendor_account` is the vendor's own id for the account, the same on every machine and through
+every key, so readings taken elsewhere can be matched to this one. `account` is unlimited's id: the
+vendor's where the credential names it (Anthropic, OpenAI, xAI), otherwise a hash of the API key.
+For Z.ai, Kimi and Command Code the vendor id is asked once per key and kept; it is `null` until
+then, and for opencode and Neuralwatt, whose APIs do not say. `unlimited accounts [--json]` lists
+each account here with both ids, without asking a vendor.
 
 ## Models
 
@@ -270,6 +278,11 @@ There is one cache file and one `flock` per vendor under `$XDG_CACHE_HOME/unlimi
 caller until it passes, capped at 24 hours; a 429 or 5xx holds off at least five minutes, and the
 account's last good reading stands in the meantime. On macOS the keychain is readable only from the
 user's GUI session or launchd, not over plain ssh.
+
+Vendor account ids are kept in `identities/<vendor>.json` beside it, mode `0600`: a key's hash and
+its account's id, nothing the vendor said besides. An identity request runs after the usage reads,
+so it never delays one; a failed request is asked again after five minutes, then twice as long each
+time, up to 24 hours. A key's account is asked only once; delete the file to ask again.
 
 ## Status
 

@@ -129,3 +129,13 @@ func strip() throws -> [String: Tile] {
     #expect(tiles.first { $0.id == "zai/4ff9f720" }?.off == true)
     #expect(tiles.first { $0.id == "zai/da68cb2c" }?.off == false, "the sibling account stays offerable")
 }
+
+@Test func aReadingCarriesTheVendorsAccountIdWhereTheCliKnowsIt() throws {
+    let readings = try fixture()
+    let z1 = try #require(readings.first { $0.account == "z1" })
+    #expect(z1.vendorAccount == "17261781696668863")
+    #expect(z1.shortVendorAccount == "17261781…")
+    // A CLI before account identity, or an account not yet identified, says nothing.
+    #expect(try #require(readings.first { $0.account == "z2" }).vendorAccount == nil)
+    #expect(try #require(readings.first { $0.account == "z2" }).shortVendorAccount == nil)
+}

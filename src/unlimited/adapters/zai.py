@@ -9,6 +9,8 @@ from ..schema import OK, REFUSED, UNREAD, failed, limit, reading
 
 VENDOR = "zai"
 URL = "https://api.z.ai/api/monitor/usage/quota/limit"
+# The coding-plan subscriptions on the key, each naming the customer that holds it.
+WHOAMI_URL = "https://api.z.ai/api/biz/subscription/list"
 # Minutes per Z.ai unit: 3 is hours, 6 is the plan's week. An unknown unit keeps no length.
 UNIT_MINUTES = {3: 60, 6: 10080}
 NAMES = {300: "five_hour", 10080: "seven_day"}
@@ -60,6 +62,16 @@ def limits(body: dict, now: datetime) -> list[dict]:
         out.append(limit(name or f"{str(kind).lower()} {unit}x{number}", window_minutes=minutes,
                          used_at_least=used, resets_at=resets, held=None, kind=kind))
     return out
+
+
+def whoami(cred: Credential, now: datetime, get):
+    """The key's customer id, when its subscriptions name exactly one; a key with no subscription
+    names none."""
+    ans = get(WHOAMI_URL, {"Authorization": f"Bearer {cred.secret['key']}"}, now)
+    rows = ans.body.get("data") if isinstance(ans.body, dict) else None
+    ids = {r["customerId"] for r in rows if isinstance(r, dict) and isinstance(r.get("customerId"), str)
+           and r["customerId"]} if isinstance(rows, list) else set()
+    return (ids.pop() if len(ids) == 1 else None), ans
 
 
 def read(cred: Credential, now: datetime, get) -> dict:

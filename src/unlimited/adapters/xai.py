@@ -13,6 +13,8 @@ from ..credential import Credential
 from ..schema import OK, UNREAD, failed, limit, reading
 
 VENDOR = "xai"
+# `account` is already the vendor's own id (the Grok `user_id`).
+ACCOUNT_IS_VENDOR_ID = True
 URL = "https://cli-chat-proxy.grok.com/v1/billing?format=credits"
 SETTINGS_URL = "https://cli-chat-proxy.grok.com/v1/settings"
 TOKEN_URL = "https://auth.x.ai/oauth2/token"

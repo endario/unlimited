@@ -23,7 +23,7 @@
  {"schema": 1, "vendor": "zai", "account": "z2", "taken_at": "2026-09-24T05:50:00+00:00", "source": "api",
   "plan": "max", "status": "refused", "why": "http-401", "retry_until": null, "credits": null,
   "names": ["claude-glm-2"], "limits": []},
- {"schema": 1, "vendor": "zai", "account": "z1", "taken_at": "2026-09-24T05:50:00+00:00", "source": "api",
+ {"schema": 1, "vendor": "zai", "account": "z1", "vendor_account": "17261781696668863", "taken_at": "2026-09-24T05:50:00+00:00", "source": "api",
   "plan": "max", "status": "ok", "why": null, "retry_until": null, "credits": null, "names": ["claude-glm"],
   "limits": [{"name": "five_hour", "window_minutes": 300, "used_at_least": 0.26, "resets_at": "2026-09-24T08:00:00+00:00",
               "held": null, "role": "session", "scope": null}]},
