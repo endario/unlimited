@@ -93,7 +93,7 @@ struct AccountRow: View {
             .disabled(!model.canSteer || reading?.account == nil || model.steeringPending)
             .accessibilityLabel("Multiplier for \(label)")
             .help(reading?.account == nil ? "No account identity is available for steering." :
-                  "Edit this account's multiplier override. Route indicators include inherited policies. Selection requires account bindings (choose --account OFFERING=ACCOUNT or rank accounts=)." +
+                  "Edit this account's multiplier override. Selection requires account bindings (choose --account OFFERING=ACCOUNT or rank accounts=)." +
                   (group.map { " Stored override: \(SteeringIndicator.format($0.multiplier))." } ?? ""))
             .popover(isPresented: $state.steering) {
                 VStack(alignment: .leading, spacing: 12) {
