@@ -181,7 +181,7 @@ final class StripModel: ObservableObject {
 
     private func redraw() {
         guard !lastRead.isEmpty else { return }
-        accounts = Tile.strip(lastRead, now: now(), off: offKeys)
+        accounts = Tile.strip(ApiCredit.folded(lastRead), now: now(), off: offKeys)
         tiles = prefs.apply(accounts)
         if tiles.isEmpty { tiles = [.waiting] }
         save()
