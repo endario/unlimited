@@ -11,7 +11,7 @@ from pathlib import Path
 
 from .cache import MIN_BACKOFF, default_dir
 from .schema import iso, moment
-from .state import write_json
+from .state import flock, write_json
 from .transport import MAX_BACKOFF
 
 
@@ -29,10 +29,20 @@ def load(vendor: str, directory: Path | None = None) -> dict[str, dict]:
         if isinstance(body, dict) else {}
 
 
+def _resolved(held: dict[str, dict]) -> dict[str, str]:
+    return {k: v["account"] for k, v in held.items() if isinstance(v.get("account"), str) and v["account"]}
+
+
 def accounts(vendor: str, directory: Path | None = None) -> dict[str, str]:
     """Key id → vendor account id, for every key resolved on this machine. No network."""
-    return {k: v["account"] for k, v in load(vendor, directory).items()
-            if isinstance(v.get("account"), str) and v["account"]}
+    return _resolved(load(vendor, directory))
+
+
+def vendor_account(adapter, account: str | None, ids: dict[str, str]) -> str | None:
+    """The vendor's id for the account unlimited calls `account`, given `accounts()`."""
+    if getattr(adapter, "ACCOUNT_IS_VENDOR_ID", False):
+        return account
+    return ids.get(account) if account else None
 
 
 def backoff(failures: int) -> timedelta:
@@ -41,11 +51,20 @@ def backoff(failures: int) -> timedelta:
 
 def resolve(adapter, keys: list, now: datetime, get, directory: Path | None = None) -> dict[str, str]:
     """Ask the vendor for each key here with no mapping and no live deadline; return the mapping.
-    The caller holds the vendor's cache lock."""
-    held = load(adapter.VENDOR, directory)
+    Holds the identity file's own lock, never the readings'."""
     whoami = getattr(adapter, "whoami", None)
+    if whoami is None:
+        return {}
+    p = path(adapter.VENDOR, directory)
+    p.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+    with flock(p):
+        return _resolve(whoami, p, adapter.VENDOR, keys, now, get, directory)
+
+
+def _resolve(whoami, p: Path, vendor: str, keys: list, now: datetime, get, directory) -> dict[str, str]:
+    held = load(vendor, directory)
     changed = False
-    for cred in keys if whoami else []:
+    for cred in keys:
         kid = cred.account
         entry = held.get(kid) or {}
         if not kid or entry.get("account"):
@@ -64,7 +83,5 @@ def resolve(adapter, keys: list, now: datetime, get, directory: Path | None = No
             held[kid] = {"retry_until": iso(max(due, vendor) if vendor else due), "failures": failures}
         changed = True
     if changed:
-        p = path(adapter.VENDOR, directory)
-        p.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
         write_json(held, p)
-    return {k: v["account"] for k, v in held.items() if isinstance(v.get("account"), str) and v["account"]}
+    return _resolved(held)

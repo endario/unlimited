@@ -47,7 +47,7 @@
 ## Task 5: macOS app
 
 - [x] `Reading.vendorAccount`; popover header and account row show it shortened, full id in the
-      tooltip, selectable.
+      tooltip, copied from the context menu.
 - [x] Swift tests for decoding with and without the field.
 
 ## Task 6: release

@@ -52,9 +52,9 @@ struct PopoverView: View {
     /// Which account this is: the strip above is the tabs, so the popover only names it.
     private func header(_ t: Tile, _ r: Reading) -> some View {
         HStack(alignment: .center, spacing: 6) {
-            describing(([Tile.vendorName(t.vendor)] + r.names).joined(separator: " · "), r)
-                .font(.callout).foregroundStyle(.secondary).textSelection(.enabled)
-                .help(vendorAccountHelp("The account shown: pick another on the strip", r))
+            DescribedAccount(description: ([Tile.vendorName(t.vendor)] + r.names).joined(separator: " · "),
+                             help: "The account shown: pick another on the strip", reading: r)
+                .font(.callout).foregroundStyle(.secondary)
             SteeringIndicatorView(indicator: t.indicator)
             Spacer()
             // The star is drawn taller than the rectangles beside it: 11.25pt medium matches their ink height and stroke.

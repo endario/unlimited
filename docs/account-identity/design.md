@@ -68,8 +68,9 @@ the id it parsed.
 ### macOS app
 
 - `Reading` decodes `vendorAccount` (absent on older CLIs).
-- The popover header and the account row's description show the vendor id, shortened, with the full
-  id in the tooltip and selectable; nothing is shown where it is `null`.
+- The popover header and the account row's description show the vendor id, shortened, in the same
+  text run; the full id is in the tooltip and copied from the context menu. Nothing is shown where
+  it is `null`.
 
 ### Acceptance
 

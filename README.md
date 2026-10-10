@@ -280,8 +280,8 @@ account's last good reading stands in the meantime. On macOS the keychain is rea
 user's GUI session or launchd, not over plain ssh.
 
 Vendor account ids are kept in `identities/<vendor>.json` beside it, mode `0600`: a key's hash and
-its account's id, nothing the vendor said besides. An identity request runs after the usage reads,
-so it never delays one; a failed request is asked again after five minutes, then twice as long each
+its account's id, nothing the vendor said besides. An identity request runs after the usage reads
+and outside their lock, so no other reader waits on it; a failed request is asked again after five minutes, then twice as long each
 time, up to 24 hours. A key's account is asked only once; delete the file to ask again.
 
 ## Status

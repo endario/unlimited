@@ -696,10 +696,10 @@ def _accounts(a) -> int:
         except Exception as e:  # one vendor's unreadable credentials leave the others listed
             print(f"unlimited: {v}: {type(e).__name__}", file=sys.stderr)
             continue
-        ids = {} if getattr(adapter, "ACCOUNT_IS_VENDOR_ID", False) else identities.accounts(v)
+        ids = identities.accounts(v)
         for c in creds:
-            vendor_account = c.account if getattr(adapter, "ACCOUNT_IS_VENDOR_ID", False) else ids.get(c.account)
-            out.append({"vendor": v, "account": c.account, "vendor_account": vendor_account,
+            out.append({"vendor": v, "account": c.account,
+                        "vendor_account": identities.vendor_account(adapter, c.account, ids),
                         "names": names.get(c.account, [])})
     if a.json:
         json.dump(out, sys.stdout)

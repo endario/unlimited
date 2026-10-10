@@ -352,9 +352,6 @@ class Version(unittest.TestCase):
             self.assertEqual(cli._version(), "unknown")
 
 
-if __name__ == "__main__":
-    unittest.main()
-
 
 class Identity(unittest.TestCase):
     """Each key's vendor account id: asked once, kept, and never in the way of a usage read."""
@@ -423,3 +420,23 @@ class Identity(unittest.TestCase):
                          [timedelta(minutes=5), timedelta(minutes=10), timedelta(minutes=20)])
         self.assertEqual(identities.backoff(30), transport.MAX_BACKOFF)
 
+
+    def test_an_identity_that_raises_leaves_the_readings_whole(self):
+        with mock.patch.object(zai, "whoami", side_effect=OSError("identities unwritable")):
+            [r] = self.read(zai)
+        self.assertEqual((r["status"], r["vendor_account"]), ("ok", None))
+
+    def test_accounts_lists_both_ids_without_asking_a_vendor(self):
+        self.read(zai)
+        calls = list(self.up.calls) + list(self.up.identity)
+        buf = io.StringIO()
+        with mock.patch.object(transport, "get", self.up), redirect_stdout(buf):
+            self.assertEqual(cli.main(["accounts", "--vendor", "zai", "--vendor", "openai", "--json"]), 0)
+        rows = {r["vendor"]: r for r in json.loads(buf.getvalue())}
+        self.assertEqual(rows["zai"]["vendor_account"], "customer-fixture")
+        self.assertEqual((rows["openai"]["account"], rows["openai"]["vendor_account"]), ("acct-fixture", "acct-fixture"))
+        self.assertEqual(list(self.up.calls) + list(self.up.identity), calls)
+
+
+if __name__ == "__main__":
+    unittest.main()

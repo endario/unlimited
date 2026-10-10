@@ -68,12 +68,6 @@ def _roled(adapter, l: dict) -> dict:
     return dict(l, **(got(name, minutes) if got else {"role": role_of(name, minutes), "scope": None}))
 
 
-def _vendor_account(adapter, r: dict, ids: dict[str, str]) -> str | None:
-    if getattr(adapter, "ACCOUNT_IS_VENDOR_ID", False):
-        return r.get("account")
-    return ids.get(r.get("account"))
-
-
 def through(adapter, *, max_age: float, clock, get, directory: Path | None = None) -> list[dict]:
     """This vendor's readings: for each account, the newest of the cached reading and any local
     source the adapter has, asking upstream only when neither is younger than `max_age`."""
@@ -127,15 +121,20 @@ def through(adapter, *, max_age: float, clock, get, directory: Path | None = Non
                 out.append(got)
         history = projection.prune(projection.record(history, out), now)
         _write(path, out, history)
-        # After the reads: a usage read never waits on a vendor's identity endpoint.
-        from . import identities
-        ids = identities.resolve(adapter, creds, now, get, directory)
         # Names describe this machine's directories now, not the vendor's answer: never cached.
         names = getattr(adapter, "names", dict)()
         done = [projection.attach(settled(r, now), history) for r in out]
-        return [dict(r, names=names.get(r.get("account"), []), vendor_account=_vendor_account(adapter, r, ids),
-                     limits=[_roled(adapter, l) for l in r.get("limits", [])])
-                for r in done]
+    # After the reads and outside their lock: no reader of this vendor waits on its identity
+    # endpoint. An identity that cannot be had leaves the readings as they are.
+    from . import identities
+    try:
+        ids = identities.resolve(adapter, creds, now, get, directory)
+    except Exception:
+        ids = {}
+    return [dict(r, names=names.get(r.get("account"), []),
+                 vendor_account=identities.vendor_account(adapter, r.get("account"), ids),
+                 limits=[_roled(adapter, l) for l in r.get("limits", [])])
+            for r in done]
 
 
 def routes_through(adapter, *, max_age: float, clock, get, directory: Path | None = None) -> list[dict]:
