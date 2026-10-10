@@ -417,3 +417,9 @@ class Identity(unittest.TestCase):
         self.assertNotIn(ZAI_SECRET, text)
         self.assertEqual([set(v) for v in json.loads(text).values()], [{"account"}])
 
+    def test_a_source_that_never_answers_is_asked_at_most_daily(self):
+        from unlimited import identities
+        self.assertEqual([identities.backoff(n) for n in (1, 2, 3)],
+                         [timedelta(minutes=5), timedelta(minutes=10), timedelta(minutes=20)])
+        self.assertEqual(identities.backoff(30), transport.MAX_BACKOFF)
+
