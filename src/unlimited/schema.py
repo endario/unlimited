@@ -65,13 +65,16 @@ def limit(name: str, *, window_minutes: int | None, used_at_least: float | None,
 
 def credits(taken_at: datetime, *, enabled: bool, used: float | None, limit: float | None,
             balance: float | None, currency: str | None, severity: str | None = None,
-            disabled_reason: str | None = None, can_purchase: bool | None = None) -> dict:
+            disabled_reason: str | None = None, can_purchase: bool | None = None,
+            expires_at: datetime | None = None) -> dict:
     """What an account can spend past its plan's windows. Amounts are in `currency`'s major units.
     `enabled` is the vendor's word for whether that spending is on now; `disabled_reason` is its own,
     verbatim. `taken_at` is when the vendor said so, which outlives the reading that carries it."""
     return {"taken_at": iso(taken_at), "enabled": enabled, "used": used, "limit": limit,
             "balance": balance, "currency": currency, "severity": severity,
-            "disabled_reason": disabled_reason, "can_purchase": can_purchase}
+            "disabled_reason": disabled_reason, "can_purchase": can_purchase,
+            # When the earliest of the credit still held lapses, where the vendor says.
+            "expires_at": iso(expires_at)}
 
 
 def reading(vendor: str, account: str | None, taken_at: datetime, status: str, *,

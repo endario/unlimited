@@ -121,8 +121,6 @@ def through(adapter, *, max_age: float, clock, get, directory: Path | None = Non
                 out.append(got)
         history = projection.prune(projection.record(history, out), now)
         _write(path, out, history)
-        # Names describe this machine's directories now, not the vendor's answer: never cached.
-        names = getattr(adapter, "names", dict)()
         done = [projection.attach(settled(r, now), history) for r in out]
     # After the reads and outside their lock: no reader of this vendor waits on its identity
     # endpoint. An identity that cannot be had leaves the readings as they are.
@@ -131,6 +129,9 @@ def through(adapter, *, max_age: float, clock, get, directory: Path | None = Non
         ids = identities.resolve(adapter, creds, now, get, directory)
     except Exception:
         ids = {}
+    # Names describe this machine's directories now, not the vendor's answer: never cached. Taken
+    # after the identities, which an adapter may name its accounts by.
+    names = getattr(adapter, "names", dict)()
     return [dict(r, names=names.get(r.get("account"), []),
                  vendor_account=identities.vendor_account(adapter, r.get("account"), ids),
                  limits=[_roled(adapter, l) for l in r.get("limits", [])])
