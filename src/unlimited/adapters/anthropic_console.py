@@ -140,10 +140,10 @@ def _api_org(body: dict) -> str | None:
 def read(cred: Credential, now: datetime, get) -> dict:
     if not cred.secret.get("session"):
         return reading(VENDOR, cred.account, now, UNREAD, why="no-credential")
-    boot = get(ACCOUNT_URL, _headers(cred), now)
-    if boot.body is None:
-        return failed(VENDOR, cred.account, now, boot)
-    org = _api_org(boot.body)
+    acct = get(ACCOUNT_URL, _headers(cred), now)
+    if acct.body is None:
+        return failed(VENDOR, cred.account, now, acct)
+    org = _api_org(acct.body)
     if org is None:
         return reading(VENDOR, cred.account, now, UNREAD, why="no-api-organization")
     ans = get(f"{BASE}/organizations/{org}/prepaid/credits", _headers(cred), now)
