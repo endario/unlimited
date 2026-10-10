@@ -9,7 +9,9 @@ public enum ApiCredit {
     /// The Console reading for a Claude account's login, where this machine has one.
     public static func linked(to r: Reading, in readings: [Reading]) -> Reading? {
         guard r.vendor == "anthropic", let who = r.vendorAccount else { return nil }
-        return readings.first { $0.vendor == vendor && $0.vendorAccount == who }
+        // Two profiles may hold the same login; the fresher reading speaks for it.
+        return readings.filter { $0.vendor == vendor && $0.vendorAccount == who }
+            .max { ($0.takenAt ?? .distantPast) < ($1.takenAt ?? .distantPast) }
     }
 
     /// The readings the strip shows: a Console reading linked to a Claude account rides on its tile.

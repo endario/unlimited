@@ -141,7 +141,7 @@ final class StripModel: ObservableObject {
     @Published var open = false
     /// Closes the popover: set by the app, used by what the popover opens (Settings).
     var closePopover: () -> Void = {}
-    /// Every account as read, before the owner's hiding: what Settings lists.
+    /// Every account as read, a linked API credit folded into its Claude account, before the owner's hiding: what Settings lists.
     @Published private(set) var accounts: [Tile] = []
     @Published private(set) var prefs: Preferences
 

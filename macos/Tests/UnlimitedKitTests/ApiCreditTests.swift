@@ -38,7 +38,7 @@ private var console: [String: Any] { [
     #expect(ApiCredit.profile(for: rs[1], linked: nil) == "Unlimited account2")
 }
 
-@Test func anUnreadConsoleHasNoLineSoTheSignInIsOffered() throws {
+@Test func anUnreadConsoleHasNoBalanceLine() throws {
     let r = try #require(try readings([console.merging(["status": "refused", "why": "http-403"]) { $1 }]).first)
     #expect(ApiCredit.line(r, now: now) == nil)
 }
