@@ -8,7 +8,7 @@ private func readings(_ rows: [[String: Any]]) throws -> [Reading] {
 }
 
 private var console: [String: Any] { [
-    "vendor": "anthropic-console", "account": "chrome:Default", "vendor_account": "login-1",
+    "vendor": "anthropic-console", "account": "chrome:Default:1a2b3c4d", "vendor_account": "login-1",
     "credits": ["enabled": true, "balance": 199.5, "currency": "USD", "expires_at": "2026-11-04T00:00:00+00:00"]] }
 
 @Test func theConsoleCreditRidesOnTheClaudeAccountOfTheSameLogin() throws {

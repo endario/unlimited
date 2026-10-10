@@ -23,7 +23,11 @@ public enum ApiCredit {
     /// The Chrome profile that holds, or will hold, this Claude account's Console sign-in. One profile
     /// keeps one Console sign-in, so an account not yet linked gets a profile of its own.
     public static func profile(for r: Reading, linked: Reading?) -> String {
-        if let held = linked?.account, held.hasPrefix("chrome:") { return String(held.dropFirst("chrome:".count)) }
+        // `chrome:<profile>:<sign-in>`
+        if let held = linked?.account, held.hasPrefix("chrome:"), let end = held.lastIndex(of: ":"),
+           end > held.index(held.startIndex, offsetBy: 6) {
+            return String(held[held.index(held.startIndex, offsetBy: 7)..<end])
+        }
         return "Unlimited " + (r.names.first ?? r.account ?? "account")
     }
 

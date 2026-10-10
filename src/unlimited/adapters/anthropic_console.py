@@ -105,7 +105,10 @@ class _Session(Mapping):
 def discover() -> list[Credential]:
     if sys.platform != "darwin":
         return []
-    return [Credential(f"chrome:{p.name}", _Session(p)) for p in _profiles() if _row(p)]
+    # A profile's sign-in can change login, and an identity is resolved once per key, so the key
+    # names the sign-in too: the stored cookie, still encrypted, so no keychain is asked here.
+    return [Credential(f"chrome:{p.name}:{hashlib.sha256(row[0]).hexdigest()[:8]}", _Session(p))
+            for p in _profiles() if (row := _row(p))]
 
 
 def _headers(cred: Credential) -> dict[str, str]:
