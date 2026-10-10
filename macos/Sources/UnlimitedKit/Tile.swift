@@ -230,7 +230,9 @@ public struct Tile: Identifiable, Equatable, Sendable {
             Alternate(role: $0.role ?? "", value: $0.usedAtLeast.map { .percent(Int(($0 * 100).rounded())) } ?? .unknown,
                       health: $0.health(now: now))
         } : nil
-        let steering = SteeringIndicator(routes: r.steering.routes, now: now)
+        let steering = SteeringIndicator(routes: r.steering.routes.filter {
+            $0.account != nil && $0.account == r.account
+        }, now: now)
         var tile = Tile(id: id, label: label(r), value: value, dimmed: throttled || !usable,
                         health: usable ? r.primary?.health(now: now) ?? .normal : .normal, alternate: alt,
                         indicator: steering.count == 0 ? nil : steering)
