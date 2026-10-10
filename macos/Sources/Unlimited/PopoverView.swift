@@ -36,6 +36,13 @@ struct PopoverView: View {
                     Box { Label(credits, systemImage: "creditcard").font(.callout) }
                         .help("Extra usage credits: whether the account may spend past its limits")
                 }
+                if reading.vendor == "anthropic" {
+                    let api = ApiCredit.linked(to: reading, in: Array(model.readings.values))
+                    if let api, api.status == "ok" { ForEach(Card.cards(api, now: Date())) { CardView(card: $0) } }
+                    ApiCreditView(linked: api != nil, none: api?.why == "no-api-organization",
+                                  line: api.flatMap { ApiCredit.line($0, now: Date()) },
+                                  profile: ApiCredit.profile(for: reading, linked: api))
+                }
                 footer(reading)
             } else {
                 Text(model.accounts.isEmpty ? "Reading…" : "Every account is hidden: see Settings.")
@@ -107,6 +114,43 @@ struct PopoverView: View {
                 .buttonStyle(.plain).help("Quit")
         }
         .font(.caption)
+    }
+}
+
+/// The Console's balance for this login, or the way to sign in to it: lapsed when linked, never yet
+/// when not.
+struct ApiCreditView: View {
+    let linked: Bool
+    let none: Bool
+    let line: String?
+    let profile: String
+
+    var body: some View {
+        Box {
+            if let line {
+                Label(line, systemImage: "dollarsign.circle").font(.callout)
+                    .help("As the Claude Console reports it, read on Chrome profile \(profile)")
+            } else if none {
+                Label("No API organization on this login", systemImage: "dollarsign.circle")
+                    .font(.callout).foregroundStyle(.secondary)
+            } else {
+                HStack {
+                    Label(linked ? "API credit: Console sign-in lapsed" : "API credit", systemImage: "dollarsign.circle")
+                        .font(.callout).foregroundStyle(linked ? .primary : .secondary)
+                    Spacer()
+                    Button("Sign in", action: open)
+                        .help("Sign in to the Claude Console in Chrome profile \(profile) as this account, then refresh")
+                }
+            }
+        }
+    }
+
+    private func open() {
+        // The reading takes the cookie from this Chrome profile; Chrome creates the profile if it is new.
+        let p = Process()
+        p.executableURL = URL(fileURLWithPath: "/usr/bin/open")
+        p.arguments = ["-na", "Google Chrome", "--args", "--profile-directory=\(profile)", ApiCredit.console.absoluteString]
+        try? p.run()
     }
 }
 

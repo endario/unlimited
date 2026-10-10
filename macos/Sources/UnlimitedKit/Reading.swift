@@ -76,6 +76,8 @@ public struct Credits: Decodable, Sendable {
     public let used: Double?
     public let limit: Double?
     public let currency: String?
+    public let balance: Double?
+    public let expiresAt: Date?
 }
 
 public struct Limit: Decodable, Sendable {
