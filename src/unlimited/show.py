@@ -12,7 +12,8 @@ VENDOR_NAMES = {"anthropic": "Claude", "openai": "Codex", "zai": "Z.ai GLM", "op
                 "kimi": "Kimi Code", "neuralwatt": "Neuralwatt", "commandcode": "Command Code"}
 WINDOW_NAMES = {"five_hour": "5-hour", "seven_day": "weekly", "month": "monthly", "codex": "weekly",
                 "gpt-reserve": "weekly reserve", "seven_day_opus": "weekly Opus",
-                "seven_day_sonnet": "weekly Sonnet", "period": "billing period"}
+                "seven_day_sonnet": "weekly Sonnet", "period": "billing period",
+                "api_credit": "API credit"}
 BAR = 20
 # Vendor plan words a person would not recognise, in the words they would.
 PLANS = {"default_claude_max_20x": "Max 20x", "default_claude_max_5x": "Max 5x", "default_claude_ai": "Pro",
