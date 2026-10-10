@@ -148,6 +148,15 @@ class Decrypt(unittest.TestCase):
         with mock.patch.object(console, "_password", return_value=None):
             self.assertIsNone(console._decrypt(self.encrypt(b"x"), 24))
 
+    def test_a_new_sign_in_in_the_same_profile_is_a_new_account_to_resolve(self):
+        rows = iter([(b"v10-acc1", 24), (b"v10-acc2", 24)])
+        with mock.patch.object(console, "_profiles", return_value=[Path("/x/Default")]), \
+                mock.patch.object(console, "_row", side_effect=lambda p: next(rows)), \
+                mock.patch.object(console.sys, "platform", "darwin"):
+            first, second = console.discover()[0].account, console.discover()[0].account
+        self.assertTrue(first.startswith("chrome:Default:"))
+        self.assertNotEqual(first, second)
+
     def test_the_cookie_is_found_in_a_profiles_store(self):
         root = Path(scratch.mkdtemp())
         (root / "Default").mkdir()
