@@ -145,7 +145,7 @@ holding its credential.
 every key, so readings taken elsewhere can be matched to this one. `account` is unlimited's id: the
 vendor's where the credential names it (Anthropic, OpenAI, xAI), otherwise a hash of the API key.
 For Z.ai, Kimi and Command Code the vendor id is asked once per key and kept; it is `null` until
-then, and for opencode and Neuralwatt, whose APIs do not say. `unlimited accounts [--json]` lists
+then. opencode and Neuralwatt do not say, so theirs is always `null`. `unlimited accounts [--json]` lists
 each account here with both ids, without asking a vendor.
 
 ## Models
