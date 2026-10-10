@@ -12,7 +12,7 @@ private func editorGroups(_ json: String) throws -> [Runner.Incentive] {
 @Test func accountDraftDoesNotCopyInheritedOrAnotherAccountsSettings() throws {
     let groups = try editorGroups(#"[{"target":"openai","account":null,"multiplier":5,"activated_at":"2026-10-03T00:00:00Z","until":"2026-10-04T00:00:00Z"},{"target":"openai","account":"other","multiplier":0.1,"activated_at":"2026-10-03T00:00:00Z","until":"2026-10-04T00:00:00Z"},{"target":"openai/gpt-6","account":"owner","multiplier":10,"activated_at":"2026-10-03T00:00:00Z","until":"2026-10-04T00:00:00Z"}]"#)
     let draft = SteeringDraft(target: "openai", account: "owner", groups: groups, now: editorNow)
-    #expect(draft.multiplier == "1x")
+    #expect(draft.multiplier == "off")
     #expect(draft.untilReset)
     #expect(draft.duration == "12h")
     #expect(SteeringDraft.group(target: "openai", account: "owner", groups: groups, now: editorNow) == nil)
@@ -38,7 +38,7 @@ private func editorGroups(_ json: String) throws -> [Runner.Incentive] {
     let groups = try editorGroups(#"[{"target":"openai","account":"owner","multiplier":5,"activated_at":"2026-10-02T00:00:00Z","until":"2026-10-03T00:00:00Z"},{"target":"openai","account":"reset","multiplier":10,"activated_at":"2026-10-02T00:00:00Z","until":null,"bindings":[{"vendor":"openai","account":"reset","names":[],"until":"2026-10-03T00:00:00Z"}]}]"#)
     for account in ["owner", "reset"] {
         let draft = SteeringDraft(target: "openai", account: account, groups: groups, now: editorNow)
-        #expect(draft.multiplier == "1x")
+        #expect(draft.multiplier == "off")
         #expect(draft.untilReset)
         #expect(SteeringDraft.group(target: "openai", account: account, groups: groups, now: editorNow) == nil)
     }
@@ -68,7 +68,8 @@ private func editorGroups(_ json: String) throws -> [Runner.Incentive] {
     #expect(SteeringDraft.group(target: "openai", account: "owner", groups: groups, now: editorNow)?.multiplier == 1)
     #expect(SteeringDraft.group(target: "openai", account: "new", groups: groups, now: editorNow) == nil)
     let fresh = SteeringDraft(target: "openai", account: "new", groups: groups, now: editorNow)
-    #expect(fresh.multiplier == "1x")
+    #expect(fresh.multiplier == "off")
+    #expect(SteeringDraft(target: "openai", account: "owner", groups: groups, now: editorNow).multiplier == "off")
     #expect(fresh.untilReset)
     #expect(fresh.duration == "12h")
 }

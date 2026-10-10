@@ -13,7 +13,7 @@ The trailing controls occupy equal 26×26-point slots with 4-point gaps. Hover h
 
 ## Editor and other policies
 
-One steering editor serves account popovers and existing broader-policy entries. It contains a multiplier picker, Until reset, and a duration picker when reset is off; context menus expose custom entry. Apply is an explicit activation; opening/dismissing writes nothing. 1x is a neutral override, while Clear override removes only that scope, leaving inherited policy intact.
+One steering editor serves account popovers and existing broader-policy entries. It contains a multiplier picker, Until reset, and a duration picker when reset is off; context menus expose custom entry. Opening/dismissing writes nothing. None removes that scope's incentive, leaving inherited policy intact. Unconfigured and stored 1x policies display None; removal controls are disabled when no live scoped override exists.
 
 Drafts load an exact live target/account group. Canonical account identity is used for account-row steering, separately from the matched switch spelling used for ban undo. Alias/orphan/broader groups remain in Other policies rather than appearing as canonical row overrides. Unconfigured editors start fresh; reset groups retain reset mode, including alias-selected groups edited by their stored selector; timed groups use a parser-compatible remaining duration. An explicit Apply reactivates the chosen duration and is last-writer-wins.
 
