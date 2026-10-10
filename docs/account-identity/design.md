@@ -121,6 +121,8 @@ have some. The legacy file is only read. Readings are not imported: the first ca
 - 2mw2lt (its Python agent derives zai and commandcode ids with `account_of`, its Go port has its own
   copy, and coordination keys state on the id) migrates in its own work, after this release. Its
   `uv.lock` pins unlimited, so nothing moves under it until it bumps.
+  Its Go port should read `identities/<vendor>.json` as written here, not resolve on its own, so
+  the two never disagree about whose a key is.
 - `.claude` configuration that names accounts follows likewise.
 
 ## Acceptance
