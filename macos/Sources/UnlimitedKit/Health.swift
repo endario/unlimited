@@ -15,7 +15,7 @@ public enum Health: Int, Comparable, Sendable {
     /// Tunable: a forecast at or above this is red instead of amber.
     public static let redAbove = 1.5
     /// Tunable: in this last part of its window, a window not heading for amber is a sprint.
-    public static let finalStretch = 0.05
+    public static let finalStretch = 0.1
     /// Tunable: before this much of its window, and with fewer past windows than
     /// `trustPastWindows`, a projection is not drawn.
     public static let trustAfter = 0.1
