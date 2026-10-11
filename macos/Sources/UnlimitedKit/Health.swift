@@ -9,7 +9,7 @@ public enum Health: Int, Comparable, Sendable {
     public static func < (a: Health, b: Health) -> Bool { a.rawValue < b.rawValue }
 
     /// Tunable: a window heading to reset below this is under-used.
-    public static let underUsedBelow = 0.8
+    public static let underUsedBelow = 0.85
     /// Tunable: a forecast at or above this is amber; below it, normal.
     public static let amberAbove = 1.05
     /// Tunable: a forecast at or above this is red instead of amber.

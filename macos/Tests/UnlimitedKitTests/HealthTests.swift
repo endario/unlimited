@@ -25,8 +25,9 @@ func week(used: Double?, range: [Double]?, elapsed: Double = 3, past: Int = 0, h
 }
 
 @Test func roomLeftAtResetIsGreen() {
-    #expect(week(used: 0.1, range: [0.2, 0.79]).health(now: now) == .underUsed)
-    #expect(week(used: 0.3, range: [0.5, 0.8]).health(now: now) == .normal, "0.8 itself is not under-used")
+    #expect(week(used: 0.1, range: [0.2, 0.8]).health(now: now) == .underUsed)
+    #expect(week(used: 0.3, range: [0.5, 0.849]).health(now: now) == .underUsed)
+    #expect(week(used: 0.3, range: [0.5, 0.85]).health(now: now) == .normal, "0.85 itself is not under-used")
 }
 
 @Test func nearResetWithRoomTheRecentPaceWillNotSpendIsBlue() {
