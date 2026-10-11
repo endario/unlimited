@@ -31,11 +31,10 @@ func week(used: Double?, range: [Double]?, elapsed: Double = 3, past: Int = 0, h
 }
 
 @Test func nearResetWithRoomTheRecentPaceWillNotSpendIsBlue() {
-    // 6.7 of 7 days gone: the last 5%.
-    #expect(week(used: 0.9, range: [0.95, 1.04], elapsed: 6.7).health(now: now) == .sprint)
-    #expect(week(used: 0.1, range: [0.2, 0.3], elapsed: 6.7).health(now: now) == .sprint, "blue beats green")
-    #expect(week(used: 0.9, range: [0.95, 1.05], elapsed: 6.7).health(now: now) == .amber, "105% itself is a warning")
-    #expect(week(used: 0.9, range: [0.95, 1.04], elapsed: 6.6).health(now: now) == .normal, "not yet the final stretch")
+    #expect(week(used: 0.9, range: [0.95, 1.04], elapsed: 6.3).health(now: now) == .sprint, "90% elapsed starts the final stretch")
+    #expect(week(used: 0.1, range: [0.2, 0.3], elapsed: 6.3).health(now: now) == .sprint, "blue beats green")
+    #expect(week(used: 0.9, range: [0.95, 1.05], elapsed: 6.3).health(now: now) == .amber, "105% itself is a warning")
+    #expect(week(used: 0.9, range: [0.95, 1.04], elapsed: 6.299).health(now: now) == .normal, "not yet the final stretch")
 }
 
 @Test func anUntrustedProjectionSaysNothingEitherWay() {
