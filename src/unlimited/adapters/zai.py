@@ -13,6 +13,10 @@ URL = "https://api.z.ai/api/monitor/usage/quota/limit"
 WHOAMI_URL = "https://api.z.ai/api/biz/customerService/zaiUserInfo"
 # A team plan's usage: the same query asked as a team, in the team's organisation and project.
 TEAM_URL = URL + "?type=2"
+# Z.ai's mainland China site, bigmodel.cn, answers the same usage query on its own host; an env
+# file's GLM_HOST names it. It has no zaiUserInfo, so its member is the invitation code.
+INVITE_URL = "https://api.z.ai/api/biz/invitation/info"
+HOST = "api.z.ai"
 # Minutes per Z.ai unit: 3 is hours, 6 is the plan's week. An unknown unit keeps no length.
 UNIT_MINUTES = {3: 60, 6: 10080}
 NAMES = {300: "five_hour", 10080: "seven_day"}
@@ -25,20 +29,27 @@ names = KEYS.names
 
 def discover() -> list[Credential]:
     """Each key's credential, carrying the team organisation and project its env file names."""
-    team = {}
+    extra = {}
     for f in KEYS.files():
-        key, org, project = (env_value(f, v) for v in (KEYS.var, "GLM_ORGANIZATION_ID", "GLM_PROJECT_ID"))
-        if key and org and project:
-            team[key] = {"organization": org, "project": project}
-    return [Credential(c.account, {**c.secret, **team[c.secret["key"]]}) if c.secret["key"] in team else c
+        key, org, project, host = (env_value(f, v) for v in
+                                   (KEYS.var, "GLM_ORGANIZATION_ID", "GLM_PROJECT_ID", "GLM_HOST"))
+        if not key:
+            continue
+        extra[key] = ({"organization": org, "project": project} if org and project else {}) | (
+            {"host": host} if host and host != HOST else {})
+    return [Credential(c.account, {**c.secret, **extra[c.secret["key"]]}) if extra.get(c.secret["key"]) else c
             for c in KEYS.discover()]
+
+
+def _on(cred: Credential, url: str) -> str:
+    return url.replace(HOST, cred.secret.get("host", HOST), 1)
 
 
 def _usage(cred: Credential) -> tuple[str, dict]:
     headers = {"Authorization": f"Bearer {cred.secret['key']}"}
     if "organization" not in cred.secret:
-        return URL, headers
-    return TEAM_URL, {**headers, "Bigmodel-Organization": cred.secret["organization"],
+        return _on(cred, URL), headers
+    return _on(cred, TEAM_URL), {**headers, "Bigmodel-Organization": cred.secret["organization"],
                       "Bigmodel-Project": cred.secret["project"]}
 
 
@@ -86,10 +97,11 @@ def limits(body: dict, now: datetime) -> list[dict]:
 
 
 def whoami(cred: Credential, now: datetime, get):
-    """The key's customer number, and nothing personal."""
-    ans = get(WHOAMI_URL, {"Authorization": f"Bearer {cred.secret['key']}"}, now)
+    """The key's customer number (on another host, its invitation code), and nothing personal."""
+    url, field = (WHOAMI_URL, "customerNumber") if "host" not in cred.secret else (_on(cred, INVITE_URL), "userCode")
+    ans = get(url, {"Authorization": f"Bearer {cred.secret['key']}"}, now)
     data = ans.body.get("data") if isinstance(ans.body, dict) else None
-    number = data.get("customerNumber") if isinstance(data, dict) else None
+    number = data.get(field) if isinstance(data, dict) else None
     return (number if isinstance(number, str) and number else None), ans
 
 
