@@ -714,6 +714,23 @@ class Zai(Base):
         self.assertEqual(sorted(c.secret["key"] for c in got), ["key-one", "key-two"])
         self.assertEqual({c.account for c in got}, {account_of("key-one"), account_of("key-two")})
 
+    def test_a_team_key_reads_its_usage_as_the_team_it_names(self):
+        f = self.env("claude-glm-ark.env", "team-key")
+        f.write_text(f.read_text() + "GLM_ORGANIZATION_ID=org-1\nGLM_PROJECT_ID=proj_2\n")
+        self.env("claude-glm.env", "own-key")
+        seen = {}
+
+        def get(url, headers, now):
+            seen[headers["Authorization"]] = (url, headers.get("Bigmodel-Organization"),
+                                              headers.get("Bigmodel-Project"))
+            return Answer({"data": {"limits": []}}, 200, None)
+        with mock.patch.dict(os.environ):
+            os.environ.pop("GLM_API_KEY", None)
+            for c in zai.discover():
+                zai.read(c, NOW, get)
+        self.assertEqual(seen["Bearer team-key"], (zai.URL + "?type=2", "org-1", "proj_2"))
+        self.assertEqual(seen["Bearer own-key"], (zai.URL, None, None))
+
     def test_a_token_limit_answered_as_a_percentage_is_a_usage_window(self):
         at = int((NOW + timedelta(days=3)).timestamp() * 1000)
         got = {l["window_minutes"]: l for l in zai.limits({"data": {"limits": [
