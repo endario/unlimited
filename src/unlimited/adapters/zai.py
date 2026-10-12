@@ -9,8 +9,8 @@ from ..schema import OK, REFUSED, UNREAD, failed, limit, reading
 
 VENDOR = "zai"
 URL = "https://api.z.ai/api/monitor/usage/quota/limit"
-# The coding-plan subscriptions on the key, each naming the customer that holds it.
-WHOAMI_URL = "https://api.z.ai/api/biz/subscription/list"
+# The customer the key belongs to: for a team plan's key, the member holding the seat.
+WHOAMI_URL = "https://api.z.ai/api/biz/customerService/zaiUserInfo"
 # A team plan's usage: the same query asked as a team, in the team's organisation and project.
 TEAM_URL = URL + "?type=2"
 # Minutes per Z.ai unit: 3 is hours, 6 is the plan's week. An unknown unit keeps no length.
@@ -86,13 +86,11 @@ def limits(body: dict, now: datetime) -> list[dict]:
 
 
 def whoami(cred: Credential, now: datetime, get):
-    """The key's customer id, when its subscriptions name exactly one; a key with no subscription
-    names none."""
+    """The key's customer number, and nothing personal."""
     ans = get(WHOAMI_URL, {"Authorization": f"Bearer {cred.secret['key']}"}, now)
-    rows = ans.body.get("data") if isinstance(ans.body, dict) else None
-    ids = {r["customerId"] for r in rows if isinstance(r, dict) and isinstance(r.get("customerId"), str)
-           and r["customerId"]} if isinstance(rows, list) else set()
-    return (ids.pop() if len(ids) == 1 else None), ans
+    data = ans.body.get("data") if isinstance(ans.body, dict) else None
+    number = data.get("customerNumber") if isinstance(data, dict) else None
+    return (number if isinstance(number, str) and number else None), ans
 
 
 def read(cred: Credential, now: datetime, get) -> dict:
