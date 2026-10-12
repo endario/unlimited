@@ -731,6 +731,22 @@ class Zai(Base):
         self.assertEqual(seen["Bearer team-key"], (zai.URL + "?type=2", "org-1", "proj_2"))
         self.assertEqual(seen["Bearer own-key"], (zai.URL, None, None))
 
+    def test_a_key_on_another_host_reads_its_usage_there_and_names_no_one(self):
+        f = self.env("claude-glm-cn.env", "cn-key")
+        f.write_text(f.read_text() + "GLM_HOST=open.bigmodel.cn\nGLM_ORGANIZATION_ID=org-1\nGLM_PROJECT_ID=proj_2\n")
+        seen = []
+
+        def get(url, headers, now):
+            seen.append(url)
+            return Answer({"data": {"limits": []}}, 200, None)
+        with mock.patch.dict(os.environ):
+            os.environ.pop("GLM_API_KEY", None)
+            [c] = zai.discover()
+            zai.read(c, NOW, get)
+            self.assertEqual(zai.whoami(c, NOW, get), (None, None))
+        # bigmodel.cn has no zaiUserInfo; asking api.z.ai would name a different site's customer.
+        self.assertEqual(seen, ["https://open.bigmodel.cn/api/monitor/usage/quota/limit?type=2"])
+
     def test_a_token_limit_answered_as_a_percentage_is_a_usage_window(self):
         at = int((NOW + timedelta(days=3)).timestamp() * 1000)
         got = {l["window_minutes"]: l for l in zai.limits({"data": {"limits": [
