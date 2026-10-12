@@ -23,7 +23,7 @@ kept, so every consumer can correlate accounts today, and slice 2 has a tested f
 | anthropic | `account` (`accountUuid`) | config dir | — |
 | openai | `account` (ChatGPT `account_id`) | auth.json | — |
 | xai | `account` (`user_id`) | `~/.grok/auth.json` | — |
-| zai | `customerNumber` | `GET https://api.z.ai/api/biz/customerService/zaiUserInfo`, `data.customerNumber` (a team seat: its member) | two keys, two distinct ids |
+| zai | `customerNumber` | `GET https://api.z.ai/api/biz/customerService/zaiUserInfo`, `data.customerNumber` (a team seat: its member); on bigmodel.cn, `GET /api/biz/invitation/info`, `data.userCode` | two keys, two distinct ids |
 | kimi | `user_id` | `GET https://api.kimi.com/coding/v1/me` | answers `user_id`, plus email and nickname, which are never kept |
 | commandcode | `user.id` | `GET https://api.commandcode.ai/alpha/whoami` | answers `user.id` and `org` |
 | opencode | `null` | none: `zen/go/v1/usage` resolves the key's workspace and user but returns neither ([anomalyco/opencode#54283](https://github.com/anomalyco/opencode/issues/54283)) | — |

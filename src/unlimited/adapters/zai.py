@@ -14,7 +14,9 @@ WHOAMI_URL = "https://api.z.ai/api/biz/customerService/zaiUserInfo"
 # A team plan's usage: the same query asked as a team, in the team's organisation and project.
 TEAM_URL = URL + "?type=2"
 # Z.ai's mainland China site, bigmodel.cn, answers the same usage query on its own host; an env
-# file's GLM_HOST names it. Its keys have no customer number to read.
+# file's GLM_HOST names it. It has no zaiUserInfo and refuses keys its customer info, so its member
+# is the invitation code: one per member, the same for every key of theirs.
+INVITE_URL = "https://api.z.ai/api/biz/invitation/info"
 HOST = "api.z.ai"
 # Minutes per Z.ai unit: 3 is hours, 6 is the plan's week. An unknown unit keeps no length.
 UNIT_MINUTES = {3: 60, 6: 10080}
@@ -96,12 +98,11 @@ def limits(body: dict, now: datetime) -> list[dict]:
 
 
 def whoami(cred: Credential, now: datetime, get):
-    """The key's customer number, and nothing personal."""
-    if "host" in cred.secret:
-        return None, None
-    ans = get(WHOAMI_URL, {"Authorization": f"Bearer {cred.secret['key']}"}, now)
+    """The key's customer number (on another host, its invitation code), and nothing personal."""
+    url, field = (WHOAMI_URL, "customerNumber") if "host" not in cred.secret else (_on(cred, INVITE_URL), "userCode")
+    ans = get(url, {"Authorization": f"Bearer {cred.secret['key']}"}, now)
     data = ans.body.get("data") if isinstance(ans.body, dict) else None
-    number = data.get("customerNumber") if isinstance(data, dict) else None
+    number = data.get(field) if isinstance(data, dict) else None
     return (number if isinstance(number, str) and number else None), ans
 
 
