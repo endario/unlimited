@@ -4,13 +4,16 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 
-from ..credential import Credential, EnvKeys
+from ..credential import Credential, EnvKeys, env_value
 from ..schema import OK, REFUSED, UNREAD, failed, limit, reading
 
 VENDOR = "zai"
 URL = "https://api.z.ai/api/monitor/usage/quota/limit"
 # The coding-plan subscriptions on the key, each naming the customer that holds it.
 WHOAMI_URL = "https://api.z.ai/api/biz/subscription/list"
+# A team plan's usage is the same query asked as a team (`type=2`) in the team's organisation and
+# project; with the key alone Z.ai answers 500 "no coding plan". Inference needs only the key.
+TEAM_URL = URL + "?type=2"
 # Minutes per Z.ai unit: 3 is hours, 6 is the plan's week. An unknown unit keeps no length.
 UNIT_MINUTES = {3: 60, 6: 10080}
 NAMES = {300: "five_hour", 10080: "seven_day"}
@@ -18,7 +21,26 @@ NAMES = {300: "five_hour", 10080: "seven_day"}
 
 # A GLM session exports its own file and key; neither may narrow discovery to that one account.
 KEYS = EnvKeys("GLM_API_KEY", "claude-glm*.env", named="CLAUDE_GLM_ENV")
-names, discover = KEYS.names, KEYS.discover
+names = KEYS.names
+
+
+def discover() -> list[Credential]:
+    """Each key's credential, carrying the team organisation and project its env file names."""
+    team = {}
+    for f in KEYS.files():
+        key, org, project = (env_value(f, v) for v in (KEYS.var, "GLM_ORGANIZATION_ID", "GLM_PROJECT_ID"))
+        if key and org and project:
+            team[key] = {"organization": org, "project": project}
+    return [Credential(c.account, {**c.secret, **team[c.secret["key"]]}) if c.secret["key"] in team else c
+            for c in KEYS.discover()]
+
+
+def _usage(cred: Credential) -> tuple[str, dict]:
+    headers = {"Authorization": f"Bearer {cred.secret['key']}"}
+    if "organization" not in cred.secret:
+        return URL, headers
+    return TEAM_URL, {**headers, "Bigmodel-Organization": cred.secret["organization"],
+                      "Bigmodel-Project": cred.secret["project"]}
 
 
 def _millis(value: object) -> datetime | None:
@@ -75,7 +97,7 @@ def whoami(cred: Credential, now: datetime, get):
 
 
 def read(cred: Credential, now: datetime, get) -> dict:
-    ans = get(URL, {"Authorization": f"Bearer {cred.secret['key']}"}, now)
+    ans = get(*_usage(cred), now)
     if ans.body is None:
         return failed(VENDOR, cred.account, now, ans)
     if ans.body.get("success") is False:
