@@ -14,8 +14,7 @@ WHOAMI_URL = "https://api.z.ai/api/biz/customerService/zaiUserInfo"
 # A team plan's usage: the same query asked as a team, in the team's organisation and project.
 TEAM_URL = URL + "?type=2"
 # Z.ai's mainland China site, bigmodel.cn, answers the same usage query on its own host; an env
-# file's GLM_HOST names it. It has no zaiUserInfo and refuses keys its customer info, so its member
-# is the invitation code: one per member, the same for every key of theirs.
+# file's GLM_HOST names it. It has no zaiUserInfo, so its member is the invitation code.
 INVITE_URL = "https://api.z.ai/api/biz/invitation/info"
 HOST = "api.z.ai"
 # Minutes per Z.ai unit: 3 is hours, 6 is the plan's week. An unknown unit keeps no length.
