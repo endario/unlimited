@@ -728,9 +728,7 @@ class Zai(Base):
             os.environ.pop("GLM_API_KEY", None)
             for c in zai.discover():
                 zai.read(c, NOW, get)
-        # Without the team's organisation and project, Z.ai answers a team key "no coding plan".
         self.assertEqual(seen["Bearer team-key"], (zai.URL + "?type=2", "org-1", "proj_2"))
-        # A personal key keeps the plain query: `type=2` answers it with no limits at all.
         self.assertEqual(seen["Bearer own-key"], (zai.URL, None, None))
 
     def test_a_token_limit_answered_as_a_percentage_is_a_usage_window(self):

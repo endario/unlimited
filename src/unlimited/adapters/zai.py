@@ -11,8 +11,7 @@ VENDOR = "zai"
 URL = "https://api.z.ai/api/monitor/usage/quota/limit"
 # The coding-plan subscriptions on the key, each naming the customer that holds it.
 WHOAMI_URL = "https://api.z.ai/api/biz/subscription/list"
-# A team plan's usage is the same query asked as a team (`type=2`) in the team's organisation and
-# project; with the key alone Z.ai answers 500 "no coding plan". Inference needs only the key.
+# A team plan's usage: the same query asked as a team, in the team's organisation and project.
 TEAM_URL = URL + "?type=2"
 # Minutes per Z.ai unit: 3 is hours, 6 is the plan's week. An unknown unit keeps no length.
 UNIT_MINUTES = {3: 60, 6: 10080}
