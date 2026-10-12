@@ -856,13 +856,14 @@ class Whoami(unittest.TestCase):
         self.assertEqual(seen, [(adapter.WHOAMI_URL, "Bearer fixture-key")])
         return got
 
-    def test_zai_names_the_customer_holding_the_subscriptions(self):
-        rows = [{"customerId": "17261781696668863", "productName": "GLM Coding Max"}] * 2
-        self.assertEqual(self.ask(zai, {"data": rows}), "17261781696668863")
+    def test_zai_names_the_customer_and_nothing_personal(self):
+        body = {"data": {"customerNumber": "86751791792805001", "email": "someone@example.com",
+                         "zuserId": "8be460d4"}}
+        self.assertEqual(self.ask(zai, body), "86751791792805001")
 
-    def test_zai_names_no_one_for_no_subscription_or_two_customers(self):
-        self.assertIsNone(self.ask(zai, {"data": []}))
-        self.assertIsNone(self.ask(zai, {"data": [{"customerId": "a"}, {"customerId": "b"}]}))
+    def test_zai_names_no_one_without_a_customer_number(self):
+        self.assertIsNone(self.ask(zai, {"data": {}}))
+        self.assertIsNone(self.ask(zai, {"data": {"customerNumber": ""}}))
 
     def test_kimi_names_the_user_and_nothing_personal(self):
         body = {"user_id": "d4mkekqn754e7ngc48v0", "email": "someone@example.com", "nickname": "Someone"}

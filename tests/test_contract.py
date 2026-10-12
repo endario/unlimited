@@ -43,7 +43,7 @@ QUOTA = {"code": 200, "success": True, "data": {"level": "max", "limits": [
 
 
 # Z.ai's subscription list as answered on 2026-10-10, trimmed to the field read.
-SUBSCRIPTIONS = {"code": 200, "success": True, "data": [{"customerId": "customer-fixture", "status": "VALID"}]}
+USER = {"code": 200, "success": True, "data": {"customerNumber": "customer-fixture", "email": "someone@example.com"}}
 
 
 class Upstream:
@@ -66,7 +66,7 @@ class Upstream:
         if url == zai.WHOAMI_URL:
             if self.refuse_identity:
                 return Answer(None, self.refuse_identity, f"http-{self.refuse_identity}")
-            body = SUBSCRIPTIONS
+            body = USER
         elif url == openai.URL:
             assert headers["Authorization"] == f"Bearer {OPENAI_SECRET}"
             body = {"acct-fixture": WHAM, "acct-other": WHAM_OTHER}[headers["ChatGPT-Account-Id"]]
