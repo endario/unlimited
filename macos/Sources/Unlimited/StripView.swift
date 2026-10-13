@@ -28,6 +28,20 @@ extension Tile.Alternate {
     }
 }
 
+struct UsageFigure: View {
+    let value: Tile.Value
+    let health: Health
+    var percentSign = false
+
+    var text: String { value.text + (percentSign && value.showsData ? "%" : "") }
+
+    var body: some View {
+        Text(text)
+            .foregroundStyle(value.showsData ? health.color : Color.secondary)
+            .monospacedDigit()
+    }
+}
+
 struct TileView: View {
     static let width: CGFloat = 26
     static func width(of tile: Tile) -> CGFloat {
@@ -51,15 +65,12 @@ struct TileView: View {
                 SteeringIndicatorView(indicator: tile.indicator)
             }
             ZStack {
-                Text(tile.value.text)
-                    // A figure wears its health colour; the glyphs that stand for no reading
-                    // at all wear the grey that is not a colour anyone reads as usage.
-                    .foregroundStyle(tile.value.showsData ? tile.health.color : Color.secondary)
+                UsageFigure(value: tile.value, health: tile.health)
                     .opacity(showAlt ? 0 : 1)
                 if let alt = tile.alternate {
                     HStack(spacing: 1) {
                         Image(systemName: alt.glyph).font(.system(size: 6, weight: .bold))
-                        Text(alt.value.text)
+                        UsageFigure(value: alt.value, health: alt.health)
                     }
                     .foregroundStyle(alt.value.showsData ? alt.health.color : Color.secondary)
                     .opacity(showAlt ? 1 : 0)
