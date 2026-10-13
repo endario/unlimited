@@ -32,9 +32,8 @@ visible accounts are normal, an ellipsis remains available to hover or activate.
 
 With unlimited 0.1.10, Settings can encourage or discourage vendors, accounts, models and routes.
 Until reset is the default; an explicit duration overrides it. A green upward or red downward
-vertical fast-forward glyph beside the account name reflects only account-scoped incentives and
-has single, double or triple stacked heads. Global rules do not add account glyphs.
-`10x` and `0.1x` use triple heads; `1x` has no glyph. Help gives the route, multiplier and expiry.
+vertical fast-forward glyph beside the account name reflects account-scoped incentive strength.
+Global rules do not add account glyphs. `1x` has no glyph. Help gives the route, multiplier and expiry.
 Clear removes the selected scope, so an inherited setting may apply again. Steering is local to
 this machine, and the quota-room underline is independent of it.
 

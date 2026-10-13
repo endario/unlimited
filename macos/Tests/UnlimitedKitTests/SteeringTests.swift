@@ -89,7 +89,7 @@ import Testing
 }
 
 @Test func strengthThresholdsAreReciprocal() {
-    for (factor, count) in [(2.0, 1), (4.99, 1), (5, 2), (9.99, 2), (10, 3), (1e20, 3)] {
+    for (factor, count) in [(2.0, 1), (4.99, 1), (5, 2), (9.99, 2), (10, 3), (99.99, 3), (100, 4), (1e20, 4)] {
         #expect(SteeringIndicator.triangles(for: factor) == count)
         #expect(SteeringIndicator.triangles(for: 1 / factor) == count)
     }
@@ -105,7 +105,7 @@ import Testing
 }
 
 @Test func everyStrengthReservesOneGlyphPerDirection() {
-    for factor in [2.0, 5, 10, 0.5, 0.2, 0.1] {
+    for factor in [2.0, 5, 10, 100, 0.5, 0.2, 0.1, 0.01] {
         let tile = Tile(id: "a", label: "A", value: .percent(1), dimmed: false,
                         indicator: SteeringIndicator(routes: [.init(id: "r", target: "x", multiplier: factor, until: .distantFuture)], now: .now))
         #expect(StripLayout(tiles: [tile], spacing: 3, padding: 2).width(of: tile) == 33)
