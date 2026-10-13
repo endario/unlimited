@@ -58,23 +58,27 @@ struct AccountRow: View {
             .accessibilityValue(hidden ? "Hidden" : "Visible")
             .help("\(hidden ? "Show" : "Hide") in menu bar. Usage remains tracked.")
             HStack(alignment: .firstTextBaseline, spacing: 4) {
-                TextField("Label", text: Binding(get: { label }, set: { v in
-                    model.arrange { $0.rename(tile.id, to: v) }
-                }))
-                .labelsHidden()
-                .frame(width: 40)
-                .font(.system(.body, design: .monospaced))
+                HStack(spacing: 3) {
+                    TextField("Label", text: Binding(get: { label }, set: { v in
+                        model.arrange { $0.rename(tile.id, to: v) }
+                    }))
+                    .labelsHidden()
+                    .font(.system(.body, design: .monospaced))
+                    .frame(maxWidth: 40)
+                    .fixedSize(horizontal: true, vertical: false)
+                    SteeringIndicatorView(indicator: tile.indicator)
+                }
+                .frame(width: 48, alignment: .leading)
                 usage
                     .font(.system(.body, design: .rounded).weight(.semibold))
                     .lineLimit(1)
                     .fixedSize()
-                    .frame(width: 36, alignment: .leading)
+                    .frame(width: 32, alignment: .center)
                     .opacity(tile.dimmed ? 0.45 : 1)
                     .accessibilityLabel("Usage for \(label)")
                     .accessibilityValue(usage.text)
                     .help(reading?.primary?.name ?? "Account usage")
             }
-            SteeringIndicatorView(indicator: tile.indicator)
             DescribedAccount(description: description, help: description, reading: reading)
                 .foregroundStyle(.secondary)
                 .lineLimit(1)

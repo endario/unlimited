@@ -29,19 +29,45 @@ private func usageImage(_ tile: Tile) throws -> NSBitmapImageRep {
     }
 }
 
+private func greenColumns(_ image: NSBitmapImageRep) throws -> [Int] {
+    var columns: [Int] = []
+    for y in 0..<image.pixelsHigh {
+        for x in 0..<image.pixelsWide {
+            let c = try #require(image.colorAt(x: x, y: y)?.usingColorSpace(.deviceRGB))
+            if c.greenComponent > 0.7 && c.greenComponent > c.redComponent * 1.3 &&
+                c.greenComponent > c.blueComponent * 1.2 { columns.append(x) }
+        }
+    }
+    return columns
+}
+
+@MainActor
+@Test func settingsPercentageColumnKeepsDifferentDigitCountsCentred() throws {
+    var centers: [Int] = []
+    for percent in [27, 100] {
+        let image = try usageImage(Tile(id: "openai/test", label: "CDX", value: .percent(percent),
+                                        dimmed: false, health: .underUsed))
+        let columns = try greenColumns(image)
+        centers.append(try #require(columns.min()) + #require(columns.max()))
+    }
+    #expect(abs(centers[0] - centers[1]) <= 2)
+}
+
 @MainActor
 @Test func settingsUsageUsesPrimaryHealthRatherThanAlternateWarning() throws {
     let tile = Tile(id: "openai/test", label: "CDX", value: .percent(27), dimmed: false,
                     health: .underUsed,
                     alternate: .init(role: "session", value: .percent(99), health: .red))
     let image = try usageImage(tile)
-    var greenPixels = 0
+    let greenPixels = try greenColumns(image).count
+    var redPixels = 0
     for y in 0..<image.pixelsHigh {
         for x in 0..<image.pixelsWide {
             let c = try #require(image.colorAt(x: x, y: y)?.usingColorSpace(.deviceRGB))
-            if c.greenComponent > 0.7 && c.greenComponent > c.redComponent * 1.3 &&
-                c.greenComponent > c.blueComponent * 1.2 { greenPixels += 1 }
+            if c.redComponent > 0.7 && c.redComponent > c.greenComponent * 1.3 &&
+                c.blueComponent > c.greenComponent { redPixels += 1 }
         }
     }
     #expect(greenPixels > 10)
+    #expect(redPixels == 0)
 }
