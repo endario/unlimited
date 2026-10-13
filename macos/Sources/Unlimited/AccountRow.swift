@@ -58,14 +58,20 @@ struct AccountRow: View {
             .accessibilityValue(hidden ? "Hidden" : "Visible")
             .help("\(hidden ? "Show" : "Hide") in menu bar. Usage remains tracked.")
             HStack(alignment: .firstTextBaseline, spacing: 4) {
-                HStack(spacing: 3) {
-                    TextField("Label", text: Binding(get: { label }, set: { v in
-                        model.arrange { $0.rename(tile.id, to: v) }
-                    }))
-                    .labelsHidden()
-                    .font(.system(.body, design: .monospaced))
-                    .frame(maxWidth: 40)
-                    .fixedSize(horizontal: true, vertical: false)
+                HStack(spacing: 1) {
+                    Text(label)
+                        .hidden()
+                        .overlay {
+                            TextField("Label", text: Binding(get: { label }, set: { v in
+                                model.arrange { $0.rename(tile.id, to: v) }
+                            }))
+                            .labelsHidden()
+                            .textFieldStyle(.plain)
+                        }
+                        .font(.system(.body, design: .monospaced))
+                        .lineLimit(1)
+                        .frame(maxWidth: 40, alignment: .leading)
+                        .fixedSize(horizontal: true, vertical: false)
                     SteeringIndicatorView(indicator: tile.indicator)
                 }
                 .frame(width: 48, alignment: .leading)

@@ -42,6 +42,26 @@ private func greenColumns(_ image: NSBitmapImageRep) throws -> [Int] {
 }
 
 @MainActor
+@Test func incentiveArrowSitsImmediatelyAfterAliasInk() throws {
+    let indicator = SteeringIndicator(routes: [.init(id: "up", target: "openai", multiplier: 10,
+                                                    until: .distantFuture)], now: .now)
+    let image = try usageImage(Tile(id: "openai/test", label: "CDX", value: .percent(27),
+                                    dimmed: false, indicator: indicator))
+    let arrowStart = try #require(try greenColumns(image).min())
+    var aliasEnd: Int?
+    for y in 0..<image.pixelsHigh {
+        for x in 0..<arrowStart {
+            let c = try #require(image.colorAt(x: x, y: y)?.usingColorSpace(.deviceRGB))
+            if c.alphaComponent > 0.7 && min(c.redComponent, c.greenComponent, c.blueComponent) > 0.7 {
+                aliasEnd = max(aliasEnd ?? 0, x)
+            }
+        }
+    }
+    let gap = arrowStart - (try #require(aliasEnd)) - 1
+    #expect(gap <= 3 * image.pixelsWide / 560)
+}
+
+@MainActor
 @Test func settingsPercentageColumnKeepsDifferentDigitCountsCentred() throws {
     var centers: [Int] = []
     for percent in [27, 100] {
