@@ -760,6 +760,17 @@ class Zai(Base):
         self.assertEqual((got[300]["name"], got[300]["used_at_least"]), ("five_hour", 0.0))
         self.assertNotIn("seven_day", [l["name"] for l in got.values() if l["kind"] == "TIME_LIMIT"])
 
+    def test_an_idle_credit_limit_window_is_unopened_not_unknown(self):
+        # A credit plan's idle five-hour window answers no reset time with zero use (#214); either
+        # zero — the percentage or the value — is the account saying nothing is used.
+        got = zai.limits({"data": {"limits": [
+            {"type": "CREDIT_LIMIT", "unit": 3, "number": 5, "percentage": 0,
+             "nextResetTime": None, "usage": 28000, "currentValue": 0},
+            {"type": "CREDIT_LIMIT", "unit": 3, "number": 5, "nextResetTime": None,
+             "usage": 28000, "currentValue": 0}]}}, NOW)
+        self.assertEqual([(l["name"], l["kind"], l["used_at_least"]) for l in got],
+                         [("five_hour", "CREDIT_LIMIT", 0.0)] * 2)
+
 
 class Kimi(Base):
     def env(self, name: str, key: str) -> Path:
