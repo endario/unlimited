@@ -44,7 +44,8 @@ struct AccountRow: View {
 
     var body: some View {
         let offer = AccountOffer(reading: reading, switches: model.offSwitches)
-        HStack(spacing: 8) {
+        let usage = UsageFigure(value: tile.value, health: tile.health, percentSign: true)
+        HStack(alignment: .firstTextBaseline, spacing: 8) {
             Button { model.arrange { $0.hide(tile.id, !hidden) } } label: {
                 Image(systemName: hidden ? "eye.slash" : "eye")
                     .font(.system(size: 14))
@@ -56,12 +57,23 @@ struct AccountRow: View {
             .accessibilityLabel("\(hidden ? "Show" : "Hide") \(label) in menu bar")
             .accessibilityValue(hidden ? "Hidden" : "Visible")
             .help("\(hidden ? "Show" : "Hide") in menu bar. Usage remains tracked.")
-            TextField("Label", text: Binding(get: { label }, set: { v in
-                model.arrange { $0.rename(tile.id, to: v) }
-            }))
-            .labelsHidden()
-            .frame(width: 44)
-            .font(.system(.body, design: .monospaced))
+            HStack(alignment: .firstTextBaseline, spacing: 4) {
+                TextField("Label", text: Binding(get: { label }, set: { v in
+                    model.arrange { $0.rename(tile.id, to: v) }
+                }))
+                .labelsHidden()
+                .frame(width: 40)
+                .font(.system(.body, design: .monospaced))
+                usage
+                    .font(.system(.body, design: .rounded).weight(.semibold))
+                    .lineLimit(1)
+                    .fixedSize()
+                    .frame(width: 36, alignment: .leading)
+                    .opacity(tile.dimmed ? 0.45 : 1)
+                    .accessibilityLabel("Usage for \(label)")
+                    .accessibilityValue(usage.text)
+                    .help(reading?.primary?.name ?? "Account usage")
+            }
             SteeringIndicatorView(indicator: tile.indicator)
             DescribedAccount(description: description, help: description, reading: reading)
                 .foregroundStyle(.secondary)
