@@ -44,7 +44,8 @@ struct AccountRow: View {
 
     var body: some View {
         let offer = AccountOffer(reading: reading, switches: model.offSwitches)
-        HStack(spacing: 8) {
+        let usage = UsageFigure(value: tile.value, health: tile.health, percentSign: true)
+        HStack(alignment: .firstTextBaseline, spacing: 8) {
             Button { model.arrange { $0.hide(tile.id, !hidden) } } label: {
                 Image(systemName: hidden ? "eye.slash" : "eye")
                     .font(.system(size: 14))
@@ -56,13 +57,34 @@ struct AccountRow: View {
             .accessibilityLabel("\(hidden ? "Show" : "Hide") \(label) in menu bar")
             .accessibilityValue(hidden ? "Hidden" : "Visible")
             .help("\(hidden ? "Show" : "Hide") in menu bar. Usage remains tracked.")
-            TextField("Label", text: Binding(get: { label }, set: { v in
-                model.arrange { $0.rename(tile.id, to: v) }
-            }))
-            .labelsHidden()
-            .frame(width: 44)
-            .font(.system(.body, design: .monospaced))
-            SteeringIndicatorView(indicator: tile.indicator)
+            HStack(alignment: .firstTextBaseline, spacing: 4) {
+                HStack(spacing: 1) {
+                    Text(label)
+                        .hidden()
+                        .overlay {
+                            TextField("Label", text: Binding(get: { label }, set: { v in
+                                model.arrange { $0.rename(tile.id, to: v) }
+                            }))
+                            .labelsHidden()
+                            .textFieldStyle(.plain)
+                        }
+                        .font(.system(.body, design: .monospaced))
+                        .lineLimit(1)
+                        .frame(maxWidth: 40, alignment: .leading)
+                        .fixedSize(horizontal: true, vertical: false)
+                    SteeringIndicatorView(indicator: tile.indicator)
+                }
+                .frame(width: 48, alignment: .leading)
+                usage
+                    .font(.system(.body, design: .rounded).weight(.semibold))
+                    .lineLimit(1)
+                    .fixedSize()
+                    .frame(width: 32, alignment: .center)
+                    .opacity(tile.dimmed ? 0.45 : 1)
+                    .accessibilityLabel("Usage for \(label)")
+                    .accessibilityValue(usage.text)
+                    .help(reading?.primary?.name ?? "Account usage")
+            }
             DescribedAccount(description: description, help: description, reading: reading)
                 .foregroundStyle(.secondary)
                 .lineLimit(1)

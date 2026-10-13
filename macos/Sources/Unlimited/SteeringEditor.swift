@@ -46,7 +46,7 @@ struct SteeringEditor: View {
     let target: String
     let account: String?
     @StateObject private var state: SteeringEditorState
-    private let multipliers = ["10x", "5x", "2x", "off", "0.5x", "0.2x", "0.1x"]
+    private let multipliers = ["100x", "10x", "5x", "2x", "off", "0.5x", "0.2x", "0.1x"]
     private let durations = ["1h", "6h", "12h", "24h", "3d", "7d"]
 
     init(model: StripModel, target: String, account: String?) {
