@@ -103,6 +103,7 @@ public struct SteeringIndicator: Equatable, Sendable {
         let strength = max(multiplier, 1 / multiplier)
         if strength < 5 { return 1 }
         if strength < 10 { return 2 }
+        if strength >= 100 { return 4 }
         return 3
     }
 

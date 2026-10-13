@@ -29,8 +29,9 @@ private struct FastForward: Shape {
 
     func path(in rect: CGRect) -> Path {
         var path = Path()
-        let gap = rect.height * 0.08
-        let height = (rect.height - 2 * gap) / 3
+        let slots = max(3, heads)
+        let gap = rect.height * (heads > 3 ? 0.04 : 0.08)
+        let height = (rect.height - CGFloat(slots - 1) * gap) / CGFloat(slots)
         let total = CGFloat(heads) * height + CGFloat(max(heads - 1, 0)) * gap
         for i in 0..<heads {
             let y = rect.midY - total / 2 + CGFloat(i) * (height + gap)
