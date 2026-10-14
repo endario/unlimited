@@ -2,9 +2,9 @@
 
 ## Goal and scope
 
-Show locally accumulated gateway-log tokens over rolling seven and thirty days in the CLI and macOS app. Collection is **app/CLI reads only**: no daemon or new collection command. No fabricated quota, reset, availability promise or selection-policy change.
+Show locally accumulated gateway-log tokens over a rolling week in the CLI and macOS app. Collection is **app/CLI reads only**: no daemon or new collection command. The thirty-day display/aggregation is disabled at the owner's request; retain the existing event horizon without discarding history. No fabricated quota, reset or availability promise.
 
-The owner also requested optional `.env` thresholds **purely for self pacing**. These are personal display settings, not a caller's task budgets or launch policy. Deliver them separately after measured usage, without an artificial week-long waiting requirement.
+The owner requested profile-configured self-pacing and market-value USD cost, with matching percentage styling and compact token fallback. Prices and the USD budget are local estimates, not provider funding or a caller's task/launch configuration. [Rolling budget progress](rolling-contract-design.md) defines the additive consumer contract; provider verdicts remain unchanged.
 
 ## Source evidence
 
@@ -24,7 +24,7 @@ User-scoped time-range APIs require a separate dashboard credential and user ID,
 
 Reuse `Credential`, `EnvKeys`, transport and vendor caching. Register vendor `woyo`, displayed as Woyo (native strip code WY). This tracker does not add model offerings. Discover `FY_API_KEY` from the environment and `.config/*.env`; matching the credential variable rather than a launcher filename keeps discovery independent of its callers. Only matching files contribute names. No caller project configuration is read.
 
-`read(cred, now, get)` stays stateless: it returns a successful reading for a valid log sample, including empty samples without quota, plus a private allowlisted snapshot. Hash request IDs in that snapshot. Retain only identity, time and numerical accounting fields, never model names, prompt/response text, IP, username, credentials or full metadata objects.
+`read(cred, now, get)` stays stateless: it returns a successful reading for a valid log sample, including empty samples without quota, plus a private allowlisted snapshot. Hash request IDs in that snapshot. Retain identity, time, model ID and numerical accounting fields, never prompt/response text, IP, username, credentials or full metadata objects. A later matching observation may backfill a legacy event's model without changing its token counters.
 
 One optional adapter hook in `cache.through` imports successful snapshots, strips private fields before cache/output, and attaches current aggregates for every returned reading. Run it inside the existing vendor lock before cache writing. Other adapters are unchanged. Direct adapter calls are parsing/source operations, not durable collection; public reads use the cache transaction.
 
@@ -35,8 +35,6 @@ Keep the existing failure policy: transient faults retain the prior reading's `t
 One concrete store, no extensible import framework. Reuse `state.flock` and `state.write_json`, extracting the existing state-directory convention from `outcomes` for its second caller. Store private, versioned JSON under `XDG_STATE_HOME/unlimited/usage`, outside the disposable cache and caller-attempt ledger. Never sum these events with caller-reported attempt tokens. Lock order is cache then usage; the usage lock covers read/merge/prune/write, not HTTP.
 
 The event map contains consumption records only, keyed by vendor/account/hashed request ID with first-write-wins. Error identities enter a separate page-anchor set, never the event map, so they cannot suppress consumption. Retain the thirty-day event horizon plus bounded last-page anchors. Unsupported versions/corrupt state remain untouched and produce unknown totals with a fixed diagnostic, never silently reset zero.
-
-A synthetic JSON write/read/aggregate/atomic-rewrite probe with 50,000 events produced 10,668,056 bytes and took 0.0895 seconds locally. Keep JSON initially; repeat with the implemented representation before release. This is not a throughput guarantee.
 
 ### Coverage
 
@@ -59,25 +57,25 @@ Compute each window over `[now - duration, now)` in UTC. No successful sample me
 Keep schema 1 and add optional `usage`, separate from `limits`/`credits`:
 
 - `source`: `gateway-log`; `as_of`; nullable `collected_at`; optional fixed `diagnostic`.
-- `periods`: `window_minutes` (10080 or 43200), `starts_at`, `ends_at`, nullable `input_tokens`, `output_tokens`, `total_tokens`, `cache_read_tokens`, `cache_creation_tokens`, `coverage` (`unknown`, `partial`, `observed`), and reason codes.
+- `periods`: weekly `window_minutes` (10080), `starts_at`, `ends_at`, nullable `input_tokens`, `output_tokens`, `total_tokens`, `cache_read_tokens`, `cache_creation_tokens`, `coverage` (`unknown`, `partial`, `observed`), and reason codes.
 
-No successful sample gives null totals; successful empty gives observed zero with partial coverage until monitoring covers its horizon. Missing cache counts mean zero under the checked producer's convention; malformed counts are not imputed. CLI shows both rolling periods, token units, input/output detail, collection age and coverage, including retained facts on refused readings. Verdict/choice/projection ignore measured usage.
+No successful sample gives null totals; successful empty gives logged zero with partial coverage until monitoring covers its horizon. Missing cache counts mean zero under the checked producer's convention; malformed counts are not imputed. Retained facts survive refused readings. Provider verdict/choice/projection do not reinterpret these observations as quota.
 
 ## B: macOS display
 
 Separate macOS-only delivery after A. Decode the additive object; older readings still work. Keep the CLI boundary and current refresh/wake timer. No native credentials or vendor HTTP.
 
-The strip shows compact seven-day tokens with units/period, not an ambiguous percentage. Settings and popover show both periods and provenance/coverage. Reuse account containers and horizontal geometry. Keep token figures separate from quota cards, health and best-account selection. Render retained totals independently of latest fetch status/quota freshness, with stale/refusal status visible. Measured accounts are not automatically hidden as routine quota accounts. No chart or new palette.
+The strip shows the configured local weekly percentage, or compact raw weekly tokens without a unit/period suffix. Settings and popover retain a precise token-total row; source, cost and partial-history context stay in tooltips rather than visible explanatory rows. Reuse the existing card/figure styles. Local progress does not become a provider-quota best-account recommendation, reset countdown or forecast. Render retained totals alongside stale/refusal status. No chart or new palette.
 
 Verify rendered ink/baselines, clipping and click geometry for strip, Settings and popover, including long values and mixed account types.
 
 ## C: local self-pacing display
 
-The requested optional settings are `UNLIMITED_WEEKLY_TOKEN_LIMIT` and `UNLIMITED_MONTHLY_TOKEN_LIMIT`: rolling seven-/thirty-day input-plus-output budgets including cached input once. Display these as rolling 7d/30d, not calendar months. No actual values have been chosen; do not install example limits.
+The optional weekly token setting is `UNLIMITED_WEEKLY_TOKEN_LIMIT`. USD progress uses `UNLIMITED_WEEKLY_USD_LIMIT` and per-model, per-token-bucket rates in the same private profile. The owner chose their USD budget privately; it is not a shipped default. Count cached input once, then price uncached input, output, cache read and cache creation separately. Unknown models/rates remain unpriced. GLM cache creation is explicitly estimated at ordinary input processing price, with source references in the catalog.
 
 Resolve each period independently. Empty/unset contributes no budget; explicit values must be positive integers representable as signed 64-bit JSON counts. Same-key files with agreeing values share a limit; conflicting or invalid explicit values yield a local diagnostic and no denominator. Never print raw invalid values. Re-read settings after cache reads, like account names. File-discovered credentials use their current files; environment-only credentials may use environment settings.
 
-Periods may gain optional `local_budget`: `status` (`ok`, `invalid`, `conflict`), nullable `token_limit`, profile labels (no full paths/raw values). CLI/native progress is explicitly local and qualifies partial history. Never feed budgets into limits, credits, resets, forecasts, verdicts, choice or incentives.
+Periods may gain optional `local_budget`: `status` (`ok`, `invalid`, `conflict`), nullable `token_limit`, profile labels (no full paths/raw values), and `estimated_cost` with USD, budget USD, pricing status and unpriced count. A pure normalizer exposes additive root `budget` progress, forwarded alongside CLI provider verdicts. Local progress does not change `limits`, `credits`, reset forecasts, provider verdicts, choice or incentives.
 
 The gateway key is one pool, but local observation histories are not synchronized. Machines may display different totals against the same limit. A partial total is not proof the budget has room.
 
@@ -85,7 +83,7 @@ The gateway key is one pool, but local observation histories are not synchronize
 
 A: parser semantics, error/consumption collisions, duplicate snapshots, concurrency, UTC expiry, overlap/gaps/empty samples, malformed data, damaged state, cache deletion, refusal/backoff, privacy and permissions. Full Python suite plus real read/dedup/restart checks.
 
-B: old/new decoding, retained totals, neutral token health, no quota selection changes, both periods, rendered measurements and full native suites.
+B: old/new decoding, retained totals, no quota selection changes, weekly percentage/token fallback, rendered measurements and full native suites.
 
 C: cache-hit edits, duplicate-file agreement/conflict, invalid values without leakage, no selection effects, CLI/native budget display.
 

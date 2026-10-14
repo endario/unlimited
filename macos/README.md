@@ -9,11 +9,10 @@ later in `~/.local/bin`, `/opt/homebrew/bin` or `/usr/local/bin` (0.1.1 or later
 switching; an older CLI simply loses the greying).
 
 Unavailable or stale usage displays `?`; the popover explains the reported failure. Where the CLI supplies
-locally observed gateway-log usage, the strip instead shows compact rolling 7-day tokens. Settings and the
-popover show exact seven- and thirty-day totals, their aggregate snapshot dates, collection age and coverage;
-those facts remain
-visible beside a refused or stale latest read and never affect quota selection. An unreadable local
-logged-usage state says that totals are unavailable rather than presenting an ordinary empty collection.
+locally observed gateway-log usage, the strip shows its rolling weekly figure: estimated cost as a
+percentage of a configured USD budget, a configured token-budget percentage, or compact raw tokens.
+Settings and the popover retain an exact token total; snapshot and cost details are in tooltips.
+These observations remain visible beside a refused or stale latest read and never affect quota selection.
 For Claude
 sign-in failures, **Sign in** opens iTerm and runs the account's executable wrapper from
 `~/.local/bin` with `auth login --claudeai`. Choose the correct account in the browser, then

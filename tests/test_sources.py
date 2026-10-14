@@ -34,7 +34,8 @@ class Base(unittest.TestCase):
         p = mock.patch.dict(os.environ, {"XDG_CACHE_HOME": str(self.tmp / "cache"), "HOME": str(self.home),
                                           **dict.fromkeys(anthropic.OVERRIDES, ""),
                                           "CLAUDE_GLM_ENV": "", "GLM_API_KEY": "",
-                                          "CLAUDE_KIMI_ENV": "", "KIMI_API_KEY": "", "COMMAND_CODE_API_KEY": ""})
+                                          "CLAUDE_KIMI_ENV": "", "KIMI_API_KEY": "", "COMMAND_CODE_API_KEY": "",
+                                          "FY_API_KEY": ""})
         p.start()
         self.addCleanup(p.stop)
         self.calls = []
@@ -1284,6 +1285,26 @@ class RoutesCache(Base):
 
 
 class RoutesCli(Base):
+    def test_woyo_vendor_filter_applies_before_or_after_the_routes_command(self):
+        calls = []
+
+        def routes(adapter, **kwargs):
+            calls.append(adapter.VENDOR)
+            self.assertEqual(adapter.VENDOR, "woyo", "a filtered read must not query another vendor")
+            return [{"vendor": "woyo", "account": "fixture", "status": "ok",
+                     "routes": [{"id": "glm-5.3-flash", "dispatchable": True}]}]
+
+        with mock.patch.object(cache, "routes_through", routes), \
+                mock.patch.dict(os.environ, {"XDG_CONFIG_HOME": str(self.tmp / "config")}):
+            for args in (["--vendor", "woyo", "routes", "--json"],
+                         ["routes", "--vendor", "woyo", "--json"]):
+                with self.subTest(args=args):
+                    buf = io.StringIO()
+                    with redirect_stdout(buf):
+                        self.assertEqual(cli.main(args), 0)
+                    self.assertEqual([r["vendor"] for r in json.loads(buf.getvalue())], ["woyo"])
+        self.assertEqual(calls, ["woyo", "woyo"])
+
     def test_routes_prints_each_accounts_plan_models_as_json(self):
         from unlimited import transport
         body = Answer({"data": [{"id": "glm-5.3"}]}, 200, None)

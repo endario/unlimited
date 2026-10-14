@@ -154,7 +154,7 @@ func strip() throws -> [String: Tile] {
 
     let tiles = Tile.strip(readings, now: now)
 
-    #expect(tiles[0].value.text == "2,936 t / 7d")
+    #expect(tiles[0].value.text == "2,936")
     #expect(!tiles[0].best)
     #expect(tiles[0].health == .normal)
     #expect(!tiles[0].isRoutine)
@@ -197,7 +197,7 @@ func strip() throws -> [String: Tile] {
 
 @Test func loggedTokenTilesUseTheStripLayoutForTheirWiderClickAndPopoverBounds() {
     let percent = Tile(id: "openai/percent", label: "CDX", value: .percent(27), dimmed: false)
-    let tokens = Tile(id: "woyo/tokens", label: "WYO", value: .tokens(12_345_678, windowMinutes: 10080), dimmed: false)
+    let tokens = Tile(id: "woyo/tokens", label: "WYO", value: .tokens(123_456_789_012_345, windowMinutes: 10080), dimmed: false)
     let layout = StripLayout(tiles: [percent, tokens], spacing: 3, padding: 2)
 
     #expect(layout.width(of: tokens) > layout.width(of: percent))
@@ -217,5 +217,5 @@ func strip() throws -> [String: Tile] {
 
     #expect(Tile.vendorName("woyo") == "Woyo")
     #expect(tile.label == "WY")
-    #expect(tile.value.text == "12.3M t / 7d")
+    #expect(tile.value.text == "12.3M")
 }

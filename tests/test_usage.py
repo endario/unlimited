@@ -23,9 +23,10 @@ DAY = timedelta(days=1)
 
 
 def event(identity: str, at: datetime, input_tokens: int = 2851, output_tokens: int = 85,
-          cache_read_tokens: int = 1088, cache_creation_tokens: int = 0) -> dict:
+          cache_read_tokens: int = 1088, cache_creation_tokens: int = 0, model: str | None = None) -> dict:
     return {"id": identity, "at": iso(at), "input_tokens": input_tokens, "output_tokens": output_tokens,
-            "cache_read_tokens": cache_read_tokens, "cache_creation_tokens": cache_creation_tokens}
+            "cache_read_tokens": cache_read_tokens, "cache_creation_tokens": cache_creation_tokens,
+            **({"model": model} if model is not None else {})}
 
 
 def import_in_process(state_home: str, identity: str) -> None:
@@ -62,7 +63,7 @@ class Usage(unittest.TestCase):
             first = usage.attach(reading_with_snapshot, NOW)
             second = usage.attach(reading_with_snapshot, NOW)
 
-        self.assertEqual([p["total_tokens"] for p in second["usage"]["periods"]], [2936, 2936])
+        self.assertEqual([p["total_tokens"] for p in second["usage"]["periods"]], [2936])
         self.assertNotIn("_usage_snapshot", first)
         self.assertEqual(first["usage"]["periods"][0]["coverage"], "partial")
 
@@ -72,7 +73,7 @@ class Usage(unittest.TestCase):
         self.assertIsNone(got["usage"]["collected_at"])
         self.assertEqual(
             [(p["total_tokens"], p["coverage"], p["reasons"]) for p in got["usage"]["periods"]],
-            [(None, "unknown", []), (None, "unknown", [])],
+            [(None, "unknown", [])],
         )
 
     def test_valid_empty_sample_records_zero_logged_totals_with_partial_history(self):
@@ -81,7 +82,7 @@ class Usage(unittest.TestCase):
         self.assertEqual(
             [(p["input_tokens"], p["output_tokens"], p["total_tokens"], p["coverage"], p["reasons"])
              for p in got["usage"]["periods"]],
-            [(0, 0, 0, "partial", ["horizon-edge"]), (0, 0, 0, "partial", ["horizon-edge"])],
+            [(0, 0, 0, "partial", ["horizon-edge"])],
         )
 
     def test_first_observation_wins_when_later_snapshot_reuses_its_identity(self):
@@ -91,8 +92,17 @@ class Usage(unittest.TestCase):
         self.assertEqual(
             [(p["input_tokens"], p["output_tokens"], p["total_tokens"], p["cache_read_tokens"],
               p["cache_creation_tokens"]) for p in got["usage"]["periods"]],
-            [(17, 3, 20, 4, 5), (17, 3, 20, 4, 5)],
+            [(17, 3, 20, 4, 5)],
         )
+
+    def test_matching_reobservation_backfills_a_legacy_event_model_without_changing_totals(self):
+        # Model identity can be recovered later, but the first measured token fact remains authoritative.
+        self.attach(self.snapshot([event("same", NOW - HOUR, 17, 3, 4, 5)], ["same"]))
+        got = self.attach(self.snapshot([event("same", NOW - HOUR, 17, 3, 4, 5, "glm-5.3")], ["same"]))
+
+        stored = json.loads(self.p.read_text())["events"]["same"]
+        self.assertEqual(stored["model"], "glm-5.3")
+        self.assertEqual(got["usage"]["periods"][0]["total_tokens"], 20)
 
     def test_window_includes_its_lower_boundary_and_excludes_as_of(self):
         seven_days_ago = NOW - timedelta(days=7)
@@ -103,7 +113,7 @@ class Usage(unittest.TestCase):
 
         self.assertEqual(
             [(p["input_tokens"], p["output_tokens"], p["total_tokens"]) for p in got["usage"]["periods"]],
-            [(11, 2, 13), (11, 2, 13)],
+            [(11, 2, 13)],
         )
 
     def test_overlapping_page_anchors_bridge_monitoring_between_successes(self):
@@ -112,7 +122,7 @@ class Usage(unittest.TestCase):
         got = self.attach(self.snapshot([event("retained", earlier, 9, 1, 0, 0)], ["retained"]), now=NOW)
 
         self.assertEqual([(p["coverage"], p["reasons"]) for p in got["usage"]["periods"]],
-                         [("observed", []), ("partial", ["horizon-edge"])])
+                         [("observed", [])])
 
     def test_failed_poll_does_not_break_a_later_overlap_bridge(self):
         earlier = NOW - timedelta(days=7)
@@ -145,7 +155,7 @@ class Usage(unittest.TestCase):
 
         self.assertEqual(
             [(p["total_tokens"], p["coverage"], p["reasons"]) for p in got["usage"]["periods"]],
-            [(0, "partial", ["tail-gap"]), (0, "partial", ["tail-gap"])],
+            [(0, "partial", ["tail-gap"])],
         )
         self.assertEqual(json.loads(self.p.read_text())["events"], {})
 
@@ -188,10 +198,10 @@ class Usage(unittest.TestCase):
         corrected = self.attach(self.snapshot([], [], empty=True), now=NOW)
         cached = self.attach(now=NOW + timedelta(minutes=1))
 
-        self.assertEqual([period["total_tokens"] for period in corrected["usage"]["periods"]], [6, 6])
+        self.assertEqual([period["total_tokens"] for period in corrected["usage"]["periods"]], [6])
         self.assertEqual(corrected["usage"]["periods"][0]["coverage"], "partial")
         self.assertNotIn("diagnostic", cached["usage"])
-        self.assertEqual([period["total_tokens"] for period in cached["usage"]["periods"]], [6, 6])
+        self.assertEqual([period["total_tokens"] for period in cached["usage"]["periods"]], [6])
         self.assertEqual(cached["usage"]["periods"][0]["coverage"], "partial")
 
     def test_collected_at_without_an_observation_origin_is_damaged_state(self):
@@ -288,7 +298,7 @@ class Usage(unittest.TestCase):
         with mock.patch.dict(os.environ, {"XDG_STATE_HOME": state_home}):
             got = usage.attach(reading("woyo", "fixture", NOW, "ok"), NOW)
         self.assertEqual([(p["input_tokens"], p["output_tokens"], p["total_tokens"])
-                          for p in got["usage"]["periods"]], [(20, 4, 24), (20, 4, 24)])
+                          for p in got["usage"]["periods"]], [(20, 4, 24)])
 
 
 class StateDirectory(unittest.TestCase):

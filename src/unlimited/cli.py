@@ -450,7 +450,7 @@ Format: https://github.com/endario/unlimited#readme""", """\
 examples:
   unlimited routes --json
   unlimited routes --vendor opencode --max-age 0 --json""")
-    rt.add_argument("--vendor", action="append",
+    rt.add_argument("--vendor", action="append", default=argparse.SUPPRESS,
                     choices=[v for v in sorted(REGISTRY) if hasattr(REGISTRY[v], "models")],
                     metavar="VENDOR",
                     help=VENDOR_HELP + f": {', '.join(v for v in sorted(REGISTRY) if hasattr(REGISTRY[v], 'models'))}")
@@ -849,14 +849,15 @@ def main(argv: list[str] | None = None) -> int:
                 policy = incentives.evaluate_context(
                     verdict_cat, r.get("steering"), vendor=vendor,
                     account=r.get("account"), offering=a.offering, now=now)
+                result = verdict(r, model_scope=a.model_scope, now=now,
+                                 work=work, max_age=max_age, off=off, policy=policy)
+                if isinstance(r.get("budget"), dict):
+                    result = dict(result, budget=r["budget"])
                 rows.append({
                     "vendor": r.get("vendor"), "account": r.get("account"),
                     "vendor_account": r.get("vendor_account"),
                     "names": r.get("names", []), "steering": r["steering"],
-                    "verdict": verdict(
-                        r, model_scope=a.model_scope, now=now,
-                        work=work, max_age=max_age,
-                        off=off, policy=policy),
+                    "verdict": result,
                 })
         except ValueError as e:
             print(f"unlimited: {e}", file=sys.stderr)

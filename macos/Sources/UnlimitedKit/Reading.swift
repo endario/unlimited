@@ -96,6 +96,29 @@ public struct MeasuredPeriod: Decodable, Sendable {
     public let cacheCreationTokens: Int?
     public let coverage: String
     public let reasons: [String]
+    public let localBudget: LocalBudget?
+    public let estimatedCost: EstimatedCost?
+}
+
+public struct EstimatedCost: Decodable, Sendable {
+    public let usd: Double?
+    public let budgetUsd: Double?
+    public let unpricedRequests: Int
+    public let status: String
+
+    public var fraction: Double? {
+        guard status == "ok" || status == "partial",
+              let usd, usd.isFinite, usd >= 0,
+              let budgetUsd, budgetUsd.isFinite, budgetUsd > 0 else { return nil }
+        let fraction = usd / budgetUsd
+        return fraction.isFinite ? fraction : nil
+    }
+}
+
+public struct LocalBudget: Decodable, Sendable {
+    public let status: String
+    public let tokenLimit: Int?
+    public let profiles: [String]
 }
 
 /// What an account may spend past its windows, in `currency`'s major units.

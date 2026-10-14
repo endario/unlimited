@@ -227,6 +227,7 @@ struct Box<Content: View>: View {
 
 struct CardView: View {
     let card: Card
+    var showsPace = true
     static let barHeight: CGFloat = 5
 
     var body: some View {
@@ -290,7 +291,7 @@ struct CardView: View {
 
     private var tint: Color { card.health == .normal ? .secondary : card.health.color }
 
-    private func percent(_ v: Double) -> String { "\(Int((v * 100).rounded()))%" }
+    func percent(_ v: Double) -> String { String(format: "%.0f%%", (v * 100).rounded()) }
 
     /// Used so far, a tick where an even pace would be by now, and where it is heading: today's
     /// pace marked above the bar, the forecast below. Past 100% a mark only just bleeds out.
@@ -303,8 +304,10 @@ struct CardView: View {
                 RoundedRectangle(cornerRadius: 1.5)
                     .fill(card.health == .normal ? Color.primary.opacity(0.45) : card.health.color)
                     .frame(width: w * min(card.used ?? 0, 1), height: Self.barHeight)
-                Rectangle().fill(Color.primary.opacity(0.6)).frame(width: 2, height: (Self.barHeight + 4) * 2)
-                    .offset(x: w * card.elapsed - 1)
+                if showsPace {
+                    Rectangle().fill(Color.primary.opacity(0.6)).frame(width: 2, height: (Self.barHeight + 4) * 2)
+                        .offset(x: w * card.elapsed - 1)
+                }
                 if let m = card.momentum { arrow(down: true).offset(x: Card.marker(m, width: w) - 3, y: -(Self.barHeight + 1)) }
                 if let p = card.projected { arrow(down: false).offset(x: Card.marker(p, width: w) - 3, y: Self.barHeight + 1) }
             }
@@ -315,7 +318,9 @@ struct CardView: View {
         .frame(height: Self.barHeight)
         .padding(.vertical, 12)
         .contentShape(Rectangle())
-        .help("Filled: used so far. Line: where an even pace would be by now. ▼ today's pace at reset, ▲ the forecast at reset")
+        .help(showsPace
+              ? "Filled: used so far. Line: where an even pace would be by now. ▼ today's pace at reset, ▲ the forecast at reset"
+              : "Filled: observed usage against the locally declared budget")
     }
 
     private func arrow(down: Bool) -> some View {

@@ -63,6 +63,23 @@ public struct Card: Identifiable, Sendable {
             }
     }
 
+    public static func localWeekly(_ period: MeasuredPeriod) -> Card? {
+        let used: Double
+        let title: String
+        if let fraction = period.estimatedCost?.fraction {
+            used = fraction
+            title = "Rolling weekly"
+        } else {
+            guard let total = period.totalTokens, let budget = period.localBudget,
+                  budget.status == "ok", let limit = budget.tokenLimit, limit > 0 else { return nil }
+            used = Double(total) / Double(limit)
+            title = "Weekly · local"
+        }
+        return Card(name: "local-weekly", title: title, used: used, elapsed: 0,
+                    health: used >= 1 ? .red : .normal, resets: nil, resetsAt: nil,
+                    momentum: nil, projected: nil, runsOut: nil, odds: nil, fromHistory: false)
+    }
+
     static func title(_ l: Limit) -> String {
         switch l.role {
         case "session": "5-Hour"

@@ -8,6 +8,7 @@ struct LoggedUsageDetail {
         let range: String
         let total: String
         let coverage: String
+        let localPacing: String?
 
         var id: Int { windowMinutes }
     }
@@ -31,7 +32,7 @@ struct LoggedUsageDetail {
             Period(windowMinutes: period.windowMinutes, title: "Rolling \(period.windowMinutes / 1_440)d",
                    range: "\(Self.timestamp(period.startsAt))–\(Self.timestamp(period.endsAt)) UTC",
                    total: period.totalTokens.map { Tile.Value.formatTokens($0) + " tokens" } ?? "Unknown tokens",
-                   coverage: Self.coverage(period))
+                   coverage: Self.coverage(period), localPacing: Self.localPacing(period))
         }
     }
 
@@ -41,6 +42,33 @@ struct LoggedUsageDetail {
         formatter.timeZone = TimeZone(secondsFromGMT: 0)
         formatter.dateFormat = "yyyy-MM-dd HH:mm"
         return formatter.string(from: date)
+    }
+
+    private static func localPacing(_ period: MeasuredPeriod) -> String? {
+        guard let budget = period.localBudget else { return nil }
+        let profiles = budget.profiles.isEmpty ? "" : " · profiles " + budget.profiles.joined(separator: ", ")
+        switch budget.status {
+        case "invalid": return "Local pacing: configuration invalid" + profiles
+        case "conflict": return "Local pacing: configuration conflict" + profiles
+        case "ok":
+            guard let limit = budget.tokenLimit, limit > 0 else {
+                return "Local pacing: configuration invalid" + profiles
+            }
+            guard let total = period.totalTokens else {
+                return "Local pacing: \(Tile.Value.formatTokens(limit))-token limit · total unknown" + history(period) + profiles
+            }
+            let percent = Double(total) / Double(limit) * 100
+            return "Local pacing: \(Tile.Value.formatTokens(total)) / \(Tile.Value.formatTokens(limit)) tokens (\(String(format: "%.1f", percent))%)" + history(period) + profiles
+        default: return "Local pacing: configuration invalid" + profiles
+        }
+    }
+
+    private static func history(_ period: MeasuredPeriod) -> String {
+        switch period.coverage {
+        case "observed": return ""
+        case "partial": return " · partial history"
+        default: return " · history unknown"
+        }
     }
 
     private static func coverage(_ period: MeasuredPeriod) -> String {
@@ -65,30 +93,39 @@ struct LoggedUsageView: View {
     let usage: MeasuredUsage
     var now = Date()
 
-    var body: some View {
-        let detail = LoggedUsageDetail(usage: usage, now: now)
-        Box {
-            VStack(alignment: .leading, spacing: 6) {
-                Text("Logged tokens").font(.callout.weight(.semibold))
-                Text(detail.source).font(.caption).foregroundStyle(.secondary)
-                Text(detail.snapshot).font(.caption).foregroundStyle(.secondary)
-                if let diagnostic = detail.diagnostic {
-                    Text(diagnostic).font(.caption).foregroundStyle(.secondary)
-                }
-                ForEach(detail.periods) { period in
-                    VStack(alignment: .leading, spacing: 1) {
-                        HStack(alignment: .firstTextBaseline) {
-                            Text(period.title)
-                            Spacer()
-                            Text(period.total).monospacedDigit()
-                        }
-                        .font(.callout)
-                        Text(period.range).font(.caption).foregroundStyle(.secondary)
-                        Text(period.coverage).font(.caption).foregroundStyle(.secondary)
-                    }
-                }
-            }
+    private func costDetail(_ period: MeasuredPeriod) -> String {
+        guard let cost = period.estimatedCost else { return "Locally declared weekly limit" }
+        if cost.status == "invalid" || cost.status == "conflict" {
+            return "Estimated cost configuration: \(cost.status)"
         }
-        .help("Locally observed tokens from the gateway log. These are not a quota or availability forecast.")
+        guard let usd = cost.usd, let budget = cost.budgetUsd else {
+            return "Estimated cost unavailable · missing model or pricing data"
+        }
+        let amount = String(format: "Estimated $%.2f / $%.2f USD", usd, budget)
+        let partial = cost.status == "partial" || period.coverage != "observed"
+        return amount + (partial ? " · partial history" : "")
+            + (cost.unpricedRequests > 0 ? " · \(cost.unpricedRequests) unpriced requests" : "")
+    }
+
+    var body: some View {
+        if let weekly = usage.period(windowMinutes: 10_080) {
+            VStack(alignment: .leading, spacing: 8) {
+                if let card = Card.localWeekly(weekly) {
+                    CardView(card: card, showsPace: false)
+                        .help(costDetail(weekly))
+                }
+                Box {
+                    HStack(alignment: .firstTextBaseline) {
+                        Text("Total tokens · 7d")
+                        Spacer()
+                        Text(weekly.totalTokens.map(Tile.Value.formatTokens) ?? "?")
+                            .monospacedDigit()
+                    }
+                    .font(.callout)
+                }
+                .help(costDetail(weekly))
+            }
+            .help(LoggedUsageDetail(usage: usage, now: now).snapshot + " · " + weekly.coverage + " history")
+        }
     }
 }

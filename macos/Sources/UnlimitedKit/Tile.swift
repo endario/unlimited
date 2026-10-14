@@ -4,6 +4,7 @@ import Foundation
 public struct Tile: Identifiable, Equatable, Sendable {
     public enum Value: Equatable, Sendable {
         case percent(Int)
+        case localPercent(Int)
         /// Locally observed gateway-log tokens for one rolling window, not a vendor quota.
         case tokens(Int, windowMinutes: Int)
         case unread      // the vendor refused, or could not be read
@@ -21,6 +22,11 @@ public struct Tile: Identifiable, Equatable, Sendable {
             return formatter
         }()
 
+        public static func localPercentage(_ fraction: Double) -> Value {
+            let percent = (fraction * 100).rounded()
+            return .localPercent(percent >= Double(Int.max) ? Int.max : Int(percent))
+        }
+
         public static func formatTokens(_ total: Int) -> String {
             tokenFormatter.string(from: NSNumber(value: total)) ?? "\(total)"
         }
@@ -32,11 +38,9 @@ public struct Tile: Identifiable, Equatable, Sendable {
 
         public var text: String {
             switch self {
-            case .percent(let p): return "\(p)"
-            case .tokens(let total, let minutes):
-                let value = Self.compactTokens(total)
-                let days = minutes / (24 * 60)
-                return "\(value) t / \(days)d"
+            case .percent(let p), .localPercent(let p): return "\(p)"
+            case .tokens(let total, _):
+                return Self.compactTokens(total)
             case .unread, .stale, .unknown: return "?"
             case .noWindow: return "—"
             case .waiting: return "…"
@@ -46,8 +50,10 @@ public struct Tile: Identifiable, Equatable, Sendable {
         /// Whether a figure stands behind the value; the rest stand for the absence of a
         /// reading, and render in the grey that is not a colour anyone reads as usage.
         public var showsData: Bool {
-            if case .percent = self { return true }
-            return false
+            switch self {
+            case .percent, .localPercent: return true
+            default: return false
+            }
         }
     }
 
@@ -237,7 +243,13 @@ public struct Tile: Identifiable, Equatable, Sendable {
         let stale = r.takenAt.map { now.timeIntervalSince($0) > staleAfter } ?? true
         let value: Value
         if let period = r.usage?.period(windowMinutes: 10_080), let total = period.totalTokens {
-            value = .tokens(total, windowMinutes: period.windowMinutes)
+            if let fraction = period.estimatedCost?.fraction {
+                value = .localPercentage(fraction)
+            } else if let budget = period.localBudget, budget.status == "ok", let limit = budget.tokenLimit, limit > 0 {
+                value = .localPercentage(Double(total) / Double(limit))
+            } else {
+                value = .tokens(total, windowMinutes: period.windowMinutes)
+            }
         } else if r.status != "ok" {
             value = .unread
         } else if stale && !throttled {
@@ -263,6 +275,7 @@ public struct Tile: Identifiable, Equatable, Sendable {
                         health: usable ? r.primary?.health(now: now) ?? .normal : .normal, alternate: alt,
                         indicator: steering.count == 0 ? nil : steering)
         // Where it is heading, if the forecast is trusted yet; else how much is used so far.
+        if case .localPercent(let percent) = value, usable, percent >= 100 { tile.health = .red }
         tile.heading = r.primary.flatMap { w in
             w.projection.flatMap { w.trusted($0, now: now) ? $0.atReset.last : nil } ?? w.usedAtLeast
         }

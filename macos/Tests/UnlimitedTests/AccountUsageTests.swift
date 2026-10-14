@@ -64,13 +64,14 @@ private func greenColumns(_ image: NSBitmapImageRep) throws -> [Int] {
 @MainActor
 @Test func settingsPercentageColumnKeepsDifferentDigitCountsCentred() throws {
     var centers: [Int] = []
-    for percent in [27, 100] {
-        let image = try usageImage(Tile(id: "openai/test", label: "CDX", value: .percent(percent),
+    for value in [Tile.Value.percent(27), .percent(100), .localPercent(25), .localPercent(100)] {
+        let image = try usageImage(Tile(id: "openai/test", label: "CDX", value: value,
                                         dimmed: false, health: .underUsed))
         let columns = try greenColumns(image)
         centers.append(try #require(columns.min()) + #require(columns.max()))
     }
-    #expect(abs(centers[0] - centers[1]) <= 2)
+    print("Percentage ink centers (pixels): \(centers.map { Double($0) / 2 })")
+    #expect(centers.allSatisfy { abs($0 - centers[0]) <= 2 })
 }
 
 @MainActor
@@ -105,6 +106,36 @@ private func greenColumns(_ image: NSBitmapImageRep) throws -> [Int] {
 
     #expect(LoggedUsageDetail(usage: usage, now: Date(timeIntervalSince1970: 1_790_229_600)).diagnostic ==
             "Local logged-usage state cannot be read. Totals are unavailable until it is repaired.")
+}
+
+@MainActor
+@Test func localPacingShowsProgressWithoutCallingPartialHistoryRoom() throws {
+    let usage = try #require(try Reading.decode(Data("""
+    [{"schema": 1, "vendor": "woyo", "status": "ok", "limits": [],
+      "usage": {"source": "gateway-log", "as_of": "2026-09-24T06:00:00+00:00", "collected_at": "2026-09-24T05:59:00+00:00", "periods": [
+        {"window_minutes": 10080, "starts_at": "2026-09-17T06:00:00+00:00", "ends_at": "2026-09-24T06:00:00+00:00", "input_tokens": 12000, "output_tokens": 500, "total_tokens": 12500, "cache_read_tokens": 0, "cache_creation_tokens": 0, "coverage": "partial", "reasons": ["horizon-edge"], "local_budget": {"status": "ok", "token_limit": 10000, "profiles": ["gateway"]}}
+      ]}}]
+    """.utf8))[0].usage)
+
+    let period = try #require(LoggedUsageDetail(usage: usage, now: .now).periods.first)
+
+    #expect(period.localPacing == "Local pacing: 12,500 / 10,000 tokens (125.0%) · partial history · profiles gateway")
+}
+
+@MainActor
+@Test func localPacingKeepsUnknownTotalsAndConfigurationDiagnosticsExplicit() throws {
+    let usage = try #require(try Reading.decode(Data("""
+    [{"schema": 1, "vendor": "woyo", "status": "ok", "limits": [],
+      "usage": {"source": "gateway-log", "as_of": "2026-09-24T06:00:00+00:00", "collected_at": null, "periods": [
+        {"window_minutes": 10080, "starts_at": "2026-09-17T06:00:00+00:00", "ends_at": "2026-09-24T06:00:00+00:00", "input_tokens": null, "output_tokens": null, "total_tokens": null, "cache_read_tokens": null, "cache_creation_tokens": null, "coverage": "unknown", "reasons": [], "local_budget": {"status": "ok", "token_limit": 10000, "profiles": ["gateway"]}},
+        {"window_minutes": 43200, "starts_at": "2026-08-25T06:00:00+00:00", "ends_at": "2026-09-24T06:00:00+00:00", "input_tokens": 0, "output_tokens": 0, "total_tokens": 0, "cache_read_tokens": 0, "cache_creation_tokens": 0, "coverage": "observed", "reasons": [], "local_budget": {"status": "conflict", "token_limit": null, "profiles": ["one", "two"]}}
+      ]}}]
+    """.utf8))[0].usage)
+
+    let periods = LoggedUsageDetail(usage: usage, now: .now).periods
+
+    #expect(periods[0].localPacing == "Local pacing: 10,000-token limit · total unknown · history unknown · profiles gateway")
+    #expect(periods[1].localPacing == "Local pacing: configuration conflict · profiles one, two")
 }
 
 @MainActor
@@ -205,6 +236,56 @@ private func bitmap<V: View>(_ view: V, width: CGFloat, height: CGFloat) throws 
     let image = try #require(host.bitmapImageRepForCachingDisplay(in: host.bounds))
     host.cacheDisplay(in: host.bounds, to: image)
     return image
+}
+
+private func budgetCard() -> Card {
+    Card(name: "local-weekly", title: "Rolling weekly", used: 0.25, elapsed: 0,
+         health: .normal, resets: nil, resetsAt: nil, momentum: nil, projected: nil,
+         runsOut: nil, odds: nil, fromHistory: false)
+}
+
+@MainActor
+@Test func localBudgetPercentFormattingDoesNotRequireAnIntegerSizedResult() {
+    let view = CardView(card: budgetCard(), showsPace: false)
+    #expect(view.percent(0.25) == "25%")
+    #expect(view.percent(0.005) == "1%")
+    #expect(view.percent(1e20) == "10000000000000000000000%")
+}
+
+@MainActor
+@Test func aRollingBudgetCardCanOmitTheResetPaceStripe() throws {
+    let card = budgetCard()
+    let rolling = try bitmap(CardView(card: card, showsPace: false), width: 320, height: 100)
+    let paced = try bitmap(CardView(card: card), width: 320, height: 100)
+    var changed = 0
+    for y in 0..<rolling.pixelsHigh {
+        for x in 0..<rolling.pixelsWide {
+            let a = try #require(rolling.colorAt(x: x, y: y)?.usingColorSpace(.deviceRGB))
+            let b = try #require(paced.colorAt(x: x, y: y)?.usingColorSpace(.deviceRGB))
+            if abs(a.redComponent - b.redComponent) > 0.05 { changed += 1 }
+        }
+    }
+    #expect(changed > 0, "a rolling budget must not pretend to have a reset-window pace")
+    print("Rolling budget pace-stripe pixel difference: \(changed)")
+    try save(rolling, named: "rolling-budget-card.png")
+}
+
+@MainActor
+@Test func localPacingRowsRenderWithoutClipping() throws {
+    let usage = try #require(try Reading.decode(Data("""
+    [{"schema": 1, "vendor": "woyo", "status": "ok", "limits": [],
+      "usage": {"source": "gateway-log", "as_of": "2026-09-24T06:00:00+00:00", "collected_at": "2026-09-24T05:59:00+00:00", "periods": [
+        {"window_minutes": 10080, "starts_at": "2026-09-17T06:00:00+00:00", "ends_at": "2026-09-24T06:00:00+00:00", "input_tokens": 12000, "output_tokens": 500, "total_tokens": 12500, "cache_read_tokens": 0, "cache_creation_tokens": 0, "coverage": "partial", "reasons": ["horizon-edge"], "local_budget": {"status": "ok", "token_limit": 10000, "profiles": ["gateway"]}},
+        {"window_minutes": 43200, "starts_at": "2026-08-25T06:00:00+00:00", "ends_at": "2026-09-24T06:00:00+00:00", "input_tokens": 0, "output_tokens": 0, "total_tokens": 0, "cache_read_tokens": 0, "cache_creation_tokens": 0, "coverage": "observed", "reasons": [], "local_budget": {"status": "invalid", "token_limit": null, "profiles": ["gateway"]}}
+      ]}}]
+    """.utf8))[0].usage)
+    let image = try bitmap(LoggedUsageView(usage: usage, now: Date(timeIntervalSince1970: 1_790_229_600)),
+                           width: 560, height: 250)
+    let ink = try inkBounds(image)
+
+    #expect(ink.minX > 0 && ink.maxX < CGFloat(image.pixelsWide - 1), "local pacing horizontal ink clipping")
+    #expect(ink.minY > 0 && ink.maxY < CGFloat(image.pixelsHigh - 1), "local pacing vertical ink clipping")
+    print("Local pacing detail ink extent: \(ink)")
 }
 
 private func inkBounds(_ image: NSBitmapImageRep, in rect: NSRect? = nil) throws -> NSRect {
@@ -338,7 +419,10 @@ private func save(_ image: NSBitmapImageRep, named name: String) throws {
         #expect(bounds.minX > 0 && bounds.maxX <= CGFloat(image.pixelsWide - 1), "\(name) horizontal ink clipping")
         #expect(bounds.minY > 0 && bounds.maxY <= CGFloat(image.pixelsHigh - 1), "\(name) vertical ink clipping")
     }
-    #expect(tokenInk.width >= fullValueInk.width, "the strip must hold the complete compact token figure")
+    print("Token ink: tile=\(tokenInk), reference=\(fullValueInk), imageWidth=\(tokenTile.pixelsWide)")
+    #expect(tokenInk.minX > 1 && tokenInk.maxX <= CGFloat(tokenTile.pixelsWide - 1), "token ink edge clearance")
+    // Fractional raster origins can change the measured glyph span by a pixel without clipping.
+    #expect(tokenInk.width + 1 >= fullValueInk.width, "the strip must hold the complete compact token figure")
     #expect(baselineSpan <= 3, "first-baseline markers share one rendered row")
     #expect(shiftedBaselineSpan >= 5, "a four-pixel token offset must separate rendered baseline markers")
     print("Measured ink extents: mixed-strip=\(stripInk), settings=\(settingsInk), normal-popover=\(normalPopoverInk), failed-popover=\(failedPopoverInk), header-alias=\(aliasInk), header-value=\(valueInk), baseline-spans=\(baselineSpan),\(shiftedBaselineSpan)")

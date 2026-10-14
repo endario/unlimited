@@ -15,6 +15,7 @@ VENDOR = "woyo"
 URL = "http://aicoding.woyoalliance.com:90/api/log/token"
 KEYS = EnvKeys("FY_API_KEY", "*.env")
 names, discover = KEYS.names, KEYS.discover
+budget_keys = KEYS
 attach = usage.attach
 
 
@@ -60,6 +61,10 @@ def _metadata(value: object) -> dict | None:
     return parsed if isinstance(parsed, dict) else None
 
 
+def _model(value: object) -> str | None:
+    return value.strip() if isinstance(value, str) and value.strip() else None
+
+
 def _snapshot(rows: list, now: datetime) -> dict:
     anchors: list[str] = []
     candidates: list[tuple[str, dict]] = []
@@ -93,10 +98,12 @@ def _snapshot(rows: list, now: datetime) -> dict:
         if cache_read is None or cache_creation is None:
             unparsed.append(_uncertainty(at))
             continue
+        model = _model(row.get("model_name"))
         anthropic = metadata.get("usage_semantic") == "anthropic" or metadata.get("claude") is True
         candidates.append((identity, {"id": identity, "at": at, "input_tokens": prompt + (cache_read + cache_creation if anthropic else 0),
                                       "output_tokens": output, "cache_read_tokens": cache_read,
-                                      "cache_creation_tokens": cache_creation}))
+                                      "cache_creation_tokens": cache_creation,
+                                      **({"model": model} if model is not None else {})}))
     duplicate = {identity for identity, count in consumption.items() if count > 1}
     events = []
     for identity, event in candidates:
@@ -115,3 +122,19 @@ def read(cred: Credential, now: datetime, get) -> dict:
     if not isinstance(rows, list):
         return reading(VENDOR, cred.account, now, UNREAD, why="no-log-data")
     return dict(reading(VENDOR, cred.account, now, OK, limits=[]), _usage_snapshot=_snapshot(rows, now))
+
+
+MODELS_URL = "http://aicoding.woyoalliance.com:90/v1/models"
+
+
+def models(cred: Credential, now: datetime, get) -> dict:
+    ans = get(MODELS_URL, {"Authorization": f"Bearer {cred.secret['key']}"}, now)
+    if ans.body is None:
+        return dict(failed(VENDOR, cred.account, now, ans), routes=[])
+    rows = ans.body.get("data") if isinstance(ans.body, dict) else None
+    ids = sorted({model["id"] for model in (rows if isinstance(rows, list) else [])
+                  if isinstance(model, dict) and isinstance(model.get("id"), str) and model["id"]})
+    # Listed aliases need a successful dispatch; this is not an uptime guarantee.
+    dispatchable = {"glm-5.3", "glm-5.3-flash", "gpt-6-luna", "gpt-6.1-sol", "gpt-6-astra"}
+    return dict(reading(VENDOR, cred.account, now, OK, why=ans.why, retry_until=ans.retry_until),
+                routes=[{"id": model, "dispatchable": model in dispatchable} for model in ids])

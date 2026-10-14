@@ -154,6 +154,38 @@ class Render(unittest.TestCase):
         self.assertIn("rolling 30d: 0 logged tokens", out)
         self.assertIn("? Sign-in rejected", out)
 
+    def test_local_pacing_progress_is_explicit_and_qualifies_partial_history(self):
+        # A voluntary limit must never look like a provider quota or promise room under incomplete history.
+        r = reading("woyo", "a", NOW, "ok", limits=[])
+        r["usage"] = {"source": "gateway-log", "as_of": NOW.isoformat(), "collected_at": NOW.isoformat(), "periods": [
+            {"window_minutes": 10080, "input_tokens": 2000, "output_tokens": 500, "total_tokens": 2500,
+             "coverage": "partial", "reasons": ["horizon-edge"],
+             "local_budget": {"status": "ok", "token_limit": 2000, "profiles": ["gateway"]}},
+            {"window_minutes": 43200, "input_tokens": 0, "output_tokens": 0, "total_tokens": 0,
+             "coverage": "observed", "reasons": [],
+             "local_budget": {"status": "conflict", "token_limit": None, "profiles": ["one", "two"]}},
+        ]}
+
+        out = show.render([r], NOW)
+
+        self.assertIn("local pacing: 2.50K of 2.00K (125.0%) · partial history · profiles gateway", out)
+        self.assertIn("local pacing: configuration conflict · profiles one, two", out)
+        self.assertNotIn("████", out, "local pacing is text, not a provider quota bar")
+
+    def test_local_pacing_invalid_setting_exposes_no_value(self):
+        # An invalid setting is actionable without disclosing the text a person accidentally pasted.
+        r = reading("woyo", "a", NOW, "ok", limits=[])
+        r["usage"] = {"source": "gateway-log", "as_of": NOW.isoformat(), "collected_at": NOW.isoformat(), "periods": [
+            {"window_minutes": 10080, "input_tokens": 0, "output_tokens": 0, "total_tokens": 0,
+             "coverage": "observed", "reasons": [],
+             "local_budget": {"status": "invalid", "token_limit": None, "profiles": ["gateway"]}},
+        ]}
+
+        out = show.render([r], NOW)
+
+        self.assertIn("local pacing: configuration invalid · profiles gateway", out)
+        self.assertNotIn("private-invalid-value", out)
+
     def test_unknown_logged_tokens_remain_distinct_from_a_measured_zero(self):
         # Turning absent collection into zero would fabricate an observation.
         r = reading("woyo", "a", NOW, "ok", limits=[])
