@@ -31,6 +31,20 @@ class WoyoSource(unittest.TestCase):
         self.environ.start()
         self.addCleanup(self.environ.stop)
 
+    def test_whoami_is_the_one_user_id_the_logs_name(self):
+        # The gateway exposes no account endpoint to a key; its log rows carry the user it belongs to.
+        from unlimited.adapters import woyo
+
+        cred = Credential("fixture", {"key": "fixture-key"})
+        for rows, expected in (([{"user_id": 42}, {"user_id": 42}], "42"), ([], None),
+                               ([{"user_id": 42}, {"user_id": 7}], None), ([{"user_id": "42"}], None),
+                               ([{"user_id": 0}], None)):
+            with self.subTest(rows=rows):
+                who, _ = woyo.whoami(cred, NOW, lambda url, headers, now: Answer({"success": True, "data": rows}, 200, None))
+                self.assertEqual(who, expected)
+        who, _ = woyo.whoami(cred, NOW, lambda url, headers, now: Answer(None, None, "network"))
+        self.assertIsNone(who)
+
     def test_models_authenticates_and_returns_sorted_deduplicated_routes(self):
         from unlimited.adapters import woyo
 
@@ -282,7 +296,7 @@ class WoyoSource(unittest.TestCase):
             return Answer(replay, 200, None)
 
         directory = self.tmp / "cache"
-        with mock.patch.object(woyo, "discover", lambda: [cred]):
+        with mock.patch.object(woyo, "discover", lambda: [cred]), mock.patch.object(woyo, "whoami", lambda *a: (None, None)):
             [first] = cache.through(woyo, max_age=300, clock=lambda: NOW, get=get, directory=directory)
             self.assertEqual(first["usage"]["periods"][0]["total_tokens"], 2967)
             (directory / "woyo.json").unlink()
@@ -337,7 +351,7 @@ class WoyoSource(unittest.TestCase):
             return Answer(json.loads(REPLAY.read_text()), 200, None)
 
         directory = self.tmp / "budget-cache"
-        with mock.patch.object(woyo, "discover", lambda: [cred]):
+        with mock.patch.object(woyo, "discover", lambda: [cred]), mock.patch.object(woyo, "whoami", lambda *a: (None, None)):
             [first] = cache.through(woyo, max_age=300, clock=lambda: NOW, get=get, directory=directory)
             profile.write_text("FY_API_KEY=fixture-key\nUNLIMITED_WEEKLY_TOKEN_LIMIT=20000\n")
             [hit] = cache.through(woyo, max_age=300, clock=lambda: NOW.replace(minute=1),
@@ -412,7 +426,7 @@ class WoyoSource(unittest.TestCase):
             results.append(cache.through(woyo, max_age=300, clock=lambda: NOW, get=get,
                                          directory=self.tmp / "concurrent-cache"))
 
-        with mock.patch.object(woyo, "discover", lambda: [cred]):
+        with mock.patch.object(woyo, "discover", lambda: [cred]), mock.patch.object(woyo, "whoami", lambda *a: (None, None)):
             threads = [threading.Thread(target=read) for _ in range(2)]
             for thread in threads:
                 thread.start()
