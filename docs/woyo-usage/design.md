@@ -1,7 +1,5 @@
 # Woyo rolling logged usage
 
-**Progress:** A is implemented and locally verified; native display and personal limits remain separate deliveries. A has not been released yet.
-
 ## Goal and scope
 
 Show locally accumulated gateway-log tokens over rolling seven and thirty days in the CLI and macOS app. Collection is **app/CLI reads only**: no daemon or new collection command. No fabricated quota, reset, availability promise or selection-policy change.
@@ -77,7 +75,7 @@ Verify rendered ink/baselines, clipping and click geometry for strip, Settings a
 
 The requested optional settings are `UNLIMITED_WEEKLY_TOKEN_LIMIT` and `UNLIMITED_MONTHLY_TOKEN_LIMIT`: rolling seven-/thirty-day input-plus-output budgets including cached input once. Display these as rolling 7d/30d, not calendar months. No actual values have been chosen; do not install example limits.
 
-Resolve each period independently. Empty/unset contributes no budget; explicit values must be positive integers. Same-key files with agreeing values share a limit; conflicting or invalid explicit values yield a local diagnostic and no denominator. Never print raw invalid values. Re-read settings after cache reads, like account names. File-discovered credentials use their current files; environment-only credentials may use environment settings.
+Resolve each period independently. Empty/unset contributes no budget; explicit values must be positive integers representable as signed 64-bit JSON counts. Same-key files with agreeing values share a limit; conflicting or invalid explicit values yield a local diagnostic and no denominator. Never print raw invalid values. Re-read settings after cache reads, like account names. File-discovered credentials use their current files; environment-only credentials may use environment settings.
 
 Periods may gain optional `local_budget`: `status` (`ok`, `invalid`, `conflict`), nullable `token_limit`, profile labels (no full paths/raw values). CLI/native progress is explicitly local and qualifies partial history. Never feed budgets into limits, credits, resets, forecasts, verdicts, choice or incentives.
 

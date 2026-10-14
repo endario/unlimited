@@ -7,6 +7,21 @@ final class PopoverState: ObservableObject {
     @Published var launching = false
 }
 
+struct PopoverContent {
+    struct Failure {
+        let message: String
+        let usage: MeasuredUsage?
+    }
+
+    static func showsQuotaFacts(problem: String?) -> Bool { problem == nil }
+
+    static func failure(problem: String?, readings: [String: Reading], selected: String?) -> Failure? {
+        guard let problem else { return nil }
+        let retained = selected.flatMap { readings[$0] } ?? readings.values.first { $0.usage != nil }
+        return Failure(message: problem, usage: retained?.usage)
+    }
+}
+
 struct PopoverView: View {
     @ObservedObject var model: StripModel
     @StateObject private var state = PopoverState()
@@ -15,35 +30,37 @@ struct PopoverView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
-            if let why = model.problem {
-                Text(why).font(.callout).foregroundStyle(.secondary)
+            if let failure = PopoverContent.failure(problem: model.problem, readings: model.readings, selected: model.selected) {
+                Text(failure.message).font(.callout).foregroundStyle(.secondary)
+                if let usage = failure.usage { LoggedUsageView(usage: usage) }
                 footer(nil)
-            } else if let tile, let reading = model.readings[tile.id] {
+            } else if let tile, let reading = model.readings[tile.id], PopoverContent.showsQuotaFacts(problem: model.problem) {
                 header(tile, reading)
-                if let issue = reading.issue(now: Date()) {
-                    UsageIssueView(issue: issue, login: issue.offersLogin ? model.launches[tile.id].map { launch in
-                        { openTerminal(launch, command: launch.loginCommand) }
-                    } : nil)
-                    .disabled(state.launching)
-                    .help(reading.why ?? issue.title)
-                }
-                if let launchProblem = state.launchProblem {
-                    Text(launchProblem).font(.callout)
-                        .fixedSize(horizontal: false, vertical: true)
-                }
-                ForEach(Card.cards(reading, now: Date())) { CardView(card: $0) }
-                if let credits = Card.credits(reading) {
-                    Box { Label(credits, systemImage: "creditcard").font(.callout) }
-                        .help("Extra usage credits: whether the account may spend past its limits")
-                }
-                if reading.vendor == "anthropic" {
-                    let api = ApiCredit.linked(to: reading, in: Array(model.readings.values))
-                    if let api, api.status == "ok" { ForEach(Card.cards(api, now: Date())) { CardView(card: $0) } }
-                    ApiCreditView(linked: api != nil, none: api?.why == "no-api-organization",
-                                  line: api.flatMap { ApiCredit.line($0, now: Date()) },
-                                  profile: ApiCredit.profile(for: reading, linked: api))
-                }
-                footer(reading)
+                    if let issue = reading.issue(now: Date()) {
+                        UsageIssueView(issue: issue, login: issue.offersLogin ? model.launches[tile.id].map { launch in
+                            { openTerminal(launch, command: launch.loginCommand) }
+                        } : nil)
+                        .disabled(state.launching)
+                        .help(reading.why ?? issue.title)
+                    }
+                    if let launchProblem = state.launchProblem {
+                        Text(launchProblem).font(.callout)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                    ForEach(Card.cards(reading, now: Date())) { CardView(card: $0) }
+                    if let credits = Card.credits(reading) {
+                        Box { Label(credits, systemImage: "creditcard").font(.callout) }
+                            .help("Extra usage credits: whether the account may spend past its limits")
+                    }
+                    if reading.vendor == "anthropic" {
+                        let api = ApiCredit.linked(to: reading, in: Array(model.readings.values))
+                        if let api, api.status == "ok" { ForEach(Card.cards(api, now: Date())) { CardView(card: $0) } }
+                        ApiCreditView(linked: api != nil, none: api?.why == "no-api-organization",
+                                      line: api.flatMap { ApiCredit.line($0, now: Date()) },
+                                      profile: ApiCredit.profile(for: reading, linked: api))
+                    }
+                    if let usage = reading.usage { LoggedUsageView(usage: usage) }
+                    footer(reading)
             } else {
                 Text(model.accounts.isEmpty ? "Reading…" : "Every account is hidden: see Settings.")
                     .foregroundStyle(.secondary)
