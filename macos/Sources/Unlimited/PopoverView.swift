@@ -10,15 +10,22 @@ final class PopoverState: ObservableObject {
 struct PopoverContent {
     struct Failure {
         let message: String
-        let usage: MeasuredUsage?
+        let reading: Reading?
+        var usage: MeasuredUsage? { reading?.usage }
     }
 
     static func showsQuotaFacts(problem: String?) -> Bool { problem == nil }
 
     static func failure(problem: String?, readings: [String: Reading], selected: String?) -> Failure? {
         guard let problem else { return nil }
-        let retained = selected.flatMap { readings[$0] } ?? readings.values.first { $0.usage != nil }
-        return Failure(message: problem, usage: retained?.usage)
+        let retained = selected.flatMap { readings[$0] }.flatMap { $0.usage == nil ? nil : $0 }
+            ?? readings.values.first { $0.usage != nil }
+        return Failure(message: problem, reading: retained)
+    }
+
+    static func description(for reading: Reading) -> String {
+        let identity = reading.names.isEmpty ? [reading.account].compactMap { $0 } : reading.names
+        return ([Tile.vendorName(reading.vendor)] + identity).joined(separator: " · ")
     }
 }
 
@@ -32,6 +39,11 @@ struct PopoverView: View {
         VStack(alignment: .leading, spacing: 10) {
             if let failure = PopoverContent.failure(problem: model.problem, readings: model.readings, selected: model.selected) {
                 Text(failure.message).font(.callout).foregroundStyle(.secondary)
+                if let reading = failure.reading {
+                    DescribedAccount(description: PopoverContent.description(for: reading),
+                                     help: "Retained measured snapshot", reading: reading)
+                        .font(.callout).foregroundStyle(.secondary)
+                }
                 if let usage = failure.usage { LoggedUsageView(usage: usage) }
                 footer(nil)
             } else if let tile, let reading = model.readings[tile.id], PopoverContent.showsQuotaFacts(problem: model.problem) {

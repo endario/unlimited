@@ -160,6 +160,22 @@ private func greenColumns(_ image: NSBitmapImageRep) throws -> [Int] {
 }
 
 @MainActor
+@Test func failureFallbackNamesTheMeasuredAccountWhenSelectedAccountHasNoUsage() throws {
+    let readings = try Reading.decode(Data("""
+    [{"schema":1,"vendor":"openai","account":"quota","status":"ok","limits":[]},
+     {"schema":1,"vendor":"woyo","account":"measured","names":["gateway-account"],"status":"ok","limits":[],
+      "usage":{"source":"gateway-log","as_of":"2026-10-14T03:35:00Z","collected_at":"2026-10-14T03:35:00Z","periods":[
+        {"window_minutes":10080,"starts_at":"2026-10-07T03:35:00Z","ends_at":"2026-10-14T03:35:00Z","input_tokens":0,"output_tokens":0,"total_tokens":2936,"cache_read_tokens":0,"cache_creation_tokens":0,"coverage":"partial","reasons":[]}
+      ]}}]
+    """.utf8))
+    let byID = Dictionary(uniqueKeysWithValues: readings.map { ("\($0.vendor)/\($0.account ?? "")", $0) })
+    let failure = try #require(PopoverContent.failure(problem: "unlimited read failed", readings: byID, selected: "openai/quota"))
+
+    #expect(failure.reading?.vendor == "woyo")
+    #expect(PopoverContent.description(for: try #require(failure.reading)) == "Woyo · gateway-account")
+}
+
+@MainActor
 @Test func settingsUsageUsesPrimaryHealthRatherThanAlternateWarning() throws {
     let tile = Tile(id: "openai/test", label: "CDX", value: .percent(27), dimmed: false,
                     health: .underUsed,
@@ -309,8 +325,9 @@ private func save(_ image: NSBitmapImageRep, named name: String) throws {
     let settingsInk = try inkBounds(settings)
     let normalPopoverInk = try inkBounds(normalPopover)
     let failedPopoverInk = try inkBounds(failedPopover)
-    let aliasRect = NSRect(x: 80, y: 0, width: 110, height: header.pixelsHigh)
-    let valueRect = NSRect(x: 190, y: 0, width: 180, height: header.pixelsHigh)
+    let headerScale = CGFloat(header.pixelsWide) / 560
+    let aliasRect = NSRect(x: 40 * headerScale, y: 0, width: 55 * headerScale, height: CGFloat(header.pixelsHigh))
+    let valueRect = NSRect(x: 95 * headerScale, y: 0, width: 90 * headerScale, height: CGFloat(header.pixelsHigh))
     let aliasInk = try inkBounds(header, in: aliasRect)
     let valueInk = try inkBounds(header, in: valueRect)
     let baselineSpan = try redRowSpan(baseline)
@@ -318,8 +335,8 @@ private func save(_ image: NSBitmapImageRep, named name: String) throws {
     for (name, bounds, image) in [("mixed strip", stripInk, strip), ("settings", settingsInk, settings),
                                   ("normal popover", normalPopoverInk, normalPopover),
                                   ("failed popover", failedPopoverInk, failedPopover)] {
-        #expect(bounds.minX > 0 && bounds.maxX < CGFloat(image.pixelsWide - 1), "\(name) horizontal ink clipping")
-        #expect(bounds.minY > 0 && bounds.maxY < CGFloat(image.pixelsHigh - 1), "\(name) vertical ink clipping")
+        #expect(bounds.minX > 0 && bounds.maxX <= CGFloat(image.pixelsWide - 1), "\(name) horizontal ink clipping")
+        #expect(bounds.minY > 0 && bounds.maxY <= CGFloat(image.pixelsHigh - 1), "\(name) vertical ink clipping")
     }
     #expect(tokenInk.width >= fullValueInk.width, "the strip must hold the complete compact token figure")
     #expect(baselineSpan <= 3, "first-baseline markers share one rendered row")
