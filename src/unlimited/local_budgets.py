@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import math
 import os
+from datetime import timedelta
 from decimal import Decimal, InvalidOperation
 from pathlib import Path
 
@@ -49,9 +50,35 @@ def attach(r: dict, keys: EnvKeys) -> dict:
         out_periods.append(decorated)
     out = dict(r, usage=dict(usage, periods=out_periods))
     out.pop("budget", None)
+    limits = [l for l in out.get("limits") or [] if not (isinstance(l, dict) and l.get("kind") == _LIMIT_KIND)]
     progress = budget_progress(out)
     if progress is not None:
         out["budget"] = progress
+        weekly = next(p for p in out_periods if isinstance(p, dict) and p.get("window_minutes") == 10080)
+        limits.append(_budget_limit(progress, weekly, events))
+    out["limits"] = limits
+    return out
+
+
+_LIMIT_KIND = "local-market-value"
+
+
+def _budget_limit(progress: dict, period: dict, events: list[dict] | None) -> dict:
+    """The rolling budget as a schema limit, so a reader of `limits` needs no budget handling.
+    `resets_at` is when every counted request has left the window (None when none is in it), and
+    the projection is a rolling window's steady state: at the same pace it holds what it holds now."""
+    from .schema import limit
+
+    used, minutes = progress["used"], progress["window_minutes"]
+    starts, ends = _moment(period.get("starts_at")), _moment(period.get("ends_at"))
+    times = [at for e in events or [] if (at := _moment(e.get("at"))) is not None
+             and starts is not None and ends is not None and starts <= at < ends]
+    resets = max(times) + timedelta(minutes=minutes) if times and used is not None else None
+    out = limit("seven_day", window_minutes=minutes, used_at_least=used, resets_at=resets, held=None,
+                kind=_LIMIT_KIND)
+    out["projection"] = None if resets is None else {
+        "at_reset": [round(used, 4), round(used, 4)], "recent_at_reset": round(used, 4), "exhausts_at": None,
+        "run_out": None, "samples": 0, "past_windows": 0, "since": None}
     return out
 
 

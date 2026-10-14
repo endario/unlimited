@@ -229,6 +229,53 @@ class LocalBudgets(unittest.TestCase):
             conflict = self.attach(reading)["usage"]["periods"][0]["estimated_cost"]
         self.assertEqual(conflict, {"usd": None, "budget_usd": None, "unpriced_requests": 0, "status": "conflict"})
 
+    def test_usd_budget_is_also_a_weekly_limit_every_limits_reader_ranks(self):
+        # A reader that knows only `limits` sees the budget as a weekly window, so it needs no
+        # budget handling of its own; one that does can tell it by `kind`.
+        from unlimited import verdict
+        from unlimited.schema import reading
+
+        self.write("gateway.env", "FY_API_KEY=fixture-key\nUNLIMITED_WEEKLY_USD_LIMIT=1\n"
+                   + "".join(f"UNLIMITED_GLM_5_3_{b}_USD_PER_MILLION=1\n"
+                             for b in ("INPUT", "OUTPUT", "CACHE_READ", "CACHE_WRITE")))
+        base = reading("woyo", account_of("fixture-key"), NOW, "ok", limits=[])
+        base["usage"] = dict(measured()["usage"], collected_at=NOW.isoformat())
+        last = NOW - timedelta(days=2)
+        events = [{"id": i, "at": at.isoformat(), "model": "glm-5.3", "input_tokens": 100_000,
+                   "output_tokens": 0, "cache_read_tokens": 0, "cache_creation_tokens": 0}
+                  for i, at in (("old", NOW - timedelta(days=8)), ("one", NOW - timedelta(days=5)), ("two", last))]
+        with mock.patch("unlimited.usage.events", return_value=events):
+            decorated = self.attach(base)
+            again = self.attach(decorated)
+
+        self.assertEqual(decorated["budget"]["used"], 0.2)
+        [weekly] = decorated["limits"]
+        self.assertEqual((weekly["name"], weekly["role"], weekly["window_minutes"], weekly["kind"]),
+                         ("seven_day", "weekly", 10080, "local-market-value"))
+        self.assertEqual(weekly["used_at_least"], 0.2)
+        self.assertEqual(weekly["resets_at"], (last + timedelta(days=7)).isoformat())
+        self.assertEqual(again["limits"], decorated["limits"])
+        ranked = verdict.verdict(decorated, model_scope=None, now=NOW, work=timedelta(minutes=10),
+                                 max_age=timedelta(minutes=10))
+        self.assertEqual((ranked["state"], ranked["window"], ranked["at_reset"]), ("ranked", "seven_day", [0.2, 0.2]))
+
+    def test_budget_limit_without_requests_is_unopened_and_misconfigured_is_unread(self):
+        from unlimited import verdict
+
+        self.write("gateway.env", "FY_API_KEY=fixture-key\nUNLIMITED_WEEKLY_USD_LIMIT=200\n")
+        reading = dict(measured(), status="ok", taken_at=NOW.isoformat(), limits=[])
+        reading["usage"]["collected_at"] = NOW.isoformat()
+        with mock.patch("unlimited.usage.events", return_value=[]):
+            [idle] = self.attach(reading)["limits"]
+        self.assertEqual((idle["used_at_least"], idle["resets_at"], idle["projection"]), (0.0, None, None))
+
+        self.write("gateway.env", "FY_API_KEY=fixture-key\nUNLIMITED_WEEKLY_USD_LIMIT=nope\n")
+        with mock.patch("unlimited.usage.events", return_value=[]):
+            broken = self.attach(reading)
+        self.assertIsNone(broken["limits"][0]["used_at_least"])
+        self.assertEqual(verdict.verdict(broken, model_scope=None, now=NOW, work=timedelta(minutes=10),
+                                         max_age=timedelta(minutes=10))["state"], "unread")
+
 
 if __name__ == "__main__":
     unittest.main()
