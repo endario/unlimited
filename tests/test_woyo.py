@@ -35,7 +35,7 @@ class WoyoSource(unittest.TestCase):
         # The gateway exposes no account endpoint to a key; its log rows carry the user it belongs to.
         from unlimited.adapters import woyo
 
-        cred = Credential("fixture", {"key": "fixture-key"})
+        cred = Credential("fixture", {"key": "fixture-key", "base": "http://gateway.test"})
         for rows, expected in (([{"user_id": 42}, {"user_id": 42}], "42"), ([], None),
                                ([{"user_id": 42}, {"user_id": 7}], None), ([{"user_id": "42"}], None),
                                ([{"user_id": 0}], None)):
@@ -55,12 +55,12 @@ class WoyoSource(unittest.TestCase):
         ]}
 
         def get(url, headers, now):
-            self.assertEqual(url, "$FY_API_BASE_URL/v1/models")
+            self.assertEqual(url, "http://gateway.test/v1/models")
             self.assertEqual(headers, {"Authorization": "Bearer fixture-key"})
             self.assertEqual(now, NOW)
             return Answer(body, 200, None)
 
-        result = woyo.models(Credential("fixture", {"key": "fixture-key"}), NOW, get)
+        result = woyo.models(Credential("fixture", {"key": "fixture-key", "base": "http://gateway.test"}), NOW, get)
 
         self.assertEqual(result["status"], "ok")
         self.assertEqual(result["routes"], [
@@ -77,7 +77,7 @@ class WoyoSource(unittest.TestCase):
         # Bad vendor rows are ignored without turning an advertised partial catalog into a failure.
         from unlimited.adapters import woyo
 
-        cred = Credential("fixture", {"key": "fixture-key"})
+        cred = Credential("fixture", {"key": "fixture-key", "base": "http://gateway.test"})
         for body in ([], {"data": None}, {"data": {"id": "glm-5.3"}},
                      {"data": [None, {"id": None}, {"id": ""}, {"name": "glm-5.3"}]}):
             with self.subTest(body=body):
@@ -88,7 +88,7 @@ class WoyoSource(unittest.TestCase):
         # A refused credential must not be represented as a successful empty catalog.
         from unlimited.adapters import woyo
 
-        result = woyo.models(Credential("fixture", {"key": "fixture-key"}), NOW,
+        result = woyo.models(Credential("fixture", {"key": "fixture-key", "base": "http://gateway.test"}), NOW,
                              lambda *args: Answer(None, 401, "http-401"))
 
         self.assertEqual((result["status"], result["why"], result["routes"]), ("refused", "http-401", []))
@@ -96,7 +96,7 @@ class WoyoSource(unittest.TestCase):
     def test_models_propagates_transport_failure(self):
         from unlimited.adapters import woyo
 
-        result = woyo.models(Credential("fixture", {"key": "fixture-key"}), NOW,
+        result = woyo.models(Credential("fixture", {"key": "fixture-key", "base": "http://gateway.test"}), NOW,
                              lambda *args: Answer(None, None, "unreachable"))
 
         self.assertEqual((result["status"], result["why"], result["routes"]), ("unread", "unreachable", []))
@@ -109,11 +109,11 @@ class WoyoSource(unittest.TestCase):
         replay["data"].reverse()
 
         def get(url, headers, now):
-            self.assertEqual(url, woyo.URL)
+            self.assertEqual(url, "http://gateway.test/api/log/token")
             self.assertEqual(headers, {"Authorization": "Bearer fixture-key"})
             return Answer(replay, 200, None)
 
-        r = woyo.read(Credential("fixture", {"key": "fixture-key"}), NOW, get)
+        r = woyo.read(Credential("fixture", {"key": "fixture-key", "base": "http://gateway.test"}), NOW, get)
 
         self.assertEqual((r["status"], r["limits"]), ("ok", []))
         snapshot = r["_usage_snapshot"]
@@ -129,7 +129,7 @@ class WoyoSource(unittest.TestCase):
 
         row = {"request_id": "priced", "created_at": int(NOW.timestamp()) - 60, "type": 2,
                "model_name": "glm-5.3-flash", "prompt_tokens": 10, "completion_tokens": 2, "other": "{}"}
-        r = woyo.read(Credential("fixture", {"key": "fixture-key"}), NOW,
+        r = woyo.read(Credential("fixture", {"key": "fixture-key", "base": "http://gateway.test"}), NOW,
                       lambda *args: Answer({"success": True, "data": [row]}, 200, None))
 
         self.assertEqual(r["_usage_snapshot"]["events"][0]["model"], "glm-5.3-flash")
@@ -147,6 +147,25 @@ class WoyoSource(unittest.TestCase):
         self.assertEqual({c.secret["key"] for c in got}, {"first-key", "second-key"})
         self.assertEqual(woyo.names()[account_of("second-key")], ["gateway"])
 
+    def test_gateway_base_comes_from_the_key_s_own_profile_or_the_environment(self):
+        # The operator's address is configuration: a key carries the base its env file names, and a
+        # key without one is unread rather than sent anywhere.
+        from unlimited.adapters import woyo
+
+        config = self.home / ".config"
+        config.mkdir()
+        (config / "gateway.env").write_text("FY_API_KEY=file-key\nFY_API_BASE_URL=http://file.test/\n")
+        (config / "bare.env").write_text("FY_API_KEY=bare-key\n")
+        with mock.patch.dict(os.environ, {"FY_API_KEY": "env-key", "FY_API_BASE_URL": "http://env.test"}):
+            got = {c.secret["key"]: c.secret.get("base") for c in woyo.discover()}
+        self.assertEqual(got, {"file-key": "http://file.test", "bare-key": None, "env-key": "http://env.test"})
+
+        bare = Credential("bare", {"key": "bare-key"})
+        get = lambda *args: self.fail("a key without a base must not be sent")
+        self.assertEqual((woyo.read(bare, NOW, get)["why"], woyo.models(bare, NOW, get)["why"]),
+                         ("no-base-url", "no-base-url"))
+        self.assertEqual(woyo.whoami(bare, NOW, get), (None, None))
+
     def test_registry_exposes_woyo(self):
         # Omitting the registry entry makes an otherwise-valid source unreachable from the CLI.
         from unlimited.adapters import REGISTRY, woyo
@@ -161,7 +180,7 @@ class WoyoSource(unittest.TestCase):
             with self.subTest(kind=kind):
                 row = {"request_id": "invalid-type", "created_at": 1791892800, "type": kind,
                        "prompt_tokens": 200, "completion_tokens": 10, "other": "{}"}
-                r = woyo.read(Credential("fixture", {"key": "fixture-key"}), NOW,
+                r = woyo.read(Credential("fixture", {"key": "fixture-key", "base": "http://gateway.test"}), NOW,
                               lambda *args: Answer({"success": True, "data": [row]}, 200, None))
                 snapshot = r["_usage_snapshot"]
                 self.assertEqual((snapshot["events"], snapshot["anchors"]), ([], []))
@@ -172,7 +191,7 @@ class WoyoSource(unittest.TestCase):
         # A repeated malformed page must not turn unknown token use into a clean observed zero.
         from unlimited.adapters import woyo
 
-        cred = Credential("fixture", {"key": "fixture-key"})
+        cred = Credential("fixture", {"key": "fixture-key", "base": "http://gateway.test"})
         row = {"request_id": "invalid-type", "created_at": int(NOW.timestamp()) - 60,
                "prompt_tokens": 200, "completion_tokens": 10, "other": "{}"}
         directory = self.tmp / "invalid-type-cache"
@@ -199,7 +218,7 @@ class WoyoSource(unittest.TestCase):
             {"request_id": "max-time", "created_at": 253402300799, "type": 2, "prompt_tokens": "bad",
              "completion_tokens": 2, "other": "{}"},
         ]
-        r = woyo.read(Credential("fixture", {"key": "fixture-key"}), NOW,
+        r = woyo.read(Credential("fixture", {"key": "fixture-key", "base": "http://gateway.test"}), NOW,
                       lambda *args: Answer({"success": True, "data": rows}, 200, None))
         snapshot = r["_usage_snapshot"]
         self.assertEqual([(event["input_tokens"], event["output_tokens"]) for event in snapshot["events"]], [(200, 10)])
@@ -210,7 +229,7 @@ class WoyoSource(unittest.TestCase):
         # Omitting consumption IDs from anchors leaves every successful page separated by a tail gap.
         from unlimited.adapters import woyo
 
-        cred = Credential("fixture", {"key": "fixture-key"})
+        cred = Credential("fixture", {"key": "fixture-key", "base": "http://gateway.test"})
         row = {"type": 2, "request_id": "synthetic-consumption", "created_at": int(NOW.timestamp()) - 60,
                "prompt_tokens": 200, "completion_tokens": 10, "other": '{"cache_tokens":80}'}
         directory = self.tmp / "consumption-cache"
@@ -230,7 +249,7 @@ class WoyoSource(unittest.TestCase):
 
         row = {"request_id": "openai-cache", "created_at": 1791892800, "type": 2, "prompt_tokens": 23,
                "completion_tokens": 8, "other": '{"cache_tokens":7,"cache_creation_tokens":3}'}
-        r = woyo.read(Credential("fixture", {"key": "fixture-key"}), NOW,
+        r = woyo.read(Credential("fixture", {"key": "fixture-key", "base": "http://gateway.test"}), NOW,
                       lambda url, headers, now: Answer({"success": True, "data": [row]}, 200, None))
         (event,) = r["_usage_snapshot"]["events"]
         self.assertEqual((event["input_tokens"], event["output_tokens"], event["cache_read_tokens"],
@@ -240,7 +259,7 @@ class WoyoSource(unittest.TestCase):
         # Treating an explicit failed response as empty would create false coverage and zero use.
         from unlimited.adapters import woyo
 
-        r = woyo.read(Credential("fixture", {"key": "fixture-key"}), NOW,
+        r = woyo.read(Credential("fixture", {"key": "fixture-key", "base": "http://gateway.test"}), NOW,
                       lambda url, headers, now: Answer({"success": False, "data": []}, 200, None))
         self.assertEqual((r["status"], r["why"]), ("unread", "no-log-data"))
         self.assertNotIn("_usage_snapshot", r)
@@ -255,7 +274,7 @@ class WoyoSource(unittest.TestCase):
             {"request_id": "same", "created_at": 1791892801, "type": 2, "prompt_tokens": 3,
              "completion_tokens": "bad", "other": "{}"},
         ]
-        r = woyo.read(Credential("fixture", {"key": "fixture-key"}), NOW,
+        r = woyo.read(Credential("fixture", {"key": "fixture-key", "base": "http://gateway.test"}), NOW,
                       lambda url, headers, now: Answer({"success": True, "data": rows}, 200, None))
         self.assertEqual(r["_usage_snapshot"]["events"], [])
         self.assertEqual(len(r["_usage_snapshot"]["unparsed"]), 2)
@@ -272,7 +291,7 @@ class WoyoSource(unittest.TestCase):
             {"request_id": "bad-cache", "created_at": 1791892802, "type": 2, "prompt_tokens": 5,
              "completion_tokens": 6, "other": '{"usage_semantic":"anthropic","cache_tokens":"seven"}'},
         ]
-        r = woyo.read(Credential("fixture", {"key": "fixture-key"}), NOW,
+        r = woyo.read(Credential("fixture", {"key": "fixture-key", "base": "http://gateway.test"}), NOW,
                       lambda url, headers, now: Answer({"success": True, "data": rows}, 200, None))
         snapshot = r["_usage_snapshot"]
         self.assertEqual(snapshot["events"], [])
@@ -288,7 +307,7 @@ class WoyoSource(unittest.TestCase):
 
         replay = json.loads(REPLAY.read_text())
         replay["data"][0]["other"] = '{"usage_semantic":"anthropic","cache_tokens":1088,"private-marker":"private-body"}'
-        cred = Credential("fixture", {"key": "fixture-key"})
+        cred = Credential("fixture", {"key": "fixture-key", "base": "http://gateway.test"})
         calls = []
 
         def get(url, headers, now):
@@ -320,7 +339,7 @@ class WoyoSource(unittest.TestCase):
         from unlimited.adapters import woyo
 
         replay = json.loads(REPLAY.read_text())
-        cred = Credential("fixture", {"key": "fixture-key"})
+        cred = Credential("fixture", {"key": "fixture-key", "base": "http://gateway.test"})
         directory = self.tmp / "failure-cache"
         with mock.patch.object(woyo, "discover", lambda: [cred]):
             cache.through(woyo, max_age=0, clock=lambda: NOW,
@@ -343,7 +362,7 @@ class WoyoSource(unittest.TestCase):
         config.mkdir()
         profile = config / "gateway.env"
         profile.write_text("FY_API_KEY=fixture-key\nUNLIMITED_WEEKLY_TOKEN_LIMIT=10000\n")
-        cred = Credential(account_of("fixture-key"), {"key": "fixture-key"})
+        cred = Credential(account_of("fixture-key"), {"key": "fixture-key", "base": "http://gateway.test"})
         calls = []
 
         def get(url, headers, now):
@@ -379,7 +398,7 @@ class WoyoSource(unittest.TestCase):
             for bucket, value in (("INPUT", "1"), ("OUTPUT", "2"), ("CACHE_READ", ".1"), ("CACHE_WRITE", ".2"))
         )
         profile.write_text("FY_API_KEY=fixture-key\nUNLIMITED_WEEKLY_USD_LIMIT=200\n" + rate_lines + "\n")
-        cred = Credential(account_of("fixture-key"), {"key": "fixture-key"})
+        cred = Credential(account_of("fixture-key"), {"key": "fixture-key", "base": "http://gateway.test"})
         row = {"request_id": "priced", "created_at": int(NOW.timestamp()) - 60, "type": 2,
                "model_name": "glm-5.3", "prompt_tokens": 100, "completion_tokens": 10,
                "other": '{"cache_tokens":20,"cache_creation_tokens":10}'}
@@ -411,7 +430,7 @@ class WoyoSource(unittest.TestCase):
         from unlimited.adapters import woyo
 
         replay = json.loads(REPLAY.read_text())
-        cred = Credential("fixture", {"key": "fixture-key"})
+        cred = Credential("fixture", {"key": "fixture-key", "base": "http://gateway.test"})
         calls = []
         start = threading.Barrier(2)
         results = []
@@ -446,7 +465,7 @@ class WoyoSource(unittest.TestCase):
             return dict({k: v for k, v in reading.items() if k != "_usage_snapshot"}, usage={"as_of": now.isoformat()})
 
         adapter = SimpleNamespace(
-            VENDOR="woyo", discover=lambda: [Credential("fixture", {"key": "fixture-key"})],
+            VENDOR="woyo", discover=lambda: [Credential("fixture", {"key": "fixture-key", "base": "http://gateway.test"})],
             read=lambda cred, now, get: {"schema": 1, "vendor": "woyo", "account": cred.account,
                                          "taken_at": now.isoformat(), "source": "api", "status": "ok",
                                          "why": None, "retry_until": None, "limits": [],

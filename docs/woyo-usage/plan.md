@@ -84,7 +84,7 @@ def default_dir():
 
 **Consumes:** Task 1's snapshot contract and `usage.attach(r, now)`.
 
-**Produces:** `woyo.VENDOR`, `woyo.URL`, `woyo.KEYS`, `discover`, `names`, `read(cred, now, get)`, and `attach = usage.attach`. Register the module in `REGISTRY`.
+**Produces:** `woyo.VENDOR`, `woyo.BASE`, `woyo.KEYS`, `discover`, `names`, `read(cred, now, get)`, and `attach = usage.attach`. Register the module in `REGISTRY`.
 
 - [ ] Add a failing parser/source test with a specific transport double:
 
@@ -94,7 +94,7 @@ from unlimited.credential import Credential
 from unlimited.transport import Answer
 
 def get(url, headers, now):
-    assert url == woyo.URL
+    assert url == cred.secret["base"] + woyo.LOG_PATH
     assert headers == {"Authorization": "Bearer fixture-key"}
     return Answer(replay, 200, None)
 
