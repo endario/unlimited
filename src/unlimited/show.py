@@ -9,7 +9,7 @@ from .projection import MIN_PAST
 from .schema import moment
 
 VENDOR_NAMES = {"anthropic": "Claude", "openai": "Codex", "zai": "Z.ai GLM", "opencode": "OpenCode", "xai": "Grok",
-                "kimi": "Kimi Code", "neuralwatt": "Neuralwatt", "commandcode": "Command Code"}
+                "kimi": "Kimi Code", "neuralwatt": "Neuralwatt", "commandcode": "Command Code", "woyo": "Woyo"}
 WINDOW_NAMES = {"five_hour": "5-hour", "seven_day": "weekly", "month": "monthly", "codex": "weekly",
                 "gpt-reserve": "weekly reserve", "seven_day_opus": "weekly Opus",
                 "seven_day_sonnet": "weekly Sonnet", "period": "billing period",
@@ -70,6 +70,40 @@ def _expiry(t: datetime | None, now: datetime) -> str | None:
     return None if t is None else "expired" if t <= now else f"expires in {_until(t, now)}"
 
 
+def _token_count(value: object) -> str:
+    if not isinstance(value, int):
+        return "?"
+    if value < 1_000:
+        return str(value)
+    if value < 1_000_000:
+        return f"{value / 1_000:.2f}K"
+    return f"{value / 1_000_000:.2f}M"
+
+
+def _measured_usage(usage: object, now: datetime) -> list[str]:
+    if not isinstance(usage, dict) or usage.get("source") != "gateway-log":
+        return []
+    lines = []
+    for period in usage.get("periods", []):
+        if not isinstance(period, dict) or period.get("window_minutes") not in (10080, 43200):
+            continue
+        label = "7d" if period["window_minutes"] == 10080 else "30d"
+        coverage = period.get("coverage") if isinstance(period.get("coverage"), str) else "unknown"
+        reasons = period.get("reasons") if isinstance(period.get("reasons"), list) else []
+        note = coverage + (f" ({', '.join(r for r in reasons if isinstance(r, str))})" if reasons else "")
+        total = period.get("total_tokens")
+        details = [f"input {_token_count(period.get('input_tokens'))}", f"output {_token_count(period.get('output_tokens'))}"]
+        for key, label_ in (("cache_read_tokens", "cache read"), ("cache_creation_tokens", "cache creation")):
+            value = period.get(key)
+            if isinstance(value, int) and value:
+                details.append(f"{label_} {_token_count(value)}")
+        lines.append(f"  rolling {label}: {_token_count(total)} logged tokens · {' · '.join(details)} · {note}")
+    collected = moment(usage.get("collected_at"))
+    if lines and collected:
+        lines.append(f"    collected {_until(now, collected)} ago")
+    return lines
+
+
 def _credits(c: dict, taken: datetime | None, now: datetime, color: bool) -> str:
     """One row: what the account may spend once its windows are used, and whether that is on."""
     used, limit, bal, cur = c.get("used"), c.get("limit"), c.get("balance"), c.get("currency") or ""
@@ -126,6 +160,8 @@ def render(readings: list[dict], now: datetime, *, color: bool = False, all_limi
         indicator = _steering(r, color, now)
         lines.append(f"{vendor}" + (f" {plan}" if plan else "") + f" · {who}" + (f" {indicator}" if indicator else "")
                      + (f"  ({', '.join(notes)})" if notes else ""))
+        measured = _measured_usage(r.get("usage"), now)
+        lines.extend(measured)
         if r.get("status") != "ok":
             description = errors.describe(r.get("why"))
             lines.extend([f"  ? {description['title']}", f"    {description['message']}"])
@@ -150,7 +186,7 @@ def render(readings: list[dict], now: datetime, *, color: bool = False, all_limi
             lines.append(f"  {name:<15} " + _paint(f"{bar} {pct}", used, held, color) + f"  {when}{flag}")
             if l.get("projection") and not held and (used or 0) < 1:
                 lines.append(" " * 18 + _forecast(l["projection"], now, color))
-        if not shown and not r.get("credits"):
+        if not shown and not r.get("credits") and not measured:
             lines.append("  no usage windows reported")
         if r.get("credits"):
             lines.append(_credits(r["credits"], taken, now, color))

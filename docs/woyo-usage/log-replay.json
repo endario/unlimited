@@ -1,0 +1,33 @@
+{
+  "description": "Synthetic identities and timestamps; consumption counts reproduce the checked GLM example and minimal Luna probe. Error/consumption identity collision is a regression scenario, not an observed production collision.",
+  "success": true,
+  "data": [
+    {
+      "id": 1,
+      "request_id": "sample-anthropic",
+      "created_at": 1791892800,
+      "type": 2,
+      "prompt_tokens": 1763,
+      "completion_tokens": 85,
+      "other": "{\"usage_semantic\":\"anthropic\",\"claude\":true,\"cache_tokens\":1088,\"cache_creation_tokens\":0}"
+    },
+    {
+      "id": 2,
+      "request_id": "sample-openai",
+      "created_at": 1791892801,
+      "type": 2,
+      "prompt_tokens": 23,
+      "completion_tokens": 8,
+      "other": "{\"request_conversion\":[\"OpenAI Compatible\"],\"cache_tokens\":0}"
+    },
+    {
+      "id": 3,
+      "request_id": "sample-anthropic",
+      "created_at": 1791892800,
+      "type": 5,
+      "prompt_tokens": 0,
+      "completion_tokens": 0,
+      "other": "{}"
+    }
+  ]
+}
