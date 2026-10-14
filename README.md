@@ -250,6 +250,7 @@ not projected: the vendor reports no reset for it.
 | xAI Grok (SuperGrok, Grok CLI sign-in) | — | the Grok CLI's billing proxy on its own token |
 | Neuralwatt Cloud | — | `v1/quota` on `$NEURALWATT_API_KEY` and each `~/.config/neuralwatt*.env` |
 | Command Code | — | `alpha/billing/credits` and `alpha/billing/subscriptions` on `$COMMAND_CODE_API_KEY` and each `~/.config/commandcode*.env` |
+| Woyo | — | gateway-log observations from `api/log/token` on `$FY_API_KEY` and matching `~/.config/*.env` files |
 
 The network endpoints are not officially documented and may change without notice. unlimited
 reads each tool's credential where the tool keeps it and never writes it back. The one token

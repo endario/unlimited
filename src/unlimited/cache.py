@@ -119,6 +119,9 @@ def through(adapter, *, max_age: float, clock, get, directory: Path | None = Non
                     # The last good reading stands, carrying the deadline before anyone asks again.
                     got = dict(best, retry_until=got["retry_until"])
                 out.append(got)
+        attach = getattr(adapter, "attach", None)
+        if attach is not None:
+            out = [attach(r, clock()) for r in out]
         history = projection.prune(projection.record(history, out), now)
         _write(path, out, history)
         done = [projection.attach(settled(r, now), history) for r in out]

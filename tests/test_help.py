@@ -66,6 +66,12 @@ class Help(unittest.TestCase):
         self.assertIn("--offering", sub.format_help())
         self.assertIn("model-family", sub.format_help())
 
+    def test_woyo_is_a_readable_vendor_and_usage_state_is_disclosed(self):
+        # Omitting a source from CLI choices makes its discovered credentials inaccessible.
+        p = cli._parser()
+        self.assertEqual(p.parse_args(["read", "--vendor", "woyo", "--json"]).vendor, ["woyo"])
+        self.assertIn("usage/", p.format_help())
+
 
 if __name__ == "__main__":
     unittest.main()

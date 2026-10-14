@@ -133,6 +133,38 @@ class Render(unittest.TestCase):
         self.assertEqual([paint(u)[2:4] for u in (0.85, 0.86, 0.95, 0.96)], ["32", "38", "38", "31"])
         self.assertIn("[31m", show._paint("x", 0.1, True, True), "held is red whatever the figure")
 
+    def test_logged_tokens_show_both_rolling_windows_and_survive_a_refusal(self):
+        # Replacing these measured counts with quota bars or dropping them on refusal hides retained facts.
+        usage = {"source": "gateway-log", "as_of": NOW.isoformat(),
+                 "collected_at": (NOW - timedelta(hours=2)).isoformat(), "periods": [
+                     {"window_minutes": 10080, "input_tokens": 2851, "output_tokens": 85,
+                      "total_tokens": 2936, "cache_read_tokens": 1088, "cache_creation_tokens": 0,
+                      "coverage": "partial", "reasons": ["horizon-edge"]},
+                     {"window_minutes": 43200, "input_tokens": 0, "output_tokens": 0,
+                      "total_tokens": 0, "cache_read_tokens": 0, "cache_creation_tokens": 0,
+                      "coverage": "observed", "reasons": []}]}
+        refused = reading("woyo", "a", NOW, "refused", why="http-401")
+        refused["usage"] = usage
+        out = show.render([refused], NOW)
+        self.assertIn("Woyo", out)
+        self.assertIn("rolling 7d: 2.94K logged tokens", out)
+        self.assertIn("input 2.85K · output 85", out)
+        self.assertIn("partial (horizon-edge)", out)
+        self.assertIn("collected 2h 00m ago", out)
+        self.assertIn("rolling 30d: 0 logged tokens", out)
+        self.assertIn("? Sign-in rejected", out)
+
+    def test_unknown_logged_tokens_remain_distinct_from_a_measured_zero(self):
+        # Turning absent collection into zero would fabricate an observation.
+        r = reading("woyo", "a", NOW, "ok", limits=[])
+        r["usage"] = {"source": "gateway-log", "as_of": NOW.isoformat(), "collected_at": None,
+                      "periods": [{"window_minutes": 10080, "input_tokens": None, "output_tokens": None,
+                                   "total_tokens": None, "cache_read_tokens": None, "cache_creation_tokens": None,
+                                   "coverage": "unknown", "reasons": []}]}
+        out = show.render([r], NOW)
+        self.assertIn("rolling 7d: ? logged tokens", out)
+        self.assertIn("unknown", out)
+
 
 class Names(unittest.TestCase):
     """Each adapter names its accounts by the directories or wrappers holding them."""
