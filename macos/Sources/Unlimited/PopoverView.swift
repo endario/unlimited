@@ -7,6 +7,28 @@ final class PopoverState: ObservableObject {
     @Published var launching = false
 }
 
+struct PopoverContent {
+    struct Failure {
+        let message: String
+        let reading: Reading?
+        var usage: MeasuredUsage? { reading?.usage }
+    }
+
+    static func showsQuotaFacts(problem: String?) -> Bool { problem == nil }
+
+    static func failure(problem: String?, readings: [String: Reading], selected: String?) -> Failure? {
+        guard let problem else { return nil }
+        let retained = selected.flatMap { readings[$0] }.flatMap { $0.usage == nil ? nil : $0 }
+            ?? readings.values.first { $0.usage != nil }
+        return Failure(message: problem, reading: retained)
+    }
+
+    static func description(for reading: Reading) -> String {
+        let identity = reading.names.isEmpty ? [reading.account].compactMap { $0 } : reading.names
+        return ([Tile.vendorName(reading.vendor)] + identity).joined(separator: " · ")
+    }
+}
+
 struct PopoverView: View {
     @ObservedObject var model: StripModel
     @StateObject private var state = PopoverState()
@@ -15,35 +37,42 @@ struct PopoverView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
-            if let why = model.problem {
-                Text(why).font(.callout).foregroundStyle(.secondary)
+            if let failure = PopoverContent.failure(problem: model.problem, readings: model.readings, selected: model.selected) {
+                Text(failure.message).font(.callout).foregroundStyle(.secondary)
+                if let reading = failure.reading {
+                    DescribedAccount(description: PopoverContent.description(for: reading),
+                                     help: "Retained measured snapshot", reading: reading)
+                        .font(.callout).foregroundStyle(.secondary)
+                }
+                if let usage = failure.usage { LoggedUsageView(usage: usage) }
                 footer(nil)
-            } else if let tile, let reading = model.readings[tile.id] {
+            } else if let tile, let reading = model.readings[tile.id], PopoverContent.showsQuotaFacts(problem: model.problem) {
                 header(tile, reading)
-                if let issue = reading.issue(now: Date()) {
-                    UsageIssueView(issue: issue, login: issue.offersLogin ? model.launches[tile.id].map { launch in
-                        { openTerminal(launch, command: launch.loginCommand) }
-                    } : nil)
-                    .disabled(state.launching)
-                    .help(reading.why ?? issue.title)
-                }
-                if let launchProblem = state.launchProblem {
-                    Text(launchProblem).font(.callout)
-                        .fixedSize(horizontal: false, vertical: true)
-                }
-                ForEach(Card.cards(reading, now: Date())) { CardView(card: $0) }
-                if let credits = Card.credits(reading) {
-                    Box { Label(credits, systemImage: "creditcard").font(.callout) }
-                        .help("Extra usage credits: whether the account may spend past its limits")
-                }
-                if reading.vendor == "anthropic" {
-                    let api = ApiCredit.linked(to: reading, in: Array(model.readings.values))
-                    if let api, api.status == "ok" { ForEach(Card.cards(api, now: Date())) { CardView(card: $0) } }
-                    ApiCreditView(linked: api != nil, none: api?.why == "no-api-organization",
-                                  line: api.flatMap { ApiCredit.line($0, now: Date()) },
-                                  profile: ApiCredit.profile(for: reading, linked: api))
-                }
-                footer(reading)
+                    if let issue = reading.issue(now: Date()) {
+                        UsageIssueView(issue: issue, login: issue.offersLogin ? model.launches[tile.id].map { launch in
+                            { openTerminal(launch, command: launch.loginCommand) }
+                        } : nil)
+                        .disabled(state.launching)
+                        .help(reading.why ?? issue.title)
+                    }
+                    if let launchProblem = state.launchProblem {
+                        Text(launchProblem).font(.callout)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                    ForEach(Card.cards(reading, now: Date())) { CardView(card: $0) }
+                    if let credits = Card.credits(reading) {
+                        Box { Label(credits, systemImage: "creditcard").font(.callout) }
+                            .help("Extra usage credits: whether the account may spend past its limits")
+                    }
+                    if reading.vendor == "anthropic" {
+                        let api = ApiCredit.linked(to: reading, in: Array(model.readings.values))
+                        if let api, api.status == "ok" { ForEach(Card.cards(api, now: Date())) { CardView(card: $0) } }
+                        ApiCreditView(linked: api != nil, none: api?.why == "no-api-organization",
+                                      line: api.flatMap { ApiCredit.line($0, now: Date()) },
+                                      profile: ApiCredit.profile(for: reading, linked: api))
+                    }
+                    if let usage = reading.usage { LoggedUsageView(usage: usage) }
+                    footer(reading)
             } else {
                 Text(model.accounts.isEmpty ? "Reading…" : "Every account is hidden: see Settings.")
                     .foregroundStyle(.secondary)
@@ -198,6 +227,7 @@ struct Box<Content: View>: View {
 
 struct CardView: View {
     let card: Card
+    var showsPace = true
     static let barHeight: CGFloat = 5
 
     var body: some View {
@@ -261,7 +291,7 @@ struct CardView: View {
 
     private var tint: Color { card.health == .normal ? .secondary : card.health.color }
 
-    private func percent(_ v: Double) -> String { "\(Int((v * 100).rounded()))%" }
+    func percent(_ v: Double) -> String { String(format: "%.0f%%", (v * 100).rounded()) }
 
     /// Used so far, a tick where an even pace would be by now, and where it is heading: today's
     /// pace marked above the bar, the forecast below. Past 100% a mark only just bleeds out.
@@ -274,8 +304,10 @@ struct CardView: View {
                 RoundedRectangle(cornerRadius: 1.5)
                     .fill(card.health == .normal ? Color.primary.opacity(0.45) : card.health.color)
                     .frame(width: w * min(card.used ?? 0, 1), height: Self.barHeight)
-                Rectangle().fill(Color.primary.opacity(0.6)).frame(width: 2, height: (Self.barHeight + 4) * 2)
-                    .offset(x: w * card.elapsed - 1)
+                if showsPace {
+                    Rectangle().fill(Color.primary.opacity(0.6)).frame(width: 2, height: (Self.barHeight + 4) * 2)
+                        .offset(x: w * card.elapsed - 1)
+                }
                 if let m = card.momentum { arrow(down: true).offset(x: Card.marker(m, width: w) - 3, y: -(Self.barHeight + 1)) }
                 if let p = card.projected { arrow(down: false).offset(x: Card.marker(p, width: w) - 3, y: Self.barHeight + 1) }
             }
@@ -286,7 +318,9 @@ struct CardView: View {
         .frame(height: Self.barHeight)
         .padding(.vertical, 12)
         .contentShape(Rectangle())
-        .help("Filled: used so far. Line: where an even pace would be by now. ▼ today's pace at reset, ▲ the forecast at reset")
+        .help(showsPace
+              ? "Filled: used so far. Line: where an even pace would be by now. ▼ today's pace at reset, ▲ the forecast at reset"
+              : "Filled: observed usage against the locally declared budget")
     }
 
     private func arrow(down: Bool) -> some View {

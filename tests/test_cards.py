@@ -29,6 +29,7 @@ def load(text: str) -> catalog.Catalog:
 class Lookup(unittest.TestCase):
     def test_a_routes_own_vendor_card_is_expected_and_another_vendors_is_a_guideline(self):
         other = load(CARD.format(vendor="commandcode", tok_s=63))
+        other.cards = [c for c in other.cards if c["vendor"] != "zai"]
         card, own = other.card("glm", "glm-5.3")
         self.assertEqual((card["vendor"], own), ("commandcode", False))
         both = load(CARD.format(vendor="commandcode", tok_s=63) + CARD.format(vendor="zai", tok_s=90))
@@ -36,12 +37,17 @@ class Lookup(unittest.TestCase):
         self.assertEqual((card["vendor"], card["tok_s"], own), ("zai", 90, True), "glm spends Z.ai")
 
     def test_a_local_card_replaces_the_shipped_one_of_its_vendor_name_and_plan(self):
-        shipped = catalog.load(Path(scratch.mkdtemp()) / "none.toml").card("glm", "glm-5.3")[0]
+        shipped = catalog.load(Path(scratch.mkdtemp()) / "none.toml")
+        original = next(x for x in shipped.cards if (x["vendor"], x["name"], x.get("plan")) ==
+                        ("commandcode", "GLM-5.3", "goat"))
         local = ('[[cards]]\nvendor = "commandcode"\nplan = "goat"\nname = "GLM-5.3"\nmodels = ["glm-5.3"]\n'
                  'tok_s = 1\nsource = "mine"\nas_of = 2026-09-27\n')
         c = load(local)
-        self.assertEqual((c.card("glm", "glm-5.3")[0]["tok_s"], shipped["tok_s"]), (1, 63))
-        self.assertEqual(sum(x["name"] == "GLM-5.3" for x in c.cards), 1)
+        replaced = [x for x in c.cards if (x["vendor"], x["name"], x.get("plan")) ==
+                    ("commandcode", "GLM-5.3", "goat")]
+        self.assertEqual(len(replaced), 1)
+        self.assertEqual((replaced[0]["tok_s"], original["tok_s"]), (1, 63))
+        self.assertEqual(c.card("glm", "glm-5.3"), shipped.card("glm", "glm-5.3"))
 
     def test_a_card_without_its_source_or_date_is_refused(self):
         with self.assertRaises(catalog.CatalogError):

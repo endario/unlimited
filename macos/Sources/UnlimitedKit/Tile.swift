@@ -4,26 +4,56 @@ import Foundation
 public struct Tile: Identifiable, Equatable, Sendable {
     public enum Value: Equatable, Sendable {
         case percent(Int)
+        case localPercent(Int)
+        /// Locally observed gateway-log tokens for one rolling window, not a vendor quota.
+        case tokens(Int, windowMinutes: Int)
         case unread      // the vendor refused, or could not be read
         case stale       // the last reading is older than `staleAfter`
         case noWindow    // the vendor reports no window for this account
         case unknown     // a window whose figure is not known (the moment after a reset)
         case waiting     // nothing read yet
 
+        private static let tokenFormatter: NumberFormatter = {
+            let formatter = NumberFormatter()
+            formatter.locale = Locale(identifier: "en_US_POSIX")
+            formatter.numberStyle = .decimal
+            formatter.usesGroupingSeparator = true
+            formatter.maximumFractionDigits = 0
+            return formatter
+        }()
+
+        public static func localPercentage(_ fraction: Double) -> Value {
+            let percent = (fraction * 100).rounded()
+            return .localPercent(percent >= Double(Int.max) ? Int.max : Int(percent))
+        }
+
+        public static func formatTokens(_ total: Int) -> String {
+            tokenFormatter.string(from: NSNumber(value: total)) ?? "\(total)"
+        }
+
+        private static func compactTokens(_ total: Int) -> String {
+            guard total >= 1_000_000 else { return formatTokens(total) }
+            return String(format: "%.1fM", locale: Locale(identifier: "en_US_POSIX"), Double(total) / 1_000_000)
+        }
+
         public var text: String {
             switch self {
-            case .percent(let p): "\(p)"
-            case .unread, .stale, .unknown: "?"
-            case .noWindow: "—"
-            case .waiting: "…"
+            case .percent(let p), .localPercent(let p): return "\(p)"
+            case .tokens(let total, _):
+                return Self.compactTokens(total)
+            case .unread, .stale, .unknown: return "?"
+            case .noWindow: return "—"
+            case .waiting: return "…"
             }
         }
 
         /// Whether a figure stands behind the value; the rest stand for the absence of a
         /// reading, and render in the grey that is not a colour anyone reads as usage.
         public var showsData: Bool {
-            if case .percent = self { return true }
-            return false
+            switch self {
+            case .percent, .localPercent: return true
+            default: return false
+            }
         }
     }
 
@@ -109,7 +139,7 @@ public struct Tile: Identifiable, Equatable, Sendable {
 
     static let vendors: [(id: String, code: String, name: String)] = [
         ("anthropic", "CL", "Claude"), ("openai", "CDX", "Codex"), ("zai", "ZAI", "Z.ai"), ("kimi", "KMI", "Kimi"),
-        ("opencode", "OPC", "OpenCode"), ("xai", "GRK", "Grok"), ("neuralwatt", "NW", "Neuralwatt"),
+        ("opencode", "OPC", "OpenCode"), ("woyo", "WY", "Woyo"), ("xai", "GRK", "Grok"), ("neuralwatt", "NW", "Neuralwatt"),
         ("commandcode", "CMD", "Command Code"), ("anthropic-console", "API", "Claude API"),
     ]
 
@@ -212,7 +242,15 @@ public struct Tile: Identifiable, Equatable, Sendable {
         let throttled = r.retryUntil.map { $0 > now } ?? false
         let stale = r.takenAt.map { now.timeIntervalSince($0) > staleAfter } ?? true
         let value: Value
-        if r.status != "ok" {
+        if let period = r.usage?.period(windowMinutes: 10_080), let total = period.totalTokens {
+            if let fraction = period.estimatedCost?.fraction {
+                value = .localPercentage(fraction)
+            } else if let budget = period.localBudget, budget.status == "ok", let limit = budget.tokenLimit, limit > 0 {
+                value = .localPercentage(Double(total) / Double(limit))
+            } else {
+                value = .tokens(total, windowMinutes: period.windowMinutes)
+            }
+        } else if r.status != "ok" {
             value = .unread
         } else if stale && !throttled {
             value = .stale
@@ -237,6 +275,7 @@ public struct Tile: Identifiable, Equatable, Sendable {
                         health: usable ? r.primary?.health(now: now) ?? .normal : .normal, alternate: alt,
                         indicator: steering.count == 0 ? nil : steering)
         // Where it is heading, if the forecast is trusted yet; else how much is used so far.
+        if case .localPercent(let percent) = value, usable, percent >= 100 { tile.health = .red }
         tile.heading = r.primary.flatMap { w in
             w.projection.flatMap { w.trusted($0, now: now) ? $0.atReset.last : nil } ?? w.usedAtLeast
         }

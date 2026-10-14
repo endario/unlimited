@@ -139,3 +139,83 @@ func strip() throws -> [String: Tile] {
     #expect(try #require(readings.first { $0.account == "z2" }).vendorAccount == nil)
     #expect(try #require(readings.first { $0.account == "z2" }).shortVendorAccount == nil)
 }
+
+@Test func loggedSevenDayTokensReplaceTheQuotaFigureWithoutBecomingAQuota() throws {
+    let readings = try Reading.decode(Data("""
+    [{"schema": 1, "vendor": "woyo", "account": "synthetic", "status": "ok",
+      "taken_at": "2026-09-24T05:59:00+00:00", "limits": [],
+      "usage": {"source": "gateway-log", "as_of": "2026-09-24T06:00:00+00:00",
+        "collected_at": "2026-09-24T05:59:00+00:00", "periods": [
+          {"window_minutes": 10080, "starts_at": "2026-09-17T06:00:00+00:00", "ends_at": "2026-09-24T06:00:00+00:00", "input_tokens": 2851, "output_tokens": 85, "total_tokens": 2936, "cache_read_tokens": 1088, "cache_creation_tokens": 0, "coverage": "partial", "reasons": ["horizon-edge"]},
+          {"window_minutes": 43200, "starts_at": "2026-08-25T06:00:00+00:00", "ends_at": "2026-09-24T06:00:00+00:00", "input_tokens": 2851, "output_tokens": 85, "total_tokens": 2936, "cache_read_tokens": 1088, "cache_creation_tokens": 0, "coverage": "partial", "reasons": ["horizon-edge"]}
+        ]}}
+    ]
+    """.utf8))
+
+    let tiles = Tile.strip(readings, now: now)
+
+    #expect(tiles[0].value.text == "2,936")
+    #expect(!tiles[0].best)
+    #expect(tiles[0].health == .normal)
+    #expect(!tiles[0].isRoutine)
+}
+
+@Test func measuredUsageDecodesAdditivelyAndRetainsTokensOnARefusedRead() throws {
+    let readings = try Reading.decode(Data("""
+    [{"schema": 1, "vendor": "woyo", "account": "ok", "status": "ok", "limits": [],
+      "usage": {"source": "gateway-log", "as_of": "2026-09-24T06:00:00+00:00", "collected_at": "2026-09-24T05:59:00+00:00", "periods": [
+        {"window_minutes": 10080, "starts_at": "2026-09-17T06:00:00+00:00", "ends_at": "2026-09-24T06:00:00+00:00", "input_tokens": 2851, "output_tokens": 85, "total_tokens": 2936, "cache_read_tokens": 1088, "cache_creation_tokens": 0, "coverage": "partial", "reasons": ["horizon-edge"]},
+        {"window_minutes": 43200, "starts_at": "2026-08-25T06:00:00+00:00", "ends_at": "2026-09-24T06:00:00+00:00", "input_tokens": 2851, "output_tokens": 85, "total_tokens": 2936, "cache_read_tokens": 1088, "cache_creation_tokens": 0, "coverage": "partial", "reasons": ["horizon-edge"]}
+      ]}},
+     {"schema": 1, "vendor": "woyo", "account": "refused", "status": "refused", "limits": [],
+      "usage": {"source": "gateway-log", "as_of": "2026-09-24T06:00:00+00:00", "collected_at": "2026-09-24T05:59:00+00:00", "periods": [
+        {"window_minutes": 10080, "starts_at": "2026-09-17T06:00:00+00:00", "ends_at": "2026-09-24T06:00:00+00:00", "input_tokens": 2851, "output_tokens": 85, "total_tokens": 2936, "cache_read_tokens": 1088, "cache_creation_tokens": 0, "coverage": "partial", "reasons": ["horizon-edge"]},
+        {"window_minutes": 43200, "starts_at": "2026-08-25T06:00:00+00:00", "ends_at": "2026-09-24T06:00:00+00:00", "input_tokens": 2851, "output_tokens": 85, "total_tokens": 2936, "cache_read_tokens": 1088, "cache_creation_tokens": 0, "coverage": "partial", "reasons": ["horizon-edge"]}
+      ]}},
+     {"schema": 1, "vendor": "openai", "account": "old", "status": "ok", "limits": []}]
+    """.utf8))
+
+    let usage = try #require(readings[0].usage)
+    #expect(usage.periods[0].totalTokens == 2936)
+    #expect(usage.periods[1].windowMinutes == 43200)
+    #expect(usage.periods[0].coverage == "partial")
+    #expect(readings[2].usage == nil)
+
+    let refused = try #require(Tile.strip(readings, now: now).first { $0.id == "woyo/refused" })
+    #expect(refused.value == .tokens(2936, windowMinutes: 10080))
+    #expect(refused.dimmed)
+    #expect(refused.health == .normal)
+    #expect(!refused.best)
+    #expect(!refused.isRoutine)
+}
+
+@Test func loggedTokensNeverCompeteInQuotaSelection() {
+    let measured = Tile(id: "woyo/logged", label: "WYO", value: .tokens(2_936, windowMinutes: 10_080), dimmed: false)
+    let quota = Tile(id: "woyo/quota", label: "WYO2", value: .percent(60), dimmed: false)
+    #expect(Tile.pick([measured, quota]) == quota.id)
+}
+
+@Test func loggedTokenTilesUseTheStripLayoutForTheirWiderClickAndPopoverBounds() {
+    let percent = Tile(id: "openai/percent", label: "CDX", value: .percent(27), dimmed: false)
+    let tokens = Tile(id: "woyo/tokens", label: "WYO", value: .tokens(123_456_789_012_345, windowMinutes: 10080), dimmed: false)
+    let layout = StripLayout(tiles: [percent, tokens], spacing: 3, padding: 2)
+
+    #expect(layout.width(of: tokens) > layout.width(of: percent))
+    let tokenRect = layout.rect(of: tokens)
+    #expect(tokenRect.minX == layout.rect(of: percent).maxX + 3)
+    #expect(layout.tile(at: tokenRect.minX + tokenRect.width - 0.1)?.id == tokens.id)
+}
+
+@Test func woyoUsesItsNativeNameAndCompactLargeLoggedTokenFigure() throws {
+    let reading = try #require(try Reading.decode(Data("""
+    [{"schema": 1, "vendor": "woyo", "account": "synthetic", "status": "ok", "limits": [],
+      "usage": {"source": "gateway-log", "as_of": "2026-09-24T06:00:00+00:00", "collected_at": "2026-09-24T05:59:00+00:00", "periods": [
+        {"window_minutes": 10080, "starts_at": "2026-09-17T06:00:00+00:00", "ends_at": "2026-09-24T06:00:00+00:00", "input_tokens": 0, "output_tokens": 0, "total_tokens": 12345678, "cache_read_tokens": 0, "cache_creation_tokens": 0, "coverage": "partial", "reasons": []}
+      ]}}]
+    """.utf8)).first)
+    let tile = try #require(Tile.strip([reading], now: now).first)
+
+    #expect(Tile.vendorName("woyo") == "Woyo")
+    #expect(tile.label == "WY")
+    #expect(tile.value.text == "12.3M")
+}

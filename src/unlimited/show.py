@@ -80,6 +80,46 @@ def _token_count(value: object) -> str:
     return f"{value / 1_000_000:.2f}M"
 
 
+def _local_pacing(period: dict) -> str | None:
+    budget = period.get("local_budget")
+    if not isinstance(budget, dict):
+        return None
+    profiles = budget.get("profiles")
+    labels = [profile for profile in profiles if isinstance(profile, str)] if isinstance(profiles, list) else []
+    suffix = f" · profiles {', '.join(labels)}" if labels else ""
+    status = budget.get("status")
+    if status == "invalid":
+        return "    local pacing: configuration invalid" + suffix
+    if status == "conflict":
+        return "    local pacing: configuration conflict" + suffix
+    total, limit = period.get("total_tokens"), budget.get("token_limit")
+    if status != "ok" or not isinstance(total, int) or isinstance(total, bool) \
+            or not isinstance(limit, int) or isinstance(limit, bool) or limit <= 0:
+        return None
+    text = f"    local pacing: {_token_count(total)} of {_token_count(limit)} ({total / limit * 100:.1f}%)"
+    if period.get("coverage") == "partial":
+        text += " · partial history"
+    return text + suffix
+
+
+def _estimated_cost(period: dict) -> str | None:
+    cost = period.get("estimated_cost")
+    if not isinstance(cost, dict):
+        return None
+    status, usd, budget = cost.get("status"), cost.get("usd"), cost.get("budget_usd")
+    if status in {"invalid", "conflict"}:
+        return f"    estimated cost: configuration {status}"
+    if not isinstance(usd, (int, float)) or isinstance(usd, bool):
+        return None
+    text = f"    estimated cost: ${usd:,.2f}"
+    if isinstance(budget, (int, float)) and not isinstance(budget, bool) and budget > 0:
+        text += f" of ${budget:,.2f} ({usd / budget * 100:.1f}%)"
+    unpriced = cost.get("unpriced_requests")
+    if isinstance(unpriced, int) and not isinstance(unpriced, bool) and unpriced:
+        text += f" · {unpriced} unpriced"
+    return text
+
+
 def _measured_usage(usage: object, now: datetime) -> list[str]:
     if not isinstance(usage, dict) or usage.get("source") != "gateway-log":
         return []
@@ -98,6 +138,12 @@ def _measured_usage(usage: object, now: datetime) -> list[str]:
             if isinstance(value, int) and value:
                 details.append(f"{label_} {_token_count(value)}")
         lines.append(f"  rolling {label}: {_token_count(total)} logged tokens · {' · '.join(details)} · {note}")
+        pacing = _local_pacing(period)
+        if pacing is not None:
+            lines.append(pacing)
+        estimated_cost = _estimated_cost(period)
+        if estimated_cost is not None:
+            lines.append(estimated_cost)
     collected = moment(usage.get("collected_at"))
     if lines and collected:
         lines.append(f"    collected {_until(now, collected)} ago")

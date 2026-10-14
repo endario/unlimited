@@ -8,7 +8,12 @@ no vendor, and writes only through the CLI (`unlimited off`/`on`/`incentive`). I
 later in `~/.local/bin`, `/opt/homebrew/bin` or `/usr/local/bin` (0.1.1 or later for the
 switching; an older CLI simply loses the greying).
 
-Unavailable or stale usage displays `?`; the popover explains the reported failure. For Claude
+Unavailable or stale usage displays `?`; the popover explains the reported failure. Where the CLI supplies
+locally observed gateway-log usage, the strip shows its rolling weekly figure: estimated cost as a
+percentage of a configured USD budget, a configured token-budget percentage, or compact raw tokens.
+Settings and the popover retain an exact token total; snapshot and cost details are in tooltips.
+These observations remain visible beside a refused or stale latest read and never affect quota selection.
+For Claude
 sign-in failures, **Sign in** opens iTerm and runs the account's executable wrapper from
 `~/.local/bin` with `auth login --claudeai`. Choose the correct account in the browser, then
 refresh. Without a matching wrapper, sign in through that account's Claude Code setup.

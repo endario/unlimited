@@ -252,6 +252,25 @@ not projected: the vendor reports no reset for it.
 | Command Code | — | `alpha/billing/credits` and `alpha/billing/subscriptions` on `$COMMAND_CODE_API_KEY` and each `~/.config/commandcode*.env` |
 | Woyo | — | gateway-log observations from `api/log/token` on `$FY_API_KEY` and matching `~/.config/*.env` files |
 
+Woyo's rolling weekly display accepts `UNLIMITED_WEEKLY_TOKEN_LIMIT`, or a market-value
+budget in `UNLIMITED_WEEKLY_USD_LIMIT`, from the credential's own env profile. USD pricing uses
+`UNLIMITED_<MODEL>_<BUCKET>_USD_PER_MILLION`: models `GPT_6_ASTRA`, `GPT_6_1_SOL`, `GPT_6_LUNA`,
+`GLM_5_3`, `GLM_5_3_FLASH`; buckets `INPUT`, `OUTPUT`, `CACHE_READ`, `CACHE_WRITE`.
+These settings are reread on cache hits; changing them reprices retained model-tagged requests.
+Missing model/rate data remains unpriced. Personal budgets and estimated market cost are not
+provider quota, invoices, or availability data. GLM cache creation can be estimated at ordinary
+input price; [Z.ai documents](https://docs.z.ai/guides/capabilities/cache) normal pricing for new
+content and discounted cache hits, with no separate creation price.
+
+The optional `budget` object reports rolling local progress: `used` is a fraction, with `state`
+(`ok`, `exceeded`, `partial`, `invalid`, `conflict`), `window_minutes`, USD amounts and coverage.
+`verdict.budget` carries the same side object; provider verdicts and reset forecasts remain unchanged.
+Consumers must explicitly adopt local-budget handling rather than treating it as provider quota.
+
+Woyo's `routes` lists gateway aliases, with dispatchability limited to IDs verified by inference.
+Some GPT aliases intermittently return empty Anthropic streams; dispatchability is not an uptime
+or upstream-model-identity guarantee.
+
 The network endpoints are not officially documented and may change without notice. unlimited
 reads each tool's credential where the tool keeps it and never writes it back. The one token
 it refreshes is Grok's, whose sign-in lasts hours: the renewed token is kept, owner-only, in

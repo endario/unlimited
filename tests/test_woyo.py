@@ -31,6 +31,62 @@ class WoyoSource(unittest.TestCase):
         self.environ.start()
         self.addCleanup(self.environ.stop)
 
+    def test_models_authenticates_and_returns_sorted_deduplicated_routes(self):
+        from unlimited.adapters import woyo
+
+        body = {"data": [
+            {"id": "gpt-6-luna"}, {"id": "gpt-6.1-sol"}, {"id": "gpt-6-astra"},
+            {"id": "gpt-6.1-luna"}, {"id": "vendor-alias"}, {"id": "glm-5.3-flash"}, {"id": "glm-5.3"},
+            {"id": "glm-5.3"}, {"id": ""}, None, {"id": 17},
+        ]}
+
+        def get(url, headers, now):
+            self.assertEqual(url, "http://aicoding.woyoalliance.com:90/v1/models")
+            self.assertEqual(headers, {"Authorization": "Bearer fixture-key"})
+            self.assertEqual(now, NOW)
+            return Answer(body, 200, None)
+
+        result = woyo.models(Credential("fixture", {"key": "fixture-key"}), NOW, get)
+
+        self.assertEqual(result["status"], "ok")
+        self.assertEqual(result["routes"], [
+            {"id": "glm-5.3", "dispatchable": True},
+            {"id": "glm-5.3-flash", "dispatchable": True},
+            {"id": "gpt-6-astra", "dispatchable": True},
+            {"id": "gpt-6-luna", "dispatchable": True},
+            {"id": "gpt-6.1-luna", "dispatchable": False},
+            {"id": "gpt-6.1-sol", "dispatchable": True},
+            {"id": "vendor-alias", "dispatchable": False},
+        ])
+
+    def test_models_malformed_or_nonlist_catalog_returns_no_routes(self):
+        # Bad vendor rows are ignored without turning an advertised partial catalog into a failure.
+        from unlimited.adapters import woyo
+
+        cred = Credential("fixture", {"key": "fixture-key"})
+        for body in ([], {"data": None}, {"data": {"id": "glm-5.3"}},
+                     {"data": [None, {"id": None}, {"id": ""}, {"name": "glm-5.3"}]}):
+            with self.subTest(body=body):
+                result = woyo.models(cred, NOW, lambda *args: Answer(body, 200, None))
+                self.assertEqual((result["status"], result.get("routes")), ("ok", []))
+
+    def test_models_propagates_refusal(self):
+        # A refused credential must not be represented as a successful empty catalog.
+        from unlimited.adapters import woyo
+
+        result = woyo.models(Credential("fixture", {"key": "fixture-key"}), NOW,
+                             lambda *args: Answer(None, 401, "http-401"))
+
+        self.assertEqual((result["status"], result["why"], result["routes"]), ("refused", "http-401", []))
+
+    def test_models_propagates_transport_failure(self):
+        from unlimited.adapters import woyo
+
+        result = woyo.models(Credential("fixture", {"key": "fixture-key"}), NOW,
+                             lambda *args: Answer(None, None, "unreachable"))
+
+        self.assertEqual((result["status"], result["why"], result["routes"]), ("unread", "unreachable", []))
+
     def test_read_extracts_allowlisted_consumption_snapshot_without_state(self):
         # Removing `type == 2` or cache-token inclusion would lose this measured token fact.
         from unlimited.adapters import woyo
@@ -53,7 +109,17 @@ class WoyoSource(unittest.TestCase):
         self.assertNotIn("sample-anthropic", json.dumps(snapshot))
         self.assertNotIn("other", json.dumps(snapshot))
 
-    def test_discovery_uses_the_credential_variable_across_matching_env_files(self):
+    def test_read_preserves_the_model_name_with_the_hashed_request_event(self):
+        # Pricing must retain the source model, not infer one from token shapes.
+        from unlimited.adapters import woyo
+
+        row = {"request_id": "priced", "created_at": int(NOW.timestamp()) - 60, "type": 2,
+               "model_name": "glm-5.3-flash", "prompt_tokens": 10, "completion_tokens": 2, "other": "{}"}
+        r = woyo.read(Credential("fixture", {"key": "fixture-key"}), NOW,
+                      lambda *args: Answer({"success": True, "data": [row]}, 200, None))
+
+        self.assertEqual(r["_usage_snapshot"]["events"][0]["model"], "glm-5.3-flash")
+
         # Changing the allowed key variable or file glob would miss a caller-independent credential.
         from unlimited.adapters import woyo
 
@@ -254,6 +320,77 @@ class WoyoSource(unittest.TestCase):
         self.assertEqual((transient["status"], transient["usage"]["periods"][0]["total_tokens"]), ("ok", 2967))
         self.assertEqual((throttled["status"], throttled["usage"]["periods"][0]["total_tokens"]), ("ok", 2967))
         self.assertEqual(paused["retry_until"], throttled["retry_until"])
+
+    def test_cache_hit_rereads_local_budget_files_without_fetching_or_persisting_them(self):
+        # Personal pacing settings must change with their live profile, never with provider cache freshness.
+        from unlimited.adapters import woyo
+
+        config = self.home / ".config"
+        config.mkdir()
+        profile = config / "gateway.env"
+        profile.write_text("FY_API_KEY=fixture-key\nUNLIMITED_WEEKLY_TOKEN_LIMIT=10000\n")
+        cred = Credential(account_of("fixture-key"), {"key": "fixture-key"})
+        calls = []
+
+        def get(url, headers, now):
+            calls.append((url, headers))
+            return Answer(json.loads(REPLAY.read_text()), 200, None)
+
+        directory = self.tmp / "budget-cache"
+        with mock.patch.object(woyo, "discover", lambda: [cred]):
+            [first] = cache.through(woyo, max_age=300, clock=lambda: NOW, get=get, directory=directory)
+            profile.write_text("FY_API_KEY=fixture-key\nUNLIMITED_WEEKLY_TOKEN_LIMIT=20000\n")
+            [hit] = cache.through(woyo, max_age=300, clock=lambda: NOW.replace(minute=1),
+                                  get=lambda *args: self.fail("a fresh provider cache must not fetch"), directory=directory)
+
+        self.assertEqual(len(calls), 1)
+        self.assertEqual(first["usage"]["periods"][0]["local_budget"]["token_limit"], 10_000)
+        self.assertEqual(hit["usage"]["periods"][0]["local_budget"]["token_limit"], 20_000)
+        persisted = (directory / "woyo.json").read_text()
+        self.assertNotIn("local_budget", persisted)
+        self.assertNotIn("10000", persisted)
+        self.assertNotIn("20000", persisted)
+        self.assertEqual((first["status"], first["taken_at"], first["limits"]),
+                         (hit["status"], hit["taken_at"], hit["limits"]))
+
+    def test_cache_hit_rereads_local_cost_rates_without_fetching_or_persisting_them(self):
+        # Pricing is a live profile preference even when its measured request is served from cache.
+        from unlimited.adapters import woyo
+
+        config = self.home / ".config"
+        config.mkdir()
+        profile = config / "gateway.env"
+        rate_lines = "\n".join(
+            f"UNLIMITED_GLM_5_3_{bucket}_USD_PER_MILLION={value}"
+            for bucket, value in (("INPUT", "1"), ("OUTPUT", "2"), ("CACHE_READ", ".1"), ("CACHE_WRITE", ".2"))
+        )
+        profile.write_text("FY_API_KEY=fixture-key\nUNLIMITED_WEEKLY_USD_LIMIT=200\n" + rate_lines + "\n")
+        cred = Credential(account_of("fixture-key"), {"key": "fixture-key"})
+        row = {"request_id": "priced", "created_at": int(NOW.timestamp()) - 60, "type": 2,
+               "model_name": "glm-5.3", "prompt_tokens": 100, "completion_tokens": 10,
+               "other": '{"cache_tokens":20,"cache_creation_tokens":10}'}
+        directory = self.tmp / "cost-cache"
+        with mock.patch.object(woyo, "discover", lambda: [cred]):
+            [first] = cache.through(woyo, max_age=300, clock=lambda: NOW,
+                                    get=lambda *args: Answer({"success": True, "data": [row]}, 200, None), directory=directory)
+            profile.write_text("FY_API_KEY=fixture-key\nUNLIMITED_WEEKLY_USD_LIMIT=200\n" +
+                               rate_lines.replace("INPUT_USD_PER_MILLION=1", "INPUT_USD_PER_MILLION=2") + "\n")
+            [hit] = cache.through(woyo, max_age=300, clock=lambda: NOW.replace(minute=1),
+                                  get=lambda *args: self.fail("a fresh provider cache must not fetch"), directory=directory)
+            profile.write_text("FY_API_KEY=fixture-key\n" + rate_lines + "\n")
+            [removed] = cache.through(woyo, max_age=300, clock=lambda: NOW.replace(minute=2),
+                                      get=lambda *args: self.fail("removing a budget must not fetch"), directory=directory)
+
+        self.assertEqual(first["usage"]["periods"][0]["estimated_cost"]["usd"], 0.000094)
+        self.assertEqual(hit["usage"]["periods"][0]["estimated_cost"]["usd"], 0.000164)
+        self.assertAlmostEqual(first["budget"]["used"], 0.000094 / 200)
+        self.assertAlmostEqual(hit["budget"]["used"], 0.000164 / 200)
+        self.assertEqual(hit["budget"]["state"], "partial")
+        self.assertNotIn("budget", removed)
+        persisted = (directory / "woyo.json").read_text()
+        self.assertNotIn('"budget":', persisted)
+        self.assertNotIn("estimated_cost", persisted)
+        self.assertNotIn("USD_PER_MILLION", persisted)
 
     def test_concurrent_woyo_reads_share_one_upstream_fetch(self):
         # Dropping the vendor lock would duplicate a sensitive upstream request for simultaneous callers.

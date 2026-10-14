@@ -192,6 +192,35 @@ price = { input = 0.15, output = 0.50, cache_read = 0.03 }
 source = "https://commandcode.ai/docs/plans/goat"
 as_of = 2026-09-26
 
+[[cards]]
+vendor = "openai"
+name = "GPT-6 Astra"
+models = ["gpt-6-astra", "woyo/gpt-6-astra"]
+price = { input = 10.0, output = 50.0, cache_read = 1.0, cache_write = 12.5 }
+source = "https://openrouter.ai/openai/gpt-6-astra"
+as_of = 2026-10-14
+
+[[cards]]
+vendor = "zai"
+name = "GLM-5.3"
+models = ["glm-5.3", "woyo/glm-5.3"]
+price = { input = 1.40, output = 4.40, cache_read = 0.26, cache_write = 1.40 }
+# Estimate total processing cost of cache creation at ordinary input price, not an extra fee.
+estimated_price_fields = ["cache_write"]
+source = "https://docs.z.ai/guides/overview/pricing"
+estimate_source = "https://docs.z.ai/guides/capabilities/cache"
+as_of = 2026-10-14
+
+[[cards]]
+vendor = "zai"
+name = "GLM-5.3 Flash"
+models = ["glm-5.3-flash", "woyo/glm-5.3-flash"]
+price = { input = 0.15, output = 0.50, cache_read = 0.03, cache_write = 0.15 }
+estimated_price_fields = ["cache_write"]
+source = "https://docs.z.ai/guides/overview/pricing"
+estimate_source = "https://docs.z.ai/guides/capabilities/cache"
+as_of = 2026-10-14
+
 # List price; the page showed 40% off until 2026-09-27.
 [[cards]]
 vendor = "commandcode"
