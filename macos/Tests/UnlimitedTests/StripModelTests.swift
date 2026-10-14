@@ -394,6 +394,39 @@ struct UsageCLI {
         """.write(to: readings, atomically: true, encoding: .utf8)
     }
 
+    func succeedMeasured(takenAt: Date, total: Int = 2_936, asOf: Date? = nil) throws {
+        try? FileManager.default.removeItem(at: failure)
+        let timestamp = ISO8601DateFormatter().string(from: takenAt)
+        let aggregateAt = asOf ?? takenAt
+        let aggregate = ISO8601DateFormatter().string(from: aggregateAt)
+        let weekStarts = ISO8601DateFormatter().string(from: aggregateAt.addingTimeInterval(-7 * 86_400))
+        let monthStarts = ISO8601DateFormatter().string(from: aggregateAt.addingTimeInterval(-30 * 86_400))
+        try """
+        [{"schema":1,"vendor":"woyo","account":"synthetic","status":"ok","taken_at":"\(timestamp)","limits":[],
+          "usage":{"source":"gateway-log","as_of":"\(aggregate)","collected_at":"\(timestamp)","periods":[
+            {"window_minutes":10080,"starts_at":"\(weekStarts)","ends_at":"\(aggregate)","input_tokens":2851,"output_tokens":85,"total_tokens":\(total),"cache_read_tokens":1088,"cache_creation_tokens":0,"coverage":"partial","reasons":["horizon-edge"]},
+            {"window_minutes":43200,"starts_at":"\(monthStarts)","ends_at":"\(aggregate)","input_tokens":2851,"output_tokens":85,"total_tokens":\(total),"cache_read_tokens":1088,"cache_creation_tokens":0,"coverage":"partial","reasons":["horizon-edge"]}
+          ]}}]
+        """.write(to: readings, atomically: true, encoding: .utf8)
+    }
+
+    func succeedMixedMeasured(takenAt: Date, total: Int = 2_936) throws {
+        try succeedMeasured(takenAt: takenAt, total: total)
+        var readings = try #require(JSONSerialization.jsonObject(with: Data(contentsOf: self.readings)) as? [[String: Any]])
+        readings.append([
+            "schema": 1, "vendor": "openai", "account": "quota", "status": "ok",
+            "taken_at": ISO8601DateFormatter().string(from: takenAt),
+            "limits": [["name": "weekly", "role": "weekly", "window_minutes": 10_080,
+                        "used_at_least": 0.42, "resets_at": "2026-10-10T00:00:00Z"]],
+        ])
+        try JSONSerialization.data(withJSONObject: readings).write(to: self.readings)
+    }
+
+    func unsupportedSchema() throws {
+        try "[{\"schema\":2,\"vendor\":\"woyo\",\"status\":\"ok\",\"limits\":[]}]"
+            .write(to: readings, atomically: true, encoding: .utf8)
+    }
+
     func succeedMany(takenAt: Date) throws {
         let timestamp = ISO8601DateFormatter().string(from: takenAt)
         let values: [[String: Any]] = (1...12).map { index in

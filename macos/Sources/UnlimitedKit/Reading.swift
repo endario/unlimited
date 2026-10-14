@@ -16,6 +16,8 @@ public struct Reading: Decodable, Sendable {
     /// The vendor's own id for the account, the same on every machine; absent before account
     /// identity, and `nil` until the CLI has identified the account or where the vendor has no id.
     public let vendorAccount: String?
+    /// Locally measured gateway-log usage; absent on CLI releases before rolling usage.
+    public let usage: MeasuredUsage?
 
     /// `vendorAccount` short enough to sit in a row; the whole id goes in its tooltip.
     public var shortVendorAccount: String? {
@@ -45,7 +47,7 @@ public struct Reading: Decodable, Sendable {
     public let credits: Credits?
 
     enum CodingKeys: String, CodingKey {
-        case schema, vendor, account, takenAt, status, why, retryUntil, limits, names, plan, credits, steering, vendorAccount
+        case schema, vendor, account, takenAt, status, why, retryUntil, limits, names, plan, credits, steering, vendorAccount, usage
     }
 
     public init(from decoder: Decoder) throws {
@@ -63,11 +65,60 @@ public struct Reading: Decodable, Sendable {
         plan = try c.decodeIfPresent(String.self, forKey: .plan)
         credits = try c.decodeIfPresent(Credits.self, forKey: .credits)
         vendorAccount = try c.decodeIfPresent(String.self, forKey: .vendorAccount)
+        usage = try c.decodeIfPresent(MeasuredUsage.self, forKey: .usage)
     }
 
     /// The window the tile follows: a plan's monthly bucket where it enforces one, since that is the
     /// budget it runs out of, else its weekly window.
     public var primary: Limit? { limits.first { $0.role == "month" } ?? limits.first { $0.role == "weekly" } }
+}
+
+public struct MeasuredUsage: Decodable, Sendable {
+    public let source: String
+    public let asOf: Date
+    public let collectedAt: Date?
+    public let periods: [MeasuredPeriod]
+    public let diagnostic: String?
+
+    public func period(windowMinutes: Int) -> MeasuredPeriod? {
+        periods.first { $0.windowMinutes == windowMinutes }
+    }
+}
+
+public struct MeasuredPeriod: Decodable, Sendable {
+    public let windowMinutes: Int
+    public let startsAt: Date
+    public let endsAt: Date
+    public let inputTokens: Int?
+    public let outputTokens: Int?
+    public let totalTokens: Int?
+    public let cacheReadTokens: Int?
+    public let cacheCreationTokens: Int?
+    public let coverage: String
+    public let reasons: [String]
+    public let localBudget: LocalBudget?
+    public let estimatedCost: EstimatedCost?
+}
+
+public struct EstimatedCost: Decodable, Sendable {
+    public let usd: Double?
+    public let budgetUsd: Double?
+    public let unpricedRequests: Int
+    public let status: String
+
+    public var fraction: Double? {
+        guard status == "ok" || status == "partial",
+              let usd, usd.isFinite, usd >= 0,
+              let budgetUsd, budgetUsd.isFinite, budgetUsd > 0 else { return nil }
+        let fraction = usd / budgetUsd
+        return fraction.isFinite ? fraction : nil
+    }
+}
+
+public struct LocalBudget: Decodable, Sendable {
+    public let status: String
+    public let tokenLimit: Int?
+    public let profiles: [String]
 }
 
 /// What an account may spend past its windows, in `currency`'s major units.

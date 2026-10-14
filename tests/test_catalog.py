@@ -31,6 +31,21 @@ class Catalog(unittest.TestCase):
         self.assertEqual(c.model("codex", "heavy"), "gpt-6.1-sol")
         self.assertIsNone(c.model("grok", "heavy"))
 
+    def test_glm_market_references_mark_cache_creation_estimates_without_enabling_woyo_flash(self):
+        c = self.load()
+        for model, prices in (
+                ("glm-5.3", {"input": 1.40, "output": 4.40, "cache_read": 0.26, "cache_write": 1.40}),
+                ("glm-5.3-flash", {"input": 0.15, "output": 0.50, "cache_read": 0.03, "cache_write": 0.15})):
+            with self.subTest(model=model):
+                card, own = c.card("glm", model)
+                self.assertTrue(own)
+                self.assertEqual(card["price"], prices)
+                self.assertEqual(card["estimated_price_fields"], ["cache_write"])
+                reference, own = c.card("glm", "woyo/" + model)
+                self.assertFalse(own)
+                self.assertEqual(reference["price"], prices)
+        self.assertIsNone(c.route("woyo/glm-5.3-flash"))
+
     def test_a_local_provider_key_replaces_only_that_key(self):
         c = self.load('schema = 1\n[providers.codex]\nstandard = "gpt-7"\n')
         self.assertEqual((c.model("codex", "standard"), c.model("codex", "heavy")), ("gpt-7", "gpt-6.1-sol"))

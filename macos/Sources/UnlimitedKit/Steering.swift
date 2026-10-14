@@ -145,7 +145,9 @@ public struct StripLayout: Sendable {
     }
 
     public func width(of tile: Tile) -> Double {
-        Self.neutralWidth + Double(tile.indicator?.count ?? 0) * Self.markWidth
+        // Measured against the strip's 10pt semibold rounded value font.
+        let textWidth = Double(tile.value.text.count) * 6.5
+        return max(Self.neutralWidth, textWidth) + Double(tile.indicator?.count ?? 0) * Self.markWidth
     }
 
     public func rect(of tile: Tile) -> Rect {

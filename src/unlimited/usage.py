@@ -13,9 +13,10 @@ from unlimited.schema import iso
 
 VERSION = 1
 HORIZON = timedelta(days=30)
-PERIODS = (timedelta(days=7), timedelta(days=30))
+PERIODS = (timedelta(days=7),)
 DIAGNOSTIC = "state-unreadable"
 _EVENT_FIELDS = ("id", "at", "input_tokens", "output_tokens", "cache_read_tokens", "cache_creation_tokens")
+_EVENT_MODEL = "model"
 
 
 def path(vendor: str, account: str) -> Path:
@@ -42,6 +43,16 @@ def attach(r: dict, now: datetime) -> dict:
             return _attach(out, current, now)
     except (OSError, ValueError, TypeError, json.JSONDecodeError):
         return _unknown(out, now, diagnostic=DIAGNOSTIC)
+
+
+def events(r: dict) -> list[dict] | None:
+    """The retained events for a decorated reading, or None when its ledger is unreadable."""
+    p = path(str(r.get("vendor", "")), str(r.get("account", "")))
+    try:
+        with state.flock(p):
+            return list(_load(p)["events"].values())
+    except (OSError, ValueError, TypeError, json.JSONDecodeError):
+        return None
 
 
 def _new() -> dict:
@@ -96,7 +107,12 @@ def _import(current: dict, snapshot: object, now: datetime) -> None:
     elif previous is not None and (bool(set(current["anchors"]) & set(anchors)) or (current["empty"] and empty)):
         current["monitored"] = _merge([*current["monitored"], _range(previous, now)])
     for event in events:
-        current["events"].setdefault(event["id"], event)
+        retained = current["events"].get(event["id"])
+        if retained is None:
+            current["events"][event["id"]] = event
+        elif _same_tokens(retained, event) and _EVENT_MODEL not in retained and _EVENT_MODEL in event:
+            # A later observation may name a legacy event without changing its measured totals.
+            current["events"][event["id"]] = dict(retained, model=event[_EVENT_MODEL])
     current["anchors"] = anchors
     current["empty"] = empty
     current["unparsed"] = _merge([*current["unparsed"], *uncertainties])
@@ -137,14 +153,20 @@ def _snapshot(snapshot: object, now: datetime) -> tuple[list[str], bool, list[di
 
 
 def _event(value: object) -> dict | None:
-    if not isinstance(value, dict) or set(value) != set(_EVENT_FIELDS):
+    if not isinstance(value, dict) or set(value) not in (set(_EVENT_FIELDS), set(_EVENT_FIELDS) | {_EVENT_MODEL}):
         return None
     if not isinstance(value["id"], str) or not value["id"] or _moment(value["at"]) is None:
         return None
     if any(not isinstance(value[name], int) or isinstance(value[name], bool) or value[name] < 0
            for name in _EVENT_FIELDS[2:]):
         return None
-    return {name: value[name] for name in _EVENT_FIELDS}
+    if _EVENT_MODEL in value and (not isinstance(value[_EVENT_MODEL], str) or not value[_EVENT_MODEL]):
+        return None
+    return {name: value[name] for name in value}
+
+
+def _same_tokens(a: dict, b: dict) -> bool:
+    return all(a[name] == b[name] for name in _EVENT_FIELDS[2:])
 
 
 def _interval(value: object) -> dict | None:

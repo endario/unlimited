@@ -135,10 +135,15 @@ def through(adapter, *, max_age: float, clock, get, directory: Path | None = Non
     # Names describe this machine's directories now, not the vendor's answer: never cached. Taken
     # after the identities, which an adapter may name its accounts by.
     names = getattr(adapter, "names", dict)()
-    return [dict(r, names=names.get(r.get("account"), []),
-                 vendor_account=identities.vendor_account(adapter, r.get("account"), ids),
-                 limits=[_roled(adapter, l) for l in r.get("limits", [])])
-            for r in done]
+    returned = [dict(r, names=names.get(r.get("account"), []),
+                     vendor_account=identities.vendor_account(adapter, r.get("account"), ids),
+                     limits=[_roled(adapter, l) for l in r.get("limits", [])])
+                for r in done]
+    budget_keys = getattr(adapter, "budget_keys", None)
+    if budget_keys is not None:
+        from . import local_budgets
+        returned = [local_budgets.attach(r, budget_keys) for r in returned]
+    return returned
 
 
 def routes_through(adapter, *, max_age: float, clock, get, directory: Path | None = None) -> list[dict]:
