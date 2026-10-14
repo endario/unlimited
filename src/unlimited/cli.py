@@ -356,6 +356,7 @@ FILES = """files:
                                      operator multipliers and their expiry
   ~/.local/state/unlimited/decisions.jsonl
                                      the attempt and decision log (docs/choice.md)
+  ~/.local/state/unlimited/usage/    locally observed rolling gateway-log token totals
   ~/.cache/unlimited/                readings, their history, and refreshed Grok tokens
   ($XDG_CONFIG_HOME, $XDG_STATE_HOME and $XDG_CACHE_HOME move them.)"""
 DOCS = "https://github.com/endario/unlimited/blob/main/docs"

@@ -12,6 +12,8 @@ import uuid
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
+from unlimited.state import default_dir
+
 HALF_LIFE = timedelta(hours=12)
 KEEP = timedelta(days=7)  # 14 half-lives: a record's weight is below 10⁻⁴
 COMPACT_BYTES = 1 << 20
@@ -25,8 +27,7 @@ VERSION = 1  # of each record this log holds
 
 
 def path() -> Path:
-    base = os.environ.get("XDG_STATE_HOME") or Path.home() / ".local" / "state"
-    return Path(base) / "unlimited" / "decisions.jsonl"
+    return default_dir() / "decisions.jsonl"
 
 
 def append(record: dict, p: Path | None = None) -> None:
