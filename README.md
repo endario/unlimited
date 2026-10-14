@@ -264,8 +264,9 @@ content and discounted cache hits, with no separate creation price.
 
 The optional `budget` object reports rolling local progress: `used` is a fraction, with `state`
 (`ok`, `exceeded`, `partial`, `invalid`, `conflict`), `window_minutes`, USD amounts and coverage.
-`verdict.budget` carries the same side object; provider verdicts and reset forecasts remain unchanged.
-Consumers must explicitly adopt local-budget handling rather than treating it as provider quota.
+`verdict.budget` carries the same side object. The budget is also a `seven_day` limit of `kind`
+`local-market-value`, so a reader of `limits` ranks it like any weekly window. Being rolling, its
+`resets_at` is when every counted request has left the window, and its projection holds `used`.
 
 Woyo's `routes` lists gateway aliases, with dispatchability limited to IDs verified by inference.
 Some GPT aliases intermittently return empty Anthropic streams; dispatchability is not an uptime
