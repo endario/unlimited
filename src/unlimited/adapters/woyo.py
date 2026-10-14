@@ -4,19 +4,37 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 from collections import Counter
 from datetime import datetime, timedelta, timezone
 
 from .. import usage
-from ..credential import Credential, EnvKeys
+from ..credential import Credential, EnvKeys, env_value
 from ..schema import OK, UNREAD, failed, reading
 
 VENDOR = "woyo"
-URL = "http://aicoding.woyoalliance.com:90/api/log/token"
+# The gateway's address is the operator's, so it lives beside the key, never here.
+BASE = "FY_API_BASE_URL"
+LOG_PATH, MODELS_PATH = "/api/log/token", "/v1/models"
 KEYS = EnvKeys("FY_API_KEY", "*.env")
-names, discover = KEYS.names, KEYS.discover
+names = KEYS.names
 budget_keys = KEYS
 attach = usage.attach
+
+
+def discover() -> list[Credential]:
+    """Each key's credential, carrying the gateway base its env file (or the environment) names."""
+    bases = {key: base for f in KEYS.files()
+             if (key := env_value(f, KEYS.var)) and (base := env_value(f, BASE))}
+    out = []
+    for c in KEYS.discover():
+        base = bases.get(c.secret["key"]) or (os.environ.get(BASE) if c.secret["key"] == os.environ.get(KEYS.var) else None)
+        out.append(Credential(c.account, {**c.secret, "base": base.rstrip("/")}) if base else c)
+    return out
+
+
+def _get(cred: Credential, path: str, now: datetime, get):
+    return get(cred.secret["base"] + path, {"Authorization": f"Bearer {cred.secret['key']}"}, now)
 
 
 def _id(value: object) -> str | None:
@@ -117,7 +135,9 @@ def _snapshot(rows: list, now: datetime) -> dict:
 def whoami(cred: Credential, now: datetime, get):
     """The gateway's user id for the key, from its logged requests: the one id every row names.
     None while the key has logged nothing, so it is asked again later."""
-    ans = get(URL, {"Authorization": f"Bearer {cred.secret['key']}"}, now)
+    if "base" not in cred.secret:
+        return None, None
+    ans = _get(cred, LOG_PATH, now, get)
     rows = ans.body.get("data") if isinstance(ans.body, dict) and ans.body.get("success") is True else None
     ids = {row.get("user_id") for row in rows if isinstance(row, dict)} if isinstance(rows, list) else set()
     [who] = ids if len(ids) == 1 else [None]
@@ -125,7 +145,9 @@ def whoami(cred: Credential, now: datetime, get):
 
 
 def read(cred: Credential, now: datetime, get) -> dict:
-    ans = get(URL, {"Authorization": f"Bearer {cred.secret['key']}"}, now)
+    if "base" not in cred.secret:
+        return reading(VENDOR, cred.account, now, UNREAD, why="no-base-url")
+    ans = _get(cred, LOG_PATH, now, get)
     if ans.body is None:
         return failed(VENDOR, cred.account, now, ans)
     rows = ans.body.get("data") if isinstance(ans.body, dict) and ans.body.get("success") is True else None
@@ -134,11 +156,10 @@ def read(cred: Credential, now: datetime, get) -> dict:
     return dict(reading(VENDOR, cred.account, now, OK, limits=[]), _usage_snapshot=_snapshot(rows, now))
 
 
-MODELS_URL = "http://aicoding.woyoalliance.com:90/v1/models"
-
-
 def models(cred: Credential, now: datetime, get) -> dict:
-    ans = get(MODELS_URL, {"Authorization": f"Bearer {cred.secret['key']}"}, now)
+    if "base" not in cred.secret:
+        return dict(reading(VENDOR, cred.account, now, UNREAD, why="no-base-url"), routes=[])
+    ans = _get(cred, MODELS_PATH, now, get)
     if ans.body is None:
         return dict(failed(VENDOR, cred.account, now, ans), routes=[])
     rows = ans.body.get("data") if isinstance(ans.body, dict) else None

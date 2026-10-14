@@ -1,6 +1,6 @@
 # FY gateway runtime spike
 
-Checked 2026-10-13 against `http://aicoding.woyoalliance.com:90`, using `FY_API_KEY` from the existing local environment file. The owner explicitly authorized sending the key over HTTP. No repository content was sent; inference prompts requested only `OK`. No load testing or configuration changes were performed.
+Checked 2026-10-13 against `$FY_API_BASE_URL`, using `FY_API_KEY` from the existing local environment file. The owner explicitly authorized sending the key over HTTP. No repository content was sent; inference prompts requested only `OK`. No load testing or configuration changes were performed.
 
 ## Usability
 

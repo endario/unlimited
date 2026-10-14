@@ -8,7 +8,7 @@ The owner requested profile-configured self-pacing and market-value USD cost, wi
 
 ## Source evidence
 
-The endpoint is `GET http://aicoding.woyoalliance.com:90/api/log/token`. Plain HTTP exposes the bearer key and allows response tampering; this transport remains explicitly owner-authorized.
+The endpoint is `GET $FY_API_BASE_URL/api/log/token`. Plain HTTP exposes the bearer key and allows response tampering; this transport remains explicitly owner-authorized.
 
 A controlled request verified stable `request_id` but changing numeric `id`. The tagged upstream's `assignDisplayLogIds` assigns page positions to numeric IDs. The key endpoint is a bounded recent tail without key-authorized pagination. Upstream `MaxRecentItems` defaults to 1000, not a verified deployment limit. Sources: [controller/log.go](https://github.com/QuantumNous/new-api/blob/v1.0.0-rc.37/controller/log.go), [model/log.go](https://github.com/QuantumNous/new-api/blob/v1.0.0-rc.37/model/log.go), [constants](https://github.com/QuantumNous/new-api/blob/v1.0.0-rc.37/common/constants.go).
 

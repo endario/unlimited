@@ -66,7 +66,7 @@ if isinstance(r.get("budget"), dict):
 
 **Files:** `src/unlimited/adapters/woyo.py`, `tests/test_woyo.py` (disjoint worker); `src/unlimited/cli.py`, `tests/test_sources.py` (parent).
 
-**Interface:** `models(cred: Credential, now: datetime, get) -> dict`, matching existing OpenCode/CommandCode hooks. `MODELS_URL = "http://aicoding.woyoalliance.com:90/v1/models"`.
+**Interface:** `models(cred: Credential, now: datetime, get) -> dict`, matching existing OpenCode/CommandCode hooks. `MODELS_URL = "$FY_API_BASE_URL/v1/models"`.
 
 - [ ] Add model-source tests for fixture bearer auth, exact URL, sorted/deduplicated advertised IDs, malformed/non-list data, refusal, and dispatchability. Fixture expectation:
 
