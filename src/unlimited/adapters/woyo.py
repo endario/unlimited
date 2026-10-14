@@ -114,6 +114,16 @@ def _snapshot(rows: list, now: datetime) -> dict:
     return {"events": events, "anchors": list(dict.fromkeys(anchors)), "empty": not rows, "unparsed": unparsed}
 
 
+def whoami(cred: Credential, now: datetime, get):
+    """The gateway's user id for the key, from its logged requests: the one id every row names.
+    None while the key has logged nothing, so it is asked again later."""
+    ans = get(URL, {"Authorization": f"Bearer {cred.secret['key']}"}, now)
+    rows = ans.body.get("data") if isinstance(ans.body, dict) and ans.body.get("success") is True else None
+    ids = {row.get("user_id") for row in rows if isinstance(row, dict)} if isinstance(rows, list) else set()
+    [who] = ids if len(ids) == 1 else [None]
+    return (str(who) if _integer(who) else None), ans
+
+
 def read(cred: Credential, now: datetime, get) -> dict:
     ans = get(URL, {"Authorization": f"Bearer {cred.secret['key']}"}, now)
     if ans.body is None:

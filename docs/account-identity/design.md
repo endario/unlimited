@@ -28,6 +28,7 @@ kept, so every consumer can correlate accounts today, and slice 2 has a tested f
 | commandcode | `user.id` | `GET https://api.commandcode.ai/alpha/whoami` | answers `user.id` and `org` |
 | opencode | `null` | none: `zen/go/v1/usage` resolves the key's workspace and user but returns neither ([anomalyco/opencode#54283](https://github.com/anomalyco/opencode/issues/54283)) | — |
 | neuralwatt | `null` | none: `/v1/quota` names only the key's label | — |
+| woyo | `user_id` | the rows of `GET $FY_API_BASE_URL/api/log/token`, when they all name one; `/api/user/self` refuses a key, and `/api/usage/token` names only the key | one key, user `1` (2026-10-14) |
 
 ### Shape
 
