@@ -57,15 +57,12 @@ struct TileView: View {
 
     var body: some View {
         let showAlt = alternating && tile.alternate != nil && !reduceMotion
-        VStack(spacing: -1.5) {
+        // Every label keeps room for the best account's underline, so the figures stay on one line.
+        VStack(spacing: 0) {
             HStack(spacing: 1) {
                 Text(tile.label)
                     .font(.system(size: 7, weight: .medium, design: .monospaced))
-                    // Drawn just under the capitals, not at the font's underline position: that sits in
-                    // the gap above the figure and makes this label's gap look smaller than its neighbours'.
-                    .overlay(alignment: .bottom) {
-                        if tile.best { Rectangle().fill(.primary.opacity(0.7)).frame(height: 0.5).offset(y: -1.25) }
-                    }
+                    .underline(tile.best, color: .primary.opacity(0.7))
                     .help(tile.best ? "Underline: best account by quota room, not steering" : "Account label")
                 SteeringIndicatorView(indicator: tile.indicator)
             }
