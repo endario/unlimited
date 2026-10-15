@@ -64,7 +64,8 @@ struct TileView: View {
                     .font(.system(size: 7, weight: .medium, design: .monospaced))
                     .underline(tile.best, color: .primary.opacity(0.7))
                     .help(tile.best ? "Underline: best account by quota room, not steering" : "Account label")
-                SteeringIndicatorView(indicator: tile.indicator)
+                // Takes no height, so the marks never push the figure below off its line.
+                SteeringIndicatorView(indicator: tile.indicator).frame(height: 0)
             }
             ZStack {
                 UsageFigure(value: tile.value, health: tile.health)
@@ -91,7 +92,7 @@ struct TileView: View {
         // and drops to half transparency.
         .opacity(tile.dimmed || tile.off ? 0.45 : 1)
         // Room for the elapsed bar, so the text sits close beside it rather than under it.
-        .padding(.trailing, tile.elapsed == nil ? 0 : 2)
+        .padding(.trailing, tile.elapsed == nil ? 0 : 1)
         .frame(width: Self.width(of: tile), height: 22)
         // The week's time so far, filling upward to the reset.
         .overlay(alignment: .trailing) {
@@ -108,7 +109,7 @@ struct TileView: View {
 }
 
 struct StripView: View {
-    static let spacing: CGFloat = 1, padding: CGFloat = 2
+    static let spacing: CGFloat = 4.5, padding: CGFloat = 2
     static let fadeDuration = 0.7
     @ObservedObject var model: StripModel
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
