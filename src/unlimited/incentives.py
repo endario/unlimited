@@ -551,10 +551,11 @@ def _annotate(readings: list[dict], *, now: datetime,
 
 
 def _rated(readings: list[dict], cat: Catalog | None, now: datetime) -> list[dict]:
-    """Each reading's rate spans on its context, where the catalog gives it any. Without a policy the
-    whole catalog is not loaded, so a broken one never stops tracking: its rates are read alone."""
     from .catalog import load_rates
-    table = cat.rates if cat is not None else load_rates()
+    try:
+        table = cat.rates if cat is not None else load_rates()
+    except (OSError, UnicodeDecodeError, ValueError, TypeError):
+        table = []
     for r in readings:
         if spans := rates.spans(table, r, now):
             r["steering"]["rates"] = spans

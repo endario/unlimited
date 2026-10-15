@@ -91,6 +91,14 @@ class Annotate(unittest.TestCase):
         self.assertEqual(out[0]["steering"]["rates"][0]["factor"], 2)
         self.assertEqual(out[0]["steering"]["routes"], [])
 
+    def test_a_catalog_that_cannot_be_read_never_stops_tracking(self):
+        with mock.patch.dict(os.environ, {"XDG_CONFIG_HOME": scratch.mkdtemp()}), \
+                mock.patch.object(catalog.resources, "files", side_effect=FileNotFoundError("catalog.toml")):
+            out, errors = incentives._annotate([reading()], now=THU_1300)
+        self.assertEqual(errors, [])
+        self.assertEqual(out[0]["limits"], reading()["limits"])
+        self.assertNotIn("rates", out[0]["steering"])
+
     def test_a_reading_no_rate_binds_carries_no_rates(self):
         cat = catalog.load(Path(scratch.mkdtemp()) / "catalog.toml")
         cat.rates = [PEAK]
