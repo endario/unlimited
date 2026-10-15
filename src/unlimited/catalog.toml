@@ -271,8 +271,8 @@ as_of = 2026-10-15
 # fixed offset `tz`, on `days` (default every day); `to` may be 24:00. `meter` is the limit `kind`
 # it applies to (default every account of the vendor), `offerings` the offering ids (default all).
 # A local list replaces this one.
-# Z.ai and bigmodel.cn (one adapter) charge weekdays 14:00-18:00 UTC+8 at their base rate and the
-# rest at a discount. Credits plans (docs.bigmodel.cn/cn/coding-plan/overview, 2026-10-15) take
+# Z.ai and bigmodel.cn (one adapter) charge the rest of the week at a discount to weekdays
+# 14:00-18:00 UTC+8, so those hours are the factor here against the discounted usual rate. Credits plans (docs.bigmodel.cn/cn/coding-plan/overview, 2026-10-15) take
 # 50% off-peak; a probe on a bigmodel.cn credits key charged its base rate at 14:03. Legacy token
 # plans (docs.z.ai/devpack/notice/usage-revision, 2026-07-30) take GLM-5.3 1x vs 3x, Flash 0.4x vs 1.2x.
 [[rates]]

@@ -57,11 +57,14 @@ class Spans(unittest.TestCase):
 class Catalog(unittest.TestCase):
     def test_the_shipped_rates_load_and_validate(self):
         cat = catalog.load(Path(scratch.mkdtemp()) / "catalog.toml")
-        self.assertTrue(any(r["vendor"] == "zai" for r in cat.rates))
+        factors = {r["meter"]: r["factor"] for r in cat.rates if r["vendor"] == "zai"}
+        self.assertEqual(factors, {"CREDIT_LIMIT": 2, "TOKENS_LIMIT": 3})
 
     def test_a_malformed_rate_is_refused_with_why(self):
         for bad, why in [({**PEAK, "from": "18:00", "to": "14:00"}, "from is before to"),
                          ({**PEAK, "tz": "Asia/Singapore"}, "fixed offset"),
+                         ({**PEAK, "tz": "+24:00"}, "fixed offset"),
+                         ({**PEAK, "tz": "+08:60"}, "fixed offset"),
                          ({**PEAK, "days": ["thursday"]}, "days"),
                          ({**PEAK, "factor": 0}, "positive")]:
             self.assertIn(why, rates.problem(bad))

@@ -233,7 +233,8 @@ use `unlimited.incentives.annotate(readings, now=...)` after reading; `read`/`st
 the same path. Annotation is not written into the usage cache or projection history.
 
 Each reading's `steering` contains `v=1`, `vendor`, its canonical `account` (or null),
-`observed_at`, ordered `settings`, display `routes` and `unresolved` target names. Settings retain
+`observed_at`, ordered `settings`, display `routes` and `unresolved` target names, and `rates`
+where a catalog rate binds the reading ([catalog](catalog.md)). Settings retain
 `target`, `multiplier`, `activated_at`, fixed `until` and a canonical explicit account selector
 (or null when unbound). Losing rules and neutral overrides remain in source order. Display routes
 are resolved from these settings; they are not policy inputs.

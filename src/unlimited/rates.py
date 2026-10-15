@@ -14,7 +14,7 @@ from datetime import date, datetime, time, timedelta, timezone
 DAYS = ("mon", "tue", "wed", "thu", "fri", "sat", "sun")
 HORIZON = timedelta(days=8)  # past the longest window a reading has (a week)
 _CLOCK = re.compile(r"^(?:[01]\d|2[0-3]):[0-5]\d$|^24:00$")
-_OFFSET = re.compile(r"^([+-])(\d{2}):(\d{2})$")
+_OFFSET = re.compile(r"^([+-])([01]\d|2[0-3]):([0-5]\d)$")
 
 
 def _clock(v: str) -> timedelta:
