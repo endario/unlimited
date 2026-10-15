@@ -1,16 +1,17 @@
-"""Xiaomi MiMo (platform.xiaomimimo.com): team seat credit allowances and the balance, on the platform's Chrome sign-in."""
+"""Xiaomi MiMo (platform.xiaomimimo.com): each team token plan key's seat allowance, on the platform's Chrome sign-in."""
 
 from __future__ import annotations
 
-import hashlib
+import functools
+import re
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
 from urllib.parse import quote
 
 from .. import chrome_cookies
-from ..credential import Credential
-from ..schema import OK, UNREAD, credits, failed, limit, number, reading
+from ..credential import Credential, EnvKeys
+from ..schema import OK, UNREAD, failed, limit, number, reading
 
 VENDOR = "mimo"
 BASE = "https://platform.xiaomimimo.com/api/v1"
@@ -35,23 +36,27 @@ def _load(profile: Path) -> dict:
     return {"cookies": plain if all(plain.values()) else None}
 
 
-def discover() -> list[Credential]:
+def _jar(p: Path) -> chrome_cookies.Lazy:
+    return chrome_cookies.Lazy(lambda: _load(p))
+
+
+@functools.cache
+def _logins() -> tuple[chrome_cookies.Lazy, ...]:
+    """Every Chrome profile signed in to the platform; each decrypts on first use, once a process."""
     if sys.platform != "darwin":
-        return []
-    # The key names the sign-in by its stored token, still encrypted, so no keychain is asked here.
-    return [Credential(f"chrome:{p.name}:{hashlib.sha256(got[0]['api-platform_serviceToken']).hexdigest()[:8]}",
-                       chrome_cookies.Lazy(lambda p=p: _load(p)))
-            for p in chrome_cookies.profiles() if (got := _cookies(p))]
+        return ()
+    return tuple(_jar(p) for p in chrome_cookies.profiles() if _cookies(p))
 
 
-def _headers(cred: Credential) -> dict[str, str]:
-    jar = cred.secret["cookies"]
+# Each key is its own account; its usage is read on the console's sign-in, which no key can open.
+KEYS = EnvKeys(re.compile(r"MIMO(_\d+)?_API_KEY"), "claude-mimo*.env")
+names, discover = KEYS.names, KEYS.discover
+# A team token plan key. An individual plan's (`tp-`) or pay-as-you-go (`sk-`) key has no seat.
+TEAM = "ttp-"
+
+
+def _headers(jar) -> dict[str, str]:
     return {"Cookie": "; ".join(f"{k}={v}" for k, v in jar.items()), "User-Agent": "Mozilla/5.0"}
-
-
-def whoami(cred: Credential, now: datetime, get):
-    who = (cred.secret.get("cookies") or {}).get("userId")
-    return (who if isinstance(who, str) and who else None), None
 
 
 def _data(ans) -> dict | None:
@@ -78,55 +83,97 @@ def _seat(data: dict, name: str, scope: str) -> dict | None:
                  held=expired or None, held_why="expired" if expired else None, scope=scope)
 
 
-def _seats(get, h, now, pid: str, role) -> list[tuple[dict, str | None]]:
-    """An owner or admin sees every member's seat; anyone else only their own."""
-    if role in ("OWNER", "ADMIN"):
-        ans = get(f"{BASE}/project/{pid}/teamTokenPlan/detail", h, now)
-        plan = _data(ans) if ans.body is not None else None
-        ans = get(f"{BASE}/project/{pid}/members", h, now)
-        members = ans.body.get("data") if plan and isinstance(ans.body, dict) and ans.body.get("code") == 0 else None
-        if isinstance(members, list):
-            return [({**plan, "seat": m["seat"]}, m.get("displayName") if isinstance(m.get("displayName"), str) else None)
-                    for m in members if isinstance(m, dict) and isinstance(m.get("seat"), dict)]
-    ans = get(f"{BASE}/project/{pid}/teamTokenPlan/my/seat", h, now)
-    mine = _data(ans) if ans.body is not None else None
-    return [(mine, None)] if mine else []
+def _redacted(red) -> tuple[str, str] | None:
+    """The visible head and tail of a redacted key; the run of `*` between them is not one per character."""
+    m = re.fullmatch(r"([^*]+)\*+([^*]+)", red) if isinstance(red, str) else None
+    return (m[1], m[2]) if m else None
 
 
-def _amount(x) -> float | None:
-    """The balance comes as a decimal string ("0.00")."""
-    try:
-        return number(float(x)) if isinstance(x, str) else number(x)
-    except ValueError:
-        return None
+def _fits(key: str, shown: tuple[str, str]) -> bool:
+    head, tail = shown
+    return len(key) > len(head) + len(tail) and key.startswith(head) and key.endswith(tail)
+
+
+def _survey(get, now):
+    """Every sign-in's projects: (headers, project, its own seat key shown redacted, the user id).
+    Returns (projects, the first refusal or None, whether any sign-in decrypted, vendor error)."""
+    found, refused, usable, erred = [], None, False, False
+    for jar in _logins():
+        cookies = jar.get("cookies")
+        if not cookies:
+            continue
+        usable, h = True, _headers(cookies)
+        ans = get(BASE + "/projects", h, now)
+        if ans.body is None:
+            refused = refused or ans
+            continue
+        data = _data(ans)
+        if data is None:
+            erred = True
+            continue
+        for p in data.get("projects") or []:
+            if not (isinstance(p, dict) and isinstance(p.get("projectId"), str)):
+                continue
+            pid = quote(p["projectId"], safe="")
+            ans = get(f"{BASE}/project/{pid}/teamTokenPlan/apiKey", h, now)
+            got = _data(ans) if ans.body is not None else None
+            found.append((h, pid, p, _redacted(got.get("redactedApiKey")) if got else None, cookies.get("userId")))
+    return found, refused, usable, erred
+
+
+def _team(get, h, now, pid: str) -> list[tuple[dict, dict]]:
+    """An owner's or admin's view of the plan and every member, as (seat reading, member)."""
+    ans = get(f"{BASE}/project/{pid}/teamTokenPlan/detail", h, now)
+    plan = _data(ans) if ans.body is not None else None
+    if not plan:
+        return []
+    ans = get(f"{BASE}/project/{pid}/members", h, now)
+    members = ans.body.get("data") if isinstance(ans.body, dict) and ans.body.get("code") == 0 else None
+    return [({**plan, "seat": m["seat"]}, m) for m in members if isinstance(m, dict) and isinstance(m.get("seat"), dict)
+            and m["seat"].get("seatStatus") == "ASSIGNED"] if isinstance(members, list) else []
+
+
+def _find(key: str, get, now):
+    """The seat `key` belongs to, as (seat reading, scope) or (None, why, refusal)."""
+    if not key.startswith(TEAM):
+        return None, "not-team-key", None
+    if not _logins():
+        return None, "no-sign-in", None
+    projects, refused, usable, erred = _survey(get, now)
+    if not usable:
+        return None, "no-credential", None
+    for h, pid, p, shown, _ in projects:
+        if shown and _fits(key, shown):
+            ans = get(f"{BASE}/project/{pid}/teamTokenPlan/my/seat", h, now)
+            mine = _data(ans) if ans.body is not None else None
+            return (mine, p.get("projectNameEn") or p["projectId"], None) if mine else (None, "no-seat", ans)
+    # Elimination, and nothing beyond it: a key no sign-in's own seat shows is the one seat no
+    # sign-in holds, only while it is the sole such key and an owner's view shows exactly one such seat.
+    shown = [s for *_, s, _ in projects if s]
+    loose = [k for c in discover() if (k := c.secret["key"]).startswith(TEAM) and not any(_fits(k, s) for s in shown)]
+    signed = {u for *_, u in projects if u}
+    free = [(seat, m) for h, pid, p, _, _ in projects if p.get("role") in ("OWNER", "ADMIN")
+            for seat, m in _team(get, h, now, pid) if str(m.get("userId")) not in signed] if loose == [key] else []
+    if len(free) == 1:
+        seat, m = free[0]
+        return seat, m.get("displayName") if isinstance(m.get("displayName"), str) else None, None
+    if refused:
+        return None, None, refused
+    return None, "vendor-error" if erred and not projects else "no-seat-for-key", None
+
+
+def whoami(cred: Credential, now: datetime, get):
+    seat, _, ans = _find(cred.secret["key"], get, now)
+    who = (seat.get("seat") or {}).get("seatId") if seat else None
+    return (who if isinstance(who, str) and who else None), ans
 
 
 def read(cred: Credential, now: datetime, get) -> dict:
-    if not cred.secret.get("cookies"):
-        return reading(VENDOR, cred.account, now, UNREAD, why="no-credential")
-    h = _headers(cred)
-    ans = get(BASE + "/projects", h, now)
-    if ans.body is None:
-        return failed(VENDOR, cred.account, now, ans)
-    data = _data(ans)
-    if data is None:
-        return reading(VENDOR, cred.account, now, UNREAD, why="vendor-error")
-    projects = [p for p in data.get("projects") or [] if isinstance(p, dict) and isinstance(p.get("projectId"), str)]
-    limits, plans = [], []
-    for p in projects:
-        pid, name = quote(p['projectId'], safe=''), p.get("projectNameEn") or p.get("projectName") or p["projectId"]
-        for seat, who in _seats(get, h, now, pid, p.get("role")):
-            got = _seat(seat, "month" + (f":{len(limits) + 1}" if limits else ""), who or name)
-            if got:
-                limits.append(got)
-                if isinstance(seat.get("planName"), str):
-                    plans.append(seat["planName"])
-    ans = get(BASE + "/balance", h, now)
-    bal = _data(ans) if ans.body is not None else None
-    amount = _amount(bal.get("balance")) if bal else None
-    spend = (credits(now, enabled=amount > 0, used=None, limit=None, balance=amount,
-                     currency=bal.get("currency") if isinstance(bal.get("currency"), str) else None)
-             if amount is not None else None)
-    if not limits and spend is None:
+    seat, scope, ans = _find(cred.secret["key"], get, now)
+    if seat is None:
+        return failed(VENDOR, cred.account, now, ans) if scope is None else reading(VENDOR, cred.account, now, UNREAD, why=scope)
+    got = _seat(seat, "month", scope)
+    if got is None:
         return reading(VENDOR, cred.account, now, UNREAD, why="no-seat")
-    return reading(VENDOR, cred.account, now, OK, limits=limits, plan=plans[0] if plans else None, credits=spend)
+    plan = seat.get("planName") if isinstance(seat.get("planName"), str) else None
+    return reading(VENDOR, cred.account, now, OK, limits=[got], plan=plan)

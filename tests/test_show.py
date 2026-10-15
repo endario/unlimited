@@ -31,6 +31,19 @@ class Render(unittest.TestCase):
         self.assertNotIn("limits:session", out)
         self.assertIn("limits:session", show.render([r], NOW, all_limits=True))
 
+    def test_bars_start_in_one_column_whatever_a_labels_width(self):
+        # A per-model weekly label runs past the default column, and a CJK one takes two per character.
+        r = reading("anthropic", "a", NOW, "ok", limits=[
+            limit("five_hour", window_minutes=300, used_at_least=0.5, resets_at=None, held=False),
+            dict(limit("seven_day_opus", window_minutes=10080, used_at_least=0.5, resets_at=None, held=False),
+                 role="weekly_model", scope="claude-opus-4-5-thinking"),
+            dict(limit("seven_day_x", window_minutes=10080, used_at_least=0.5, resets_at=None, held=False),
+                 role="weekly_model", scope="当前账号")])
+        rows = [l for l in show.render([r], NOW).splitlines() if "█" in l]
+        cols = {sum(2 if ord(c) > 0x2e80 else 1 for c in row[:row.index("█")]) for row in rows}
+        self.assertEqual(len(rows), 3)
+        self.assertEqual(len(cols), 1, rows)
+
     def test_vendor_blocks_sort_by_their_displayed_name_not_their_internal_id(self):
         # "kimi" < "openai" as internal ids, but "Codex" must still print before "Kimi Code".
         readings = [reading("kimi", "k", NOW, "ok", limits=[]), reading("openai", "o", NOW, "ok", limits=[])]
