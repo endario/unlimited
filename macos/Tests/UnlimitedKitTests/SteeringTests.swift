@@ -27,7 +27,7 @@ import Testing
     let readings = try Reading.decode(Data(#"[{"schema":1,"vendor":"opencode","account":"a","status":"ok","steering":{"routes":[{"id":"meta-route","target":"meta","account":null,"multiplier":5,"until":"2030-01-01T00:00:00Z"}]}}]"#.utf8))
     let tile = try #require(Tile.strip(readings, now: Date(timeIntervalSince1970: 1_790_870_400)).first)
     #expect(tile.indicator == nil)
-    #expect(StripLayout(tiles: [tile], spacing: 3, padding: 2).width(of: tile) == 26)
+    #expect(StripLayout(tiles: [tile], spacing: 3, padding: 2).width(of: tile) == 23)
 }
 
 @Test func accountArrowsExcludeGlobalAndOtherAccountRoutes() throws {
@@ -56,7 +56,7 @@ import Testing
     let steered = Tile(id: "b", label: "B", value: .percent(1), dimmed: false,
                        indicator: SteeringIndicator(routes: [.init(id: "r", target: "x", multiplier: 10, until: .distantFuture)], now: .now))
     let layout = StripLayout(tiles: [plain, steered], spacing: 3, padding: 2)
-    #expect(layout.width(of: plain) == 26)
+    #expect(layout.width(of: plain) == 23)
     #expect(layout.width(of: steered) > layout.width(of: plain))
     #expect(layout.tile(at: layout.rect(of: steered).minX - 0.01)?.id == "a")
     #expect(layout.tile(at: layout.rect(of: steered).minX)?.id == "b")
@@ -108,7 +108,7 @@ import Testing
     for factor in [2.0, 5, 10, 100, 0.5, 0.2, 0.1, 0.01] {
         let tile = Tile(id: "a", label: "A", value: .percent(1), dimmed: false,
                         indicator: SteeringIndicator(routes: [.init(id: "r", target: "x", multiplier: factor, until: .distantFuture)], now: .now))
-        #expect(StripLayout(tiles: [tile], spacing: 3, padding: 2).width(of: tile) == 33)
+        #expect(StripLayout(tiles: [tile], spacing: 3, padding: 2).width(of: tile) == 30)
     }
 }
 
