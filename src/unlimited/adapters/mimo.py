@@ -116,21 +116,27 @@ def _survey(get, now):
                 continue
             pid = quote(p["projectId"], safe="")
             ans = get(f"{BASE}/project/{pid}/teamTokenPlan/apiKey", h, now)
+            if ans.body is None:
+                refused = refused or ans
             got = _data(ans) if ans.body is not None else None
             found.append((h, pid, p, _redacted(got.get("redactedApiKey")) if got else None, cookies.get("userId")))
     return found, refused, usable, erred
 
 
-def _team(get, h, now, pid: str) -> list[tuple[dict, dict]]:
-    """An owner's or admin's view of the plan and every member, as (seat reading, member)."""
+def _team(get, h, now, pid: str):
+    """An owner's or admin's view of the plan and every member, as ([(seat reading, member)], refusal)."""
     ans = get(f"{BASE}/project/{pid}/teamTokenPlan/detail", h, now)
-    plan = _data(ans) if ans.body is not None else None
+    if ans.body is None:
+        return [], ans
+    plan = _data(ans)
     if not plan:
-        return []
+        return [], None
     ans = get(f"{BASE}/project/{pid}/members", h, now)
+    if ans.body is None:
+        return [], ans
     members = ans.body.get("data") if isinstance(ans.body, dict) and ans.body.get("code") == 0 else None
-    return [({**plan, "seat": m["seat"]}, m) for m in members if isinstance(m, dict) and isinstance(m.get("seat"), dict)
-            and m["seat"].get("seatStatus") == "ASSIGNED"] if isinstance(members, list) else []
+    return ([({**plan, "seat": m["seat"]}, m) for m in members if isinstance(m, dict) and isinstance(m.get("seat"), dict)
+             and m["seat"].get("seatStatus") == "ASSIGNED"] if isinstance(members, list) else []), None
 
 
 def _find(key: str, get, now):
@@ -145,20 +151,27 @@ def _find(key: str, get, now):
     for h, pid, p, shown, _ in projects:
         if shown and _fits(key, shown):
             ans = get(f"{BASE}/project/{pid}/teamTokenPlan/my/seat", h, now)
-            mine = _data(ans) if ans.body is not None else None
-            return (mine, p.get("projectNameEn") or p["projectId"], None) if mine else (None, "no-seat", ans)
+            if ans.body is None:
+                return None, None, ans
+            mine = _data(ans)
+            return (mine, p.get("projectNameEn") or p["projectId"], None) if mine else (None, "vendor-error", None)
     # Elimination, and nothing beyond it: a key no sign-in's own seat shows is the one seat no
     # sign-in holds, only while it is the sole such key and an owner's view shows exactly one such seat.
     shown = [s for *_, s, _ in projects if s]
     loose = [k for c in discover() if (k := c.secret["key"]).startswith(TEAM) and not any(_fits(k, s) for s in shown)]
-    signed = {u for *_, u in projects if u}
-    free = [(seat, m) for h, pid, p, _, _ in projects if p.get("role") in ("OWNER", "ADMIN")
-            for seat, m in _team(get, h, now, pid) if str(m.get("userId")) not in signed] if loose == [key] else []
-    if len(free) == 1:
+    signed = {str(u) for *_, u in projects if u}
+    free, blind = [], None
+    for h, pid, p, _, _ in projects if loose == [key] else []:
+        if p.get("role") in ("OWNER", "ADMIN"):
+            team, why = _team(get, h, now, pid)
+            blind = blind or why
+            free += [(seat, m) for seat, m in team if str(m.get("userId")) not in signed]
+    # A team that could not be seen may hold another free seat: no elimination past it.
+    if len(free) == 1 and not blind:
         seat, m = free[0]
         return seat, m.get("displayName") if isinstance(m.get("displayName"), str) else None, None
-    if refused:
-        return None, None, refused
+    if refused or blind:
+        return None, None, refused or blind
     return None, "vendor-error" if erred and not projects else "no-seat-for-key", None
 
 
