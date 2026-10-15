@@ -43,7 +43,8 @@ struct UsageFigure: View {
 }
 
 struct TileView: View {
-    static let width: CGFloat = 26
+    static let valueFont = Font.system(size: 9, weight: .semibold, design: .rounded)
+    static let width = CGFloat(StripLayout.neutralWidth)
     static func width(of tile: Tile) -> CGFloat {
         CGFloat(StripLayout(tiles: [tile], spacing: 0, padding: 0).width(of: tile))
     }
@@ -56,27 +57,29 @@ struct TileView: View {
 
     var body: some View {
         let showAlt = alternating && tile.alternate != nil && !reduceMotion
-        VStack(spacing: -1.5) {
+        // Every label keeps room for the best account's underline, so the figures stay on one line.
+        VStack(spacing: 0) {
             HStack(spacing: 1) {
                 Text(tile.label)
-                    .font(.system(size: 8, weight: .medium, design: .monospaced))
+                    .font(.system(size: 7, weight: .medium, design: .monospaced))
                     .underline(tile.best, color: .primary.opacity(0.7))
                     .help(tile.best ? "Underline: best account by quota room, not steering" : "Account label")
-                SteeringIndicatorView(indicator: tile.indicator)
+                // Takes no height, so the marks never push the figure below off its line.
+                SteeringIndicatorView(indicator: tile.indicator).frame(height: 0)
             }
             ZStack {
                 UsageFigure(value: tile.value, health: tile.health)
                     .opacity(showAlt ? 0 : 1)
                 if let alt = tile.alternate {
                     HStack(spacing: 1) {
-                        Image(systemName: alt.glyph).font(.system(size: 6, weight: .bold))
+                        Image(systemName: alt.glyph).font(.system(size: 5, weight: .bold))
                         UsageFigure(value: alt.value, health: alt.health)
                     }
                     .foregroundStyle(alt.value.showsData ? alt.health.color : Color.secondary)
                     .opacity(showAlt ? 1 : 0)
                 }
             }
-            .font(.system(size: 10, weight: .semibold, design: .rounded))
+            .font(Self.valueFont)
             .monospacedDigit()
         }
         // With Reduce Motion there is no cross-fade: a corner dot says another window is worse.
@@ -88,7 +91,9 @@ struct TileView: View {
         // Ghosted, not recoloured: an unusable or switched-off tile keeps its exact colours
         // and drops to half transparency.
         .opacity(tile.dimmed || tile.off ? 0.45 : 1)
-        .frame(width: Self.width(of: tile), height: 22)
+        // Room for the elapsed bar, and the text set against it: each bar belongs to the text before it.
+        .padding(.trailing, tile.elapsed == nil ? 0 : 2.5)
+        .frame(width: Self.width(of: tile), height: 22, alignment: tile.elapsed == nil ? .center : .trailing)
         // The week's time so far, filling upward to the reset.
         .overlay(alignment: .trailing) {
             if let e = tile.elapsed {
@@ -104,7 +109,7 @@ struct TileView: View {
 }
 
 struct StripView: View {
-    static let spacing: CGFloat = 3, padding: CGFloat = 2
+    static let spacing: CGFloat = 4, padding: CGFloat = 2
     static let fadeDuration = 0.7
     @ObservedObject var model: StripModel
     @Environment(\.accessibilityReduceMotion) private var reduceMotion

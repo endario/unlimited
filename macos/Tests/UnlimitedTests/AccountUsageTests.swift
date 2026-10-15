@@ -382,7 +382,7 @@ private func save(_ image: NSBitmapImageRep, named name: String) throws {
     let tokenTile = try bitmap(TileView(tile: tile, focused: false, alternating: false),
                                width: TileView.width(of: tile) + 4, height: 22)
     let fullValue = try bitmap(UsageFigure(value: .tokens(12_345_678, windowMinutes: 10_080), health: .normal)
-        .font(.system(size: 10, weight: .semibold, design: .rounded)).monospacedDigit().fixedSize(), width: 200, height: 22)
+        .font(TileView.valueFont).monospacedDigit().fixedSize(), width: 200, height: 22)
     let settings = try bitmap(SettingsView(model: model), width: 600, height: 680)
     model.selected = tile.id
     let normalPopover = try bitmap(PopoverView(model: model), width: 320, height: 560)

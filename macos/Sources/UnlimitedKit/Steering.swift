@@ -132,7 +132,7 @@ public struct StripLayout: Sendable {
         public var maxX: Double { x + width }
     }
 
-    public static let neutralWidth = 26.0
+    public static let neutralWidth = 21.0
     private static let markWidth = 7.0
     public let tiles: [Tile]
     public let spacing: Double
@@ -145,8 +145,8 @@ public struct StripLayout: Sendable {
     }
 
     public func width(of tile: Tile) -> Double {
-        // Measured against the strip's 10pt semibold rounded value font.
-        let textWidth = Double(tile.value.text.count) * 6.5
+        // Measured against the strip's 9pt semibold rounded value font.
+        let textWidth = Double(tile.value.text.count) * 6.0
         return max(Self.neutralWidth, textWidth) + Double(tile.indicator?.count ?? 0) * Self.markWidth
     }
 
