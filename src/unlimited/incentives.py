@@ -9,6 +9,7 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta
 from pathlib import Path
 
+from . import rates
 from .catalog import Catalog, CatalogError, target_known
 from .schema import moment
 from .identity import names as _identity, project_reading
@@ -538,7 +539,7 @@ def _annotate(readings: list[dict], *, now: datetime,
     except (CatalogError, ValueError, TypeError, OverflowError):
         return failed("policy-unavailable")
     if not groups:
-        return [dict(r, steering=_context_header(r, now)) for r in readings], []
+        return _rated([dict(r, steering=_context_header(r, now)) for r in readings], None, now), []
     if cat is _LOAD_CATALOG:
         try:
             cat = load_metadata()
@@ -546,7 +547,18 @@ def _annotate(readings: list[dict], *, now: datetime,
             return failed("catalog-unavailable")
     if cat is None:
         return failed("catalog-unavailable")
-    return overlay(readings, cat, groups, now), []
+    return _rated(overlay(readings, cat, groups, now), cat, now), []
+
+
+def _rated(readings: list[dict], cat: Catalog | None, now: datetime) -> list[dict]:
+    """Each reading's rate spans on its context, where the catalog gives it any. Without a policy the
+    whole catalog is not loaded, so a broken one never stops tracking: its rates are read alone."""
+    from .catalog import load_rates
+    table = cat.rates if cat is not None else load_rates()
+    for r in readings:
+        if spans := rates.spans(table, r, now):
+            r["steering"]["rates"] = spans
+    return readings
 
 
 def annotate(readings: list[dict], *, now: datetime) -> list[dict]:

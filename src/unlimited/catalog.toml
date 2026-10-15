@@ -266,3 +266,29 @@ intelligence = 39.6
 price = { input = 0.10, output = 0.20, cache_read = 0.002 }
 source = "https://commandcode.ai/docs/plans/goat"
 as_of = 2026-10-15
+
+# A rate: the hours a vendor charges its quota at `factor` times its usual rate, by the clock at the
+# fixed offset `tz`, on `days` (default every day); `to` may be 24:00. `meter` is the limit `kind`
+# it applies to (default every account of the vendor), `offerings` the offering ids (default all).
+# A local list replaces this one.
+# Z.ai and bigmodel.cn (one adapter) charge weekdays 14:00-18:00 UTC+8 at their base rate and the
+# rest at a discount. Credits plans (docs.bigmodel.cn/cn/coding-plan/overview, 2026-10-15) take
+# 50% off-peak; a probe on a bigmodel.cn credits key charged its base rate at 14:03. Legacy token
+# plans (docs.z.ai/devpack/notice/usage-revision, 2026-07-30) take GLM-5.3 1x vs 3x, Flash 0.4x vs 1.2x.
+[[rates]]
+vendor = "zai"
+meter = "CREDIT_LIMIT"
+days = ["mon", "tue", "wed", "thu", "fri"]
+from = "14:00"
+to = "18:00"
+tz = "+08:00"
+factor = 2
+
+[[rates]]
+vendor = "zai"
+meter = "TOKENS_LIMIT"
+days = ["mon", "tue", "wed", "thu", "fri"]
+from = "14:00"
+to = "18:00"
+tz = "+08:00"
+factor = 3

@@ -12,6 +12,7 @@ from datetime import date, datetime, timezone
 from importlib import resources
 from pathlib import Path
 
+from . import rates
 from .identity import POLICY_PROJECTION, policy_key
 from .state import flock as _flock
 from .state import write_json
@@ -171,7 +172,7 @@ def off_policy(now: datetime, path: Path | None = None) -> dict[str, str | None]
 
 
 # What a schema-2 file may hold at its top level.
-TOP_LEVEL = frozenset({"schema", "tiers", "models", "offerings", "banned", "tie_preference", "cards"})
+TOP_LEVEL = frozenset({"schema", "tiers", "models", "offerings", "banned", "tie_preference", "cards", "rates"})
 
 
 def _parse(text: str, where: str) -> dict:
@@ -190,8 +191,8 @@ def _parse(text: str, where: str) -> dict:
         raise CatalogError(f"{where}: keys starting with _, and provider_keys, are unlimited's own")
     if not isinstance(got.get("models", {}), dict) or not all(isinstance(m, dict) for m in got.get("models", {}).values()):
         raise CatalogError(f"{where}: models must be tables")
-    if not all(isinstance(got.get(k, []), list) for k in ("tiers", "offerings", "banned", "tie_preference", "cards")):
-        raise CatalogError(f"{where}: tiers, offerings, banned, tie_preference and cards must be lists")
+    if not all(isinstance(got.get(k, []), list) for k in ("tiers", "offerings", "banned", "tie_preference", "cards", "rates")):
+        raise CatalogError(f"{where}: tiers, offerings, banned, tie_preference, cards and rates must be lists")
     if not all(isinstance(o, dict) for k in ("offerings", "cards") for o in got.get(k, [])):
         raise CatalogError(f"{where}: each offering and card is a table")
     return got
@@ -291,7 +292,7 @@ def _merge(shipped: dict, local: dict) -> dict:
     for k, v in local.get("provider_keys", {}).items():
         keys.setdefault(k, {}).update(v)
     out["provider_keys"] = keys
-    for whole in ("tiers", "tie_preference"):
+    for whole in ("tiers", "tie_preference", "rates"):
         if whole in local:
             out[whole] = local[whole]
     out["banned"] = list(shipped.get("banned", [])) + list(local.get("banned", []))
@@ -343,6 +344,9 @@ def _check(c: dict) -> None:
                                f"intelligence, tok_s and price ({', '.join(PRICES)}) are optional")
     if not all(isinstance(m, str) for m in c.get("banned", [])):
         raise CatalogError("banned: names only (providers, models, vendors, offering ids)")
+    for i, r in enumerate(c.get("rates", [])):
+        if why := rates.problem(r):
+            raise CatalogError(f"rate {i + 1}: {why}")
     makers = {m["provider"] for m in models.values()}
     if not all(p in makers for p in c.get("tie_preference", [])):
         raise CatalogError("tie_preference: known providers only")
@@ -372,6 +376,7 @@ class Catalog:
         self.tie_preference: list[str] = data.get("tie_preference", [])
         self.cards: list[dict] = data.get("cards", [])
         self.provider_keys: dict[str, dict] = data.get("provider_keys", {})
+        self.rates: list[dict] = data.get("rates", [])
         # Switched off on this machine: a provider, model, vendor, offering id or `provider:model`.
         self.off: list[dict] = off or []
 
@@ -550,6 +555,18 @@ def load_metadata(path: Path | None = None) -> Catalog:
     data = _fold_discovered(data, path)
     _check(data)
     return Catalog(data, local=path)
+
+
+def load_rates(path: Path | None = None) -> list[dict]:
+    """The catalog's rates alone: a local list that cannot be read or is not valid leaves the
+    shipped one, so reading rates never needs the rest of the catalog to be valid."""
+    shipped = tomllib.loads(resources.files(__package__).joinpath("catalog.toml").read_text()).get("rates", [])
+    try:
+        local = tomllib.loads((path or local_path()).read_text())
+    except (OSError, UnicodeDecodeError, tomllib.TOMLDecodeError):
+        return shipped
+    got = local.get("rates", shipped)
+    return got if isinstance(got, list) and not any(map(rates.problem, got)) else shipped
 
 
 def load(path: Path | None = None, switches: Path | None = None) -> Catalog:
