@@ -1,9 +1,4 @@
-"""Xiaomi MiMo (platform.xiaomimimo.com): each team seat's monthly credit allowance and the
-pay-as-you-go balance, as the platform's own page reads them. Its API keys are refused on these
-routes, so this reads them on the platform's sign-in cookies, taken from Chrome's cookie store
-(macOS only).
-
-The account is the login's Xiaomi `userId`, which its own cookie carries."""
+"""Xiaomi MiMo (platform.xiaomimimo.com): team seat credit allowances and the balance, on the platform's Chrome sign-in."""
 
 from __future__ import annotations
 
@@ -55,13 +50,11 @@ def _headers(cred: Credential) -> dict[str, str]:
 
 
 def whoami(cred: Credential, now: datetime, get):
-    """The login's own id is in its cookie: no request."""
     who = (cred.secret.get("cookies") or {}).get("userId")
     return (who if isinstance(who, str) and who else None), None
 
 
 def _data(ans) -> dict | None:
-    """The platform answers `{code, message, data}`; anything but code 0 with a data object is no answer."""
     b = ans.body
     return b["data"] if isinstance(b, dict) and b.get("code") == 0 and isinstance(b.get("data"), dict) else None
 

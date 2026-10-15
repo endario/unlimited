@@ -44,8 +44,11 @@ def rows(profile: Path, wanted: list[tuple[str, str]]) -> tuple[dict[str, bytes]
 
 def password() -> str | None:
     # macOS asks the person once; "Always Allow" lets this read it again without asking.
-    r = subprocess.run(["security", "find-generic-password", "-s", "Chrome Safe Storage", "-w"],
-                       capture_output=True, text=True)
+    try:
+        r = subprocess.run(["security", "find-generic-password", "-s", "Chrome Safe Storage", "-w"],
+                           capture_output=True, text=True, timeout=60)
+    except subprocess.TimeoutExpired:
+        return None
     return r.stdout.strip() if r.returncode == 0 and r.stdout.strip() else None
 
 
