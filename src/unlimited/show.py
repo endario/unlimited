@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+import unicodedata
+from collections import Counter
+
 from datetime import datetime
 
 from . import errors
@@ -22,6 +25,24 @@ PLANS = {"default_claude_max_20x": "Max 20x", "default_claude_max_5x": "Max 5x",
          "individual-goat": "GOAT", "individual-go": "Go", "individual-pro": "Pro", "individual-pro-v1": "Pro",
          "individual-provider": "Provider", "individual-max": "Max", "individual-ultra": "Ultra", "teams-pro": "Teams Pro"}
 
+
+
+def _label(l: dict, twins: Counter) -> str:
+    """A window's row label; windows sharing a name are told apart by their scope."""
+    name = (f"weekly {l['scope']}" if l.get("role") == "weekly_model" and l.get("scope")
+            else WINDOW_NAMES.get(l.get("name"), WINDOW_NAMES.get(str(l.get("name")).split(":")[0], l.get("name"))))
+    if l.get("scope") and l.get("role") != "weekly_model" and twins[str(l.get("name")).split(":")[0]] > 1:
+        name = f"{name} {l['scope']}"
+    return name
+
+
+def _cols(text: str) -> int:
+    """Terminal columns: a wide (CJK) character takes two."""
+    return sum(2 if unicodedata.east_asian_width(c) in "WF" else 1 for c in text)
+
+
+def _pad(text: str, width: int, wide: int = 0) -> str:
+    return text + " " * max(max(width, wide) - _cols(text), 0)
 
 def _plan(r: dict) -> str | None:
     p = r.get("plan")
@@ -219,10 +240,11 @@ def render(readings: list[dict], now: datetime, *, color: bool = False, all_limi
         shown = [l for l in r.get("limits", []) if all_limits or
                  (l.get("role") is not None
                   and l.get("used_at_least") is not None or l.get("held"))]
-        for l in shown:
+        twins = Counter(str(l.get("name")).split(":")[0] for l in shown)
+        labels = [_label(l, twins) for l in shown]
+        wide = max(map(_cols, labels), default=0)
+        for l, name in zip(shown, labels):
             used, held = l.get("used_at_least"), l.get("held")
-            name = (f"weekly {l['scope']}" if l.get("role") == "weekly_model" and l.get("scope")
-                    else WINDOW_NAMES.get(l.get("name"), WINDOW_NAMES.get(str(l.get("name")).split(":")[0], l.get("name"))))
             filled = round((used or 0) * BAR) if used is not None else 0
             bar = "█" * min(filled, BAR) + "░" * (BAR - min(filled, BAR))
             pct = f"{used * 100:5.1f}%" if used is not None else "    ?"
@@ -230,7 +252,7 @@ def render(readings: list[dict], now: datetime, *, color: bool = False, all_limi
             when = (f"resets in {_until(resets, now):>7}  ({resets.astimezone():%a %H:%M})"
                     if resets else "no window open")
             flag = f"  HELD: {l.get('held_why') or 'yes'}" if held else ""
-            lines.append(f"  {name:<15} " + _paint(f"{bar} {pct}", used, held, color) + f"  {when}{flag}")
+            lines.append(f"  {_pad(name, 15, wide)} " + _paint(f"{bar} {pct}", used, held, color) + f"  {when}{flag}")
             if l.get("projection") and not held and (used or 0) < 1:
                 lines.append(" " * 18 + _forecast(l["projection"], now, color))
         if not shown and not r.get("credits") and not measured:

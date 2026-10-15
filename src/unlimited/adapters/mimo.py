@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import sys
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timezone
 from pathlib import Path
 from urllib.parse import quote
 
@@ -17,8 +17,8 @@ BASE = "https://platform.xiaomimimo.com/api/v1"
 HOST, ROOT = ".platform.xiaomimimo.com", ".xiaomimimo.com"
 COOKIES = [(HOST, "api-platform_serviceToken"), (HOST, "api-platform_ph"), (HOST, "api-platform_slh"),
            (ROOT, "userId")]
-# The platform's dates carry no zone; they are Beijing time.
-BEIJING = timezone(timedelta(hours=8))
+# The platform's dates carry no zone; its own console labels a period end as UTC.
+
 MONTH = 43200
 
 
@@ -64,7 +64,7 @@ def _when(s) -> datetime | None:
         t = datetime.fromisoformat(s) if isinstance(s, str) else None
     except ValueError:
         return None
-    return t if t is None or t.tzinfo else t.replace(tzinfo=BEIJING)
+    return t if t is None or t.tzinfo else t.replace(tzinfo=timezone.utc)
 
 
 def _seat(data: dict, name: str, scope: str) -> dict | None:
@@ -76,6 +76,21 @@ def _seat(data: dict, name: str, scope: str) -> dict | None:
     return limit(name, window_minutes=MONTH, used_at_least=used / total,
                  resets_at=_when(seat.get("nextResetTime")) or _when(data.get("currentPeriodEnd")),
                  held=expired or None, held_why="expired" if expired else None, scope=scope)
+
+
+def _seats(get, h, now, pid: str, role) -> list[tuple[dict, str | None]]:
+    """An owner or admin sees every member's seat; anyone else only their own."""
+    if role in ("OWNER", "ADMIN"):
+        ans = get(f"{BASE}/project/{pid}/teamTokenPlan/detail", h, now)
+        plan = _data(ans) if ans.body is not None else None
+        ans = get(f"{BASE}/project/{pid}/members", h, now)
+        members = ans.body.get("data") if plan and isinstance(ans.body, dict) and ans.body.get("code") == 0 else None
+        if isinstance(members, list):
+            return [({**plan, "seat": m["seat"]}, m.get("displayName") if isinstance(m.get("displayName"), str) else None)
+                    for m in members if isinstance(m, dict) and isinstance(m.get("seat"), dict)]
+    ans = get(f"{BASE}/project/{pid}/teamTokenPlan/my/seat", h, now)
+    mine = _data(ans) if ans.body is not None else None
+    return [(mine, None)] if mine else []
 
 
 def _amount(x) -> float | None:
@@ -99,16 +114,13 @@ def read(cred: Credential, now: datetime, get) -> dict:
     projects = [p for p in data.get("projects") or [] if isinstance(p, dict) and isinstance(p.get("projectId"), str)]
     limits, plans = [], []
     for p in projects:
-        ans = get(f"{BASE}/project/{quote(p['projectId'], safe='')}/teamTokenPlan/my/seat", h, now)
-        seat = _data(ans) if ans.body is not None else None
-        if seat is None:
-            continue
-        got = _seat(seat, "month" + (f":{len(limits) + 1}" if limits else ""),
-                    p.get("projectNameEn") or p.get("projectName") or p["projectId"])
-        if got:
-            limits.append(got)
-            if isinstance(seat.get("planName"), str):
-                plans.append(seat["planName"])
+        pid, name = quote(p['projectId'], safe=''), p.get("projectNameEn") or p.get("projectName") or p["projectId"]
+        for seat, who in _seats(get, h, now, pid, p.get("role")):
+            got = _seat(seat, "month" + (f":{len(limits) + 1}" if limits else ""), who or name)
+            if got:
+                limits.append(got)
+                if isinstance(seat.get("planName"), str):
+                    plans.append(seat["planName"])
     ans = get(BASE + "/balance", h, now)
     bal = _data(ans) if ans.body is not None else None
     amount = _amount(bal.get("balance")) if bal else None
