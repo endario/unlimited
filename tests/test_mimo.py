@@ -132,6 +132,23 @@ class Read(unittest.TestCase):
         r = self.read(OWNER_KEY, projects=Answer(None, 401, "http-401"))
         self.assertEqual(r["status"], "refused")
 
+    def test_a_refusal_behind_the_sign_in_is_still_a_refusal(self):
+        # A blind endpoint must keep its status for backoff, not pass for a key with no seat.
+        down = Answer(None, 500, "http-500")
+        for over, k in ((dict(seat=down), OWNER_KEY), (dict(detail=down), MEMBER_KEY),
+                        (dict(members=down), MEMBER_KEY), (dict(apiKey=down), OWNER_KEY)):
+            with self.subTest(over=list(over)):
+                self.assertEqual(self.read(k, **self.team(**over))["status"], "refused")
+
+    def test_a_team_that_cannot_be_seen_stops_elimination(self):
+        # The unseen team might hold a second free seat; one visible free seat proves nothing.
+        two = {"code": 0, "data": {"projects": OWNED["data"]["projects"] + [
+            {"projectId": "PROJ-2", "projectNameEn": "Other", "role": "OWNER"}]}}
+        answers = self.team(projects=ok(two))
+        answers["PROJ-2__teamTokenPlan__detail"] = Answer(None, 500, "http-500")
+        answers = {"PROJ-2__teamTokenPlan__detail": answers.pop("PROJ-2__teamTokenPlan__detail"), **answers}
+        self.assertEqual(self.read(MEMBER_KEY, **answers)["status"], "refused")
+
     def test_a_nonzero_code_is_the_vendors_error_not_an_empty_login(self):
         r = self.read(OWNER_KEY, projects=ok({"code": 401, "message": "login", "data": {}}))
         self.assertEqual((r["status"], r["why"]), ("unread", "vendor-error"))
