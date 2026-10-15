@@ -1,7 +1,7 @@
 # unlimited
 
 How much of each AI subscription you have used, per window, and where each window is heading:
-Claude, Codex, Z.ai GLM, Kimi Code, OpenCode Go, Grok, Neuralwatt and Command Code, across every account on the machine.
+Claude, Codex, Z.ai GLM, Kimi Code, OpenCode Go, Grok, Neuralwatt, Command Code and Xiaomi MiMo, across every account on the machine.
 
 ![The menu bar strip: one tile per account, its weekly use coloured by where it is heading](https://raw.githubusercontent.com/endario/unlimited/main/docs/img/strip.png)
 
@@ -250,6 +250,7 @@ not projected: the vendor reports no reset for it.
 | xAI Grok (SuperGrok, Grok CLI sign-in) | — | the Grok CLI's billing proxy on its own token |
 | Neuralwatt Cloud | — | `v1/quota` on `$NEURALWATT_API_KEY` and each `~/.config/neuralwatt*.env` |
 | Command Code | — | `alpha/billing/credits` and `alpha/billing/subscriptions` on `$COMMAND_CODE_API_KEY` and each `~/.config/commandcode*.env` |
+| Xiaomi MiMo (team token plan, pay-as-you-go) | — | each project's `teamTokenPlan/my/seat` and `balance` on the platform's Chrome sign-in cookies (macOS) |
 | Woyo | — | gateway-log observations from `api/log/token` on `$FY_API_KEY` at the `$FY_API_BASE_URL` beside it, in the environment or matching `~/.config/*.env` files |
 
 Woyo's rolling weekly display accepts `UNLIMITED_WEEKLY_TOKEN_LIMIT`, or a market-value
