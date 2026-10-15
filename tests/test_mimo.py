@@ -18,7 +18,7 @@ import scratch
 
 NOW = datetime(2026, 10, 15, 12, 0, tzinfo=timezone.utc)
 PROJECTS = {"code": 0, "message": "", "data": {"projects": [
-    {"projectId": "PROJ-1", "projectNameEn": "My Space", "role": "OWNER"}]}}
+    {"projectId": "PROJ-1", "projectNameEn": "My Space", "role": "MEMBER"}]}}
 SEAT = {"code": 0, "message": "", "data": {
     "projectId": "PROJ-1", "planCode": "team_max", "planName": "Max", "currentPeriodEnd": "2026-11-15T23:59:59",
     "settlementType": "ONE_TIME", "autoRenew": False, "expired": False,
@@ -26,6 +26,14 @@ SEAT = {"code": 0, "message": "", "data": {
              "creditsUsed": 5178060, "historyCreditsUsed": 0, "usedPercent": 0.01,
              "historyUsedPercent": 0.0, "nextResetTime": None}}}
 BALANCE = {"code": 0, "message": "", "data": {"balance": "12.50", "currency": "CNY"}}
+OWNED = {"code": 0, "data": {"projects": [{"projectId": "PROJ-1", "projectNameEn": "My Space", "role": "OWNER"}]}}
+DETAIL = {"code": 0, "data": {"projectId": "PROJ-1", "planName": "Max", "currentPeriodEnd": "2026-11-15T23:59:59",
+                              "expired": False, "seatCount": 2}}
+MEMBERS = {"code": 0, "data": [
+    {"memberId": 256, "displayName": "Owner", "role": "OWNER",
+     "seat": {"seatId": "ST-1", "seatStatus": "ASSIGNED", "creditsTotal": 82000000000, "creditsUsed": 5178060}},
+    {"memberId": 259, "displayName": "Ren", "role": "MEMBER",
+     "seat": {"seatId": "ST-2", "seatStatus": "ASSIGNED", "creditsTotal": 82000000000, "creditsUsed": 41000000000}}]}
 JAR = {"api-platform_serviceToken": "tok", "api-platform_ph": "ph", "api-platform_slh": "slh", "userId": "42"}
 CRED = Credential("chrome:Default:abcd", {"cookies": JAR})
 
@@ -48,14 +56,14 @@ def ok(body):
 
 
 class Read(unittest.TestCase):
-    def test_the_seat_is_a_monthly_window_used_by_its_spent_share_resetting_at_period_end_beijing(self):
+    def test_the_seat_is_a_monthly_window_used_by_its_spent_share_resetting_at_period_end_utc(self):
         get = api(projects=ok(PROJECTS), seat=ok(SEAT), balance=ok(BALANCE))
         r = mimo.read(CRED, NOW, get)
         self.assertEqual((r["status"], r["plan"]), ("ok", "Max"))
         (w,) = r["limits"]
         self.assertEqual((w["name"], w["window_minutes"], w["role"], w["scope"]), ("month", 43200, "month", "My Space"))
         self.assertAlmostEqual(w["used_at_least"], 5178060 / 82000000000)
-        self.assertEqual(w["resets_at"], "2026-11-15T15:59:59+00:00")
+        self.assertEqual(w["resets_at"], "2026-11-15T23:59:59+00:00")
         self.assertIn("/project/PROJ-1/teamTokenPlan/my/seat", get.calls[1][0])
         self.assertEqual(get.calls[0][1]["Cookie"],
                          "api-platform_serviceToken=tok; api-platform_ph=ph; api-platform_slh=slh; userId=42")
@@ -63,7 +71,7 @@ class Read(unittest.TestCase):
     def test_the_vendors_next_reset_wins_over_the_period_end(self):
         seat = {"code": 0, "data": dict(SEAT["data"], seat=dict(SEAT["data"]["seat"], nextResetTime="2026-10-20T00:00:00"))}
         r = mimo.read(CRED, NOW, api(projects=ok(PROJECTS), seat=ok(seat), balance=ok(BALANCE)))
-        self.assertEqual(r["limits"][0]["resets_at"], "2026-10-19T16:00:00+00:00")
+        self.assertEqual(r["limits"][0]["resets_at"], "2026-10-20T00:00:00+00:00")
 
     def test_the_pay_as_you_go_balance_is_credit_in_its_currency(self):
         r = mimo.read(CRED, NOW, api(projects=ok(PROJECTS), seat=ok(SEAT), balance=ok(BALANCE)))
@@ -98,6 +106,32 @@ class Read(unittest.TestCase):
         two = {"code": 0, "data": {"projects": PROJECTS["data"]["projects"] + [{"projectId": "PROJ-2", "projectNameEn": "Team"}]}}
         r = mimo.read(CRED, NOW, api(projects=ok(two), seat=ok(SEAT), balance=ok(BALANCE)))
         self.assertEqual([(w["name"], w["scope"]) for w in r["limits"]], [("month", "My Space"), ("month:2", "Team")])
+
+    def test_an_owner_sees_every_members_seat_not_only_its_own(self):
+        # A team's other seats are other people's keys: only the owner's view reaches them.
+        r = mimo.read(CRED, NOW, api(projects=ok(OWNED), detail=ok(DETAIL), members=ok(MEMBERS), balance=ok(BALANCE)))
+        a, b = r["limits"]
+        self.assertEqual((a["scope"], b["scope"]), ("Owner", "Ren"))
+        self.assertEqual(b["used_at_least"], 0.5)
+        self.assertEqual(b["resets_at"], "2026-11-15T23:59:59+00:00")
+        self.assertEqual(r["plan"], "Max")
+
+    def test_each_seat_shows_under_its_members_name_in_aligned_columns(self):
+        members = {"code": 0, "data": [dict(MEMBERS["data"][0], displayName="当前账号"), MEMBERS["data"][1]]}
+        r = mimo.read(CRED, NOW, api(projects=ok(OWNED), detail=ok(DETAIL), members=ok(members), balance=ok(BALANCE)))
+        rows = [l for l in show.render([r], NOW, color=False).splitlines() if "monthly" in l]
+        self.assertEqual(len(rows), 2)
+        self.assertIn("monthly 当前账号", rows[0])
+        self.assertIn("monthly Ren", rows[1])
+        # The bar starts in the same terminal column whether the label is wide (CJK) or not.
+        col = lambda row: sum(2 if ord(c) > 0x2e80 else 1 for c in row[:min(i for i in (row.find("█"), row.find("░")) if i >= 0)])
+        self.assertEqual(col(rows[0]), col(rows[1]))
+
+    def test_an_owner_whose_member_list_fails_still_reads_its_own_seat(self):
+        r = mimo.read(CRED, NOW, api(projects=ok(OWNED), detail=ok(DETAIL), members=Answer(None, 500, "http-500"),
+                                     seat=ok(SEAT), balance=ok(BALANCE)))
+        (w,) = r["limits"]
+        self.assertEqual(w["scope"], "My Space")
 
     def test_whoami_is_the_logins_user_id_cookie_without_a_request(self):
         self.assertEqual(mimo.whoami(CRED, NOW, api()), ("42", None))
