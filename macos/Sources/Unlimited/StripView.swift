@@ -109,7 +109,7 @@ struct TileView: View {
 }
 
 struct StripView: View {
-    static let spacing: CGFloat = 4.5, padding: CGFloat = 2
+    static let spacing: CGFloat = 4, padding: CGFloat = 2
     static let fadeDuration = 0.7
     @ObservedObject var model: StripModel
     @Environment(\.accessibilityReduceMotion) private var reduceMotion

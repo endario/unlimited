@@ -15,8 +15,8 @@ struct AppDelegateHostTests {
         #expect(fixture.hostingWidth == 25)
 
         fixture.enter()
-        #expect(fixture.window.contentView?.bounds.width == 267)
-        #expect(fixture.hostingWidth == 267)
+        #expect(fixture.window.contentView?.bounds.width == 300)
+        #expect(fixture.hostingWidth == 300)
         var fadeStarted: ContinuousClock.Instant?
         var collapsed: ContinuousClock.Instant?
         var widthAtFade: CGFloat?
@@ -37,7 +37,7 @@ struct AppDelegateHostTests {
         let started = try #require(fadeStarted)
         let finished = try #require(collapsed)
         #expect(exited.duration(to: started) >= .seconds(5))
-        #expect(widthAtFade == 267)
+        #expect(widthAtFade == 300)
         #expect(started.duration(to: finished) >= .seconds(0.7))
         #expect(fixture.hostingWidth == 25)
         #expect(!fixture.model.fadingNormal)
@@ -59,8 +59,8 @@ struct AppDelegateHostTests {
         fixture.delegate.updateHover()
         try await Task.sleep(for: .seconds(6))
         #expect(fixture.delegate.popover.isShown)
-        #expect(fixture.window.contentView?.bounds.width == 267)
-        #expect(fixture.hostingWidth == 267)
+        #expect(fixture.window.contentView?.bounds.width == 300)
+        #expect(fixture.hostingWidth == 300)
         #expect(fixture.model.hoverExpanded)
         #expect(!fixture.model.fadingNormal)
 
@@ -70,7 +70,7 @@ struct AppDelegateHostTests {
         #expect(fixture.button.sendAction(fixture.button.action, to: fixture.button.target))
         #expect(fixture.model.selected == "anthropic/fixture-10")
         #expect(fixture.delegate.popover.isShown)
-        #expect(fixture.delegate.popover.positioningRect.minX == 24)
+        #expect(fixture.delegate.popover.positioningRect.minX == 27)
         #expect(!closedWhileSwitching)
         opening.cancel()
         fixture.pointOutside()
@@ -78,8 +78,8 @@ struct AppDelegateHostTests {
         let closed = ContinuousClock.now
         fixture.model.closePopover()
         try await waitUntil("native popover did not close") { !fixture.model.open && !fixture.delegate.popover.isShown }
-        #expect(fixture.window.contentView?.bounds.width == 267)
-        #expect(fixture.hostingWidth == 267)
+        #expect(fixture.window.contentView?.bounds.width == 300)
+        #expect(fixture.hostingWidth == 300)
         var fadeStarted: ContinuousClock.Instant?
         let fade = fixture.model.$fadingNormal.sink { if $0 { fadeStarted = .now } }
         defer { fade.cancel() }
@@ -108,8 +108,8 @@ struct AppDelegateHostTests {
         #expect(fixture.model.hoverExpanded)
         #expect(!fixture.model.fadingNormal)
         #expect(!fixture.recordedWidths.dropFirst(beginning).contains(25))
-        #expect(fixture.hostingWidth == 267)
-        #expect(fixture.window.contentView?.bounds.width == 267)
+        #expect(fixture.hostingWidth == 300)
+        #expect(fixture.window.contentView?.bounds.width == 300)
     }
 
     @Test func reducedMotionFitsCompactGeometryWithoutAFadeSuspension() async throws {
