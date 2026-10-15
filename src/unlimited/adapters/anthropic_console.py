@@ -8,15 +8,11 @@ to that login carries, so both readings share a `vendor_account` and this machin
 from __future__ import annotations
 
 import hashlib
-import shutil
-import sqlite3
-import subprocess
 import sys
-import tempfile
-from collections.abc import Mapping
 from datetime import datetime, timezone
 from pathlib import Path
 
+from .. import chrome_cookies
 from ..credential import Credential
 from ..schema import OK, UNREAD, credits, failed, limit, moment, number, reading
 from . import anthropic
@@ -27,79 +23,31 @@ BASE = "https://platform.claude.com/api"
 # urllib was seen to lose mid-chunk.
 ACCOUNT_URL = BASE + "/account"
 HOST = ".platform.claude.com"
-CHROME = Path.home() / "Library/Application Support/Google/Chrome"
 
 
 def _profiles() -> list[Path]:
-    return sorted(p.parent for p in CHROME.glob("*/Cookies"))
+    return chrome_cookies.profiles()
 
 
 def _row(profile: Path) -> tuple[bytes, int] | None:
-    """The encrypted `sessionKey` and the store's schema version. Read from a copy: Chrome holds
-    the live file locked."""
-    with tempfile.TemporaryDirectory() as d:
-        db = Path(d) / "Cookies"
-        try:
-            shutil.copyfile(profile / "Cookies", db)
-            con = sqlite3.connect(db)
-            row = con.execute("select encrypted_value from cookies where host_key = ? and name = 'sessionKey'",
-                              (HOST,)).fetchone()
-            ver = con.execute("select value from meta where key = 'version'").fetchone()
-            con.close()
-        except (OSError, sqlite3.Error, ValueError, TypeError):
-            return None
-    try:
-        return (row[0], int(ver[0]) if ver else 0) if row else None
-    except (ValueError, TypeError):
-        return None
+    """The encrypted `sessionKey` and the store's schema version."""
+    got = chrome_cookies.rows(profile, [(HOST, "sessionKey")])
+    return (got[0]["sessionKey"], got[1]) if got and "sessionKey" in got[0] else None
 
 
 def _password() -> str | None:
-    # macOS asks the person once; "Always Allow" lets this read it again without asking.
-    r = subprocess.run(["security", "find-generic-password", "-s", "Chrome Safe Storage", "-w"],
-                       capture_output=True, text=True)
-    return r.stdout.strip() if r.returncode == 0 and r.stdout.strip() else None
+    return chrome_cookies.password()
 
 
 def _decrypt(blob: bytes, version: int) -> str | None:
-    """Chrome on macOS: `v10` + AES-128-CBC under a key derived from the keychain's
-    "Chrome Safe Storage" password. From store version 24 the plaintext opens with SHA-256(host)."""
-    password = _password() if blob.startswith(b"v10") else None
-    if password is None:
-        return None
-    key = hashlib.pbkdf2_hmac("sha1", password.encode(), b"saltysalt", 1003, 16)
-    out = subprocess.run(["openssl", "enc", "-d", "-aes-128-cbc", "-K", key.hex(), "-iv", "20" * 16],
-                         input=blob[3:], capture_output=True)
-    if out.returncode != 0:
-        return None
-    plain = out.stdout[32:] if version >= 24 else out.stdout
-    try:
-        return plain.decode()
-    except UnicodeDecodeError:
-        return None
+    return chrome_cookies.decrypt(blob, version, _password)
 
 
-class _Session(Mapping):
-    """The cookie, decrypted on first use: `discover()` runs on cache hits too, and decrypting
-    asks the keychain."""
-
-    def __init__(self, profile: Path):
-        self._profile, self._got = profile, None
-
-    def _secret(self) -> dict:
-        if self._got is None:
-            row = _row(self._profile)
-            self._got = {"session": _decrypt(*row) if row else None}
-        return self._got
-
-    def __getitem__(self, key):
-        return self._secret()[key]
-
-    def __iter__(self):
-        return iter(self._secret())
-
-    def __len__(self):
-        return len(self._secret())
+def _session(profile: Path) -> chrome_cookies.Lazy:
+    def load() -> dict:
+        row = _row(profile)
+        return {"session": _decrypt(*row) if row else None}
+    return chrome_cookies.Lazy(load)
 
 
 def discover() -> list[Credential]:
@@ -107,7 +55,7 @@ def discover() -> list[Credential]:
         return []
     # A profile's sign-in can change login, and an identity is resolved once per key, so the key
     # names the sign-in too: the stored cookie, still encrypted, so no keychain is asked here.
-    return [Credential(f"chrome:{p.name}:{hashlib.sha256(row[0]).hexdigest()[:8]}", _Session(p))
+    return [Credential(f"chrome:{p.name}:{hashlib.sha256(row[0]).hexdigest()[:8]}", _session(p))
             for p in _profiles() if (row := _row(p))]
 
 
