@@ -27,9 +27,14 @@ def dedupe(keys: list[str | None]) -> list[Credential]:
     return [Credential(a, {"key": k}) for a, k in sorted(found.items())]
 
 
-def env_value(path: Path, var: str) -> str | None:
+def _named(name: str, var: str | re.Pattern) -> bool:
+    return var == name if isinstance(var, str) else var.fullmatch(name) is not None
+
+
+def env_value(path: Path, var: str | re.Pattern) -> str | None:
     """`var` in `path`, parsed shell-like: the last assignment wins, a quoted value is taken whole,
-    and an unquoted one ends at a comment. None when unset, empty or unreadable."""
+    and an unquoted one ends at a comment. None when unset, empty or unreadable. A pattern `var`
+    takes any variable whose whole name it matches."""
     found = None
     try:
         lines = path.read_text().splitlines()
@@ -37,7 +42,7 @@ def env_value(path: Path, var: str) -> str | None:
         return None
     for line in lines:
         k, eq, v = line.partition("=")
-        if not eq or k.strip().removeprefix("export ").strip() != var:
+        if not eq or not _named(k.strip().removeprefix("export ").strip(), var):
             continue
         v = v.strip()
         if v[:1] in ("'", '"') and v[0] in v[1:]:
@@ -52,7 +57,7 @@ def env_value(path: Path, var: str) -> str | None:
 class EnvKeys:
     """API keys kept as `var` in `~/.config/<glob>` env files, in the environment, and in the file a
     wrapper session names in `named` (its own, exported alongside the key)."""
-    var: str
+    var: str | re.Pattern
     glob: str
     named: str | None = None
 
@@ -80,4 +85,5 @@ class EnvKeys:
         return out
 
     def discover(self) -> list[Credential]:
-        return dedupe([os.environ.get(self.var)] + [env_value(f, self.var) for f in self.files()])
+        env = [v for k, v in sorted(os.environ.items()) if _named(k, self.var)]
+        return dedupe(env + [env_value(f, self.var) for f in self.files()])
