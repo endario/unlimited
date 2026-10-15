@@ -43,7 +43,22 @@ tok_s = 63                             # optional: the vendor's quoted output sp
 price = { input = 1.40, output = 4.40, cache_read = 0.26 }   # optional, USD per million tokens
 source = "https://…"
 as_of = 2026-09-26
+
+[[rates]]                              # hours a vendor charges its quota at another factor
+vendor = "zai"
+meter = "CREDIT_LIMIT"                 # optional: the limit kind it binds (default every account)
+offerings = ["glm-5.3"]                # optional: the offering ids it binds (default all)
+days = ["mon", "tue", "wed", "thu", "fri"]   # optional: default every day
+from = "14:00"                         # by the clock at tz; to may be 24:00
+to = "18:00"
+tz = "+08:00"                          # a fixed offset
+factor = 2                             # times the usual rate; below 1 is a discount
 ```
+
+A vendor's usage answer does not say which rate is in force, so the catalog declares it. Each
+reading's `steering` context carries `rates`: the spans it resolves to over the next eight days,
+`{offerings, from, to, factor}` with UTC instants and `offerings` null for all. Outside every span
+the factor is 1; a reading no rate binds carries none.
 
 One model may have several offerings, one per vendor that sells it; each is its own route, with its
 own history. `Catalog.routes(now, tier)` lists every live one (`id`, `provider`, `model`, `vendor`,
@@ -54,7 +69,7 @@ its first live offering at each tier.
 ## Merging a local file
 
 Models merge key by key; an offering replaces the shipped offering with the same id, or is added;
-`tiers` and `tie_preference` are replaced whole (a tier the local list drops is served by no shipped
+`tiers`, `tie_preference` and `rates` are replaced whole (a tier the local list drops is served by no shipped
 model); `banned` is the union of both; a card replaces the shipped card of the same vendor, name and
 plan. A local file that does not parse,
 states an unknown `schema`, or holds a top-level key a schema-2 file does not have, is an error,
