@@ -91,9 +91,9 @@ struct TileView: View {
         // Ghosted, not recoloured: an unusable or switched-off tile keeps its exact colours
         // and drops to half transparency.
         .opacity(tile.dimmed || tile.off ? 0.45 : 1)
-        // Room for the elapsed bar, so the text sits close beside it rather than under it.
-        .padding(.trailing, tile.elapsed == nil ? 0 : 1)
-        .frame(width: Self.width(of: tile), height: 22)
+        // Room for the elapsed bar, and the text set against it: each bar belongs to the text before it.
+        .padding(.trailing, tile.elapsed == nil ? 0 : 2.5)
+        .frame(width: Self.width(of: tile), height: 22, alignment: tile.elapsed == nil ? .center : .trailing)
         // The week's time so far, filling upward to the reset.
         .overlay(alignment: .trailing) {
             if let e = tile.elapsed {
