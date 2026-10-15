@@ -61,7 +61,11 @@ struct TileView: View {
             HStack(spacing: 1) {
                 Text(tile.label)
                     .font(.system(size: 7, weight: .medium, design: .monospaced))
-                    .underline(tile.best, color: .primary.opacity(0.7))
+                    // Drawn just under the capitals, not at the font's underline position: that sits in
+                    // the gap above the figure and makes this label's gap look smaller than its neighbours'.
+                    .overlay(alignment: .bottom) {
+                        if tile.best { Rectangle().fill(.primary.opacity(0.7)).frame(height: 0.5).offset(y: -1.25) }
+                    }
                     .help(tile.best ? "Underline: best account by quota room, not steering" : "Account label")
                 SteeringIndicatorView(indicator: tile.indicator)
             }
@@ -89,6 +93,8 @@ struct TileView: View {
         // Ghosted, not recoloured: an unusable or switched-off tile keeps its exact colours
         // and drops to half transparency.
         .opacity(tile.dimmed || tile.off ? 0.45 : 1)
+        // Room for the elapsed bar, so the text sits close beside it rather than under it.
+        .padding(.trailing, tile.elapsed == nil ? 0 : 2)
         .frame(width: Self.width(of: tile), height: 22)
         // The week's time so far, filling upward to the reset.
         .overlay(alignment: .trailing) {
@@ -105,7 +111,7 @@ struct TileView: View {
 }
 
 struct StripView: View {
-    static let spacing: CGFloat = 3, padding: CGFloat = 2
+    static let spacing: CGFloat = 1, padding: CGFloat = 2
     static let fadeDuration = 0.7
     @ObservedObject var model: StripModel
     @Environment(\.accessibilityReduceMotion) private var reduceMotion

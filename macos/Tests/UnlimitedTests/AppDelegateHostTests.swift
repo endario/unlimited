@@ -11,12 +11,12 @@ struct AppDelegateHostTests {
     @Test func delayedCollapseUpdatesTheNativeHostingGeometryAfterTheFade() async throws {
         let fixture = try await DelegateHost()
         defer { fixture.close() }
-        #expect(fixture.window.contentView?.bounds.width == 27)
-        #expect(fixture.hostingWidth == 27)
+        #expect(fixture.window.contentView?.bounds.width == 25)
+        #expect(fixture.hostingWidth == 25)
 
         fixture.enter()
-        #expect(fixture.window.contentView?.bounds.width == 313)
-        #expect(fixture.hostingWidth == 313)
+        #expect(fixture.window.contentView?.bounds.width == 267)
+        #expect(fixture.hostingWidth == 267)
         var fadeStarted: ContinuousClock.Instant?
         var collapsed: ContinuousClock.Instant?
         var widthAtFade: CGFloat?
@@ -32,14 +32,14 @@ struct AppDelegateHostTests {
         defer { fade.cancel(); expansion.cancel() }
         let exited = ContinuousClock.now
         fixture.leave()
-        try await waitUntil("native host did not become compact after the fade") { fixture.window.contentView?.bounds.width == 27 && !fixture.model.hoverExpanded }
+        try await waitUntil("native host did not become compact after the fade") { fixture.window.contentView?.bounds.width == 25 && !fixture.model.hoverExpanded }
 
         let started = try #require(fadeStarted)
         let finished = try #require(collapsed)
         #expect(exited.duration(to: started) >= .seconds(5))
-        #expect(widthAtFade == 313)
+        #expect(widthAtFade == 267)
         #expect(started.duration(to: finished) >= .seconds(0.7))
-        #expect(fixture.hostingWidth == 27)
+        #expect(fixture.hostingWidth == 25)
         #expect(!fixture.model.fadingNormal)
     }
 
@@ -59,8 +59,8 @@ struct AppDelegateHostTests {
         fixture.delegate.updateHover()
         try await Task.sleep(for: .seconds(6))
         #expect(fixture.delegate.popover.isShown)
-        #expect(fixture.window.contentView?.bounds.width == 313)
-        #expect(fixture.hostingWidth == 313)
+        #expect(fixture.window.contentView?.bounds.width == 267)
+        #expect(fixture.hostingWidth == 267)
         #expect(fixture.model.hoverExpanded)
         #expect(!fixture.model.fadingNormal)
 
@@ -70,7 +70,7 @@ struct AppDelegateHostTests {
         #expect(fixture.button.sendAction(fixture.button.action, to: fixture.button.target))
         #expect(fixture.model.selected == "anthropic/fixture-10")
         #expect(fixture.delegate.popover.isShown)
-        #expect(fixture.delegate.popover.positioningRect.minX == 28)
+        #expect(fixture.delegate.popover.positioningRect.minX == 24)
         #expect(!closedWhileSwitching)
         opening.cancel()
         fixture.pointOutside()
@@ -78,14 +78,14 @@ struct AppDelegateHostTests {
         let closed = ContinuousClock.now
         fixture.model.closePopover()
         try await waitUntil("native popover did not close") { !fixture.model.open && !fixture.delegate.popover.isShown }
-        #expect(fixture.window.contentView?.bounds.width == 313)
-        #expect(fixture.hostingWidth == 313)
+        #expect(fixture.window.contentView?.bounds.width == 267)
+        #expect(fixture.hostingWidth == 267)
         var fadeStarted: ContinuousClock.Instant?
         let fade = fixture.model.$fadingNormal.sink { if $0 { fadeStarted = .now } }
         defer { fade.cancel() }
-        try await waitUntil("native host did not become compact after popover close") { fixture.window.contentView?.bounds.width == 27 }
+        try await waitUntil("native host did not become compact after popover close") { fixture.window.contentView?.bounds.width == 25 }
         #expect(closed.duration(to: try #require(fadeStarted)) >= .seconds(5))
-        #expect(fixture.hostingWidth == 27)
+        #expect(fixture.hostingWidth == 25)
     }
 
     @Test func reentryCancelsAnInFlightFadeBeforeItCanShrinkTheHost() async throws {
@@ -107,9 +107,9 @@ struct AppDelegateHostTests {
         try await Task.sleep(for: .seconds(1))
         #expect(fixture.model.hoverExpanded)
         #expect(!fixture.model.fadingNormal)
-        #expect(!fixture.recordedWidths.dropFirst(beginning).contains(27))
-        #expect(fixture.hostingWidth == 313)
-        #expect(fixture.window.contentView?.bounds.width == 313)
+        #expect(!fixture.recordedWidths.dropFirst(beginning).contains(25))
+        #expect(fixture.hostingWidth == 267)
+        #expect(fixture.window.contentView?.bounds.width == 267)
     }
 
     @Test func reducedMotionFitsCompactGeometryWithoutAFadeSuspension() async throws {
@@ -123,8 +123,8 @@ struct AppDelegateHostTests {
         }
         defer { fade.cancel() }
         fixture.leave()
-        try await waitUntil("reduced-motion host did not become compact") { widthOnNextTurn != nil && fixture.hostingWidth == 27 }
-        #expect(widthOnNextTurn == 27)
+        try await waitUntil("reduced-motion host did not become compact") { widthOnNextTurn != nil && fixture.hostingWidth == 25 }
+        #expect(widthOnNextTurn == 25)
     }
 }
 

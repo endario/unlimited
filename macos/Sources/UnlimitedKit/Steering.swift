@@ -132,7 +132,7 @@ public struct StripLayout: Sendable {
         public var maxX: Double { x + width }
     }
 
-    public static let neutralWidth = 23.0
+    public static let neutralWidth = 21.0
     private static let markWidth = 7.0
     public let tiles: [Tile]
     public let spacing: Double
