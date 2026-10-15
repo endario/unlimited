@@ -153,8 +153,8 @@ def _find(key: str, get, now):
     loose = [k for c in discover() if (k := c.secret["key"]).startswith(TEAM) and not any(_fits(k, s) for s in shown)]
     signed = {u for *_, u in projects if u}
     free = [(seat, m) for h, pid, p, _, _ in projects if p.get("role") in ("OWNER", "ADMIN")
-            for seat, m in _team(get, h, now, pid) if str(m.get("userId")) not in signed]
-    if loose == [key] and len(free) == 1:
+            for seat, m in _team(get, h, now, pid) if str(m.get("userId")) not in signed] if loose == [key] else []
+    if len(free) == 1:
         seat, m = free[0]
         return seat, m.get("displayName") if isinstance(m.get("displayName"), str) else None, None
     if refused:

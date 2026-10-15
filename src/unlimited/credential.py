@@ -34,7 +34,7 @@ def _named(name: str, var: str | re.Pattern) -> bool:
 def env_value(path: Path, var: str | re.Pattern) -> str | None:
     """`var` in `path`, parsed shell-like: the last assignment wins, a quoted value is taken whole,
     and an unquoted one ends at a comment. None when unset, empty or unreadable. A pattern `var`
-    takes any variable whose whole name it matches."""
+    takes any variable whose whole name it matches, and still yields one value per file."""
     found = None
     try:
         lines = path.read_text().splitlines()

@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import unicodedata
-from collections import Counter
 
 from datetime import datetime
 
@@ -27,13 +26,9 @@ PLANS = {"default_claude_max_20x": "Max 20x", "default_claude_max_5x": "Max 5x",
 
 
 
-def _label(l: dict, twins: Counter) -> str:
-    """A window's row label; windows sharing a name are told apart by their scope."""
-    name = (f"weekly {l['scope']}" if l.get("role") == "weekly_model" and l.get("scope")
+def _label(l: dict) -> str:
+    return (f"weekly {l['scope']}" if l.get("role") == "weekly_model" and l.get("scope")
             else WINDOW_NAMES.get(l.get("name"), WINDOW_NAMES.get(str(l.get("name")).split(":")[0], l.get("name"))))
-    if l.get("scope") and l.get("role") != "weekly_model" and twins[str(l.get("name")).split(":")[0]] > 1:
-        name = f"{name} {l['scope']}"
-    return name
 
 
 def _cols(text: str) -> int:
@@ -240,8 +235,7 @@ def render(readings: list[dict], now: datetime, *, color: bool = False, all_limi
         shown = [l for l in r.get("limits", []) if all_limits or
                  (l.get("role") is not None
                   and l.get("used_at_least") is not None or l.get("held"))]
-        twins = Counter(str(l.get("name")).split(":")[0] for l in shown)
-        labels = [_label(l, twins) for l in shown]
+        labels = [_label(l) for l in shown]
         wide = max(map(_cols, labels), default=0)
         for l, name in zip(shown, labels):
             used, held = l.get("used_at_least"), l.get("held")
