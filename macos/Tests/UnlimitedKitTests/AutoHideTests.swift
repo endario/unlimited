@@ -43,8 +43,11 @@ import Testing
     best.best = true
     cases.append(("best underline", best, true))
     for value: Tile.Value in [.unread, .stale, .noWindow, .unknown, .waiting] {
-        cases.append(("primary \(value)", Tile(id: normal.id, label: normal.label, value: value, dimmed: false), false))
+        cases.append(("primary \(value)", Tile(id: normal.id, label: normal.label, value: value, dimmed: false), true))
     }
+    var offMissing = Tile(id: normal.id, label: normal.label, value: .unread, dimmed: false)
+    offMissing.off = true
+    cases.append(("missing overrides off", offMissing, true))
     for health: Health in [.sprint, .underUsed, .amber, .red] {
         var tile = normal
         tile.health = health
