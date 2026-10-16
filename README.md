@@ -186,6 +186,8 @@ Account-bound steering needs `choose --account OFFERING=ACCOUNT` for the account
 will launch; keep it aligned with that route's `--quota`. Missing account context is reported as
 `incentives_unresolved`, not guessed. A reading's optional `steering` object exposes active
 settings and resolved route multipliers separately from vendor usage facts.
+`unlimited annotate --json` stamps that object onto readings a caller holds: a JSON array of
+readings on stdin comes back on stdout, one row per reading at its index, evidence unchanged.
 
 ## Outcomes
 
