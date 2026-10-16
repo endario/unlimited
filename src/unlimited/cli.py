@@ -456,6 +456,15 @@ examples:
                     help=VENDOR_HELP + f": {', '.join(v for v in sorted(REGISTRY) if hasattr(REGISTRY[v], 'models'))}")
     rt.add_argument("--max-age", type=float, default=21600.0, metavar="SECONDS", help=ROUTES_HELP)
     rt.add_argument("--json", action="store_true", help="JSON output (the only format; accepted for clarity)")
+    an = add("annotate", "stamp the local steering onto readings a caller holds, as JSON", """\
+Reads a JSON array of readings on piped stdin (each with at least `vendor` and `account`, as
+`read` prints them) and prints it back with each reading's `steering` object stamped from this
+machine's manual steering (`incentive`) and rates, one row per reading at its index. A caller that
+reads usage its own way gets the same steering `read` would give. The readings' evidence is
+not changed; a policy that cannot be loaded is stamped as each row's `steering.error`.""", """\
+example:
+  printf %s "$readings" | unlimited annotate --json""")
+    an.add_argument("--json", action="store_true", help="JSON output (the only format; accepted for clarity)")
     vd = add("verdict", "whether each account can take a unit of work, as JSON", f"""\
 For each account, whether it can take a unit of work of --work seconds now: `unread` (no fresh
 reading), `excluded` (the vendor stopped it, a window is used up, one runs out before the work
@@ -711,6 +720,25 @@ def _accounts(a) -> int:
     return 0
 
 
+def _annotate_cmd() -> int:
+    from . import incentives
+    try:
+        if sys.stdin is None or sys.stdin.isatty():
+            raise ValueError("pipe a JSON array of readings on stdin")
+        readings = json.load(sys.stdin)
+        if not isinstance(readings, list) or not all(isinstance(r, dict) for r in readings):
+            raise ValueError("stdin must be a JSON array of reading objects")
+    except ValueError as e:
+        print(f"unlimited: annotate: {e}", file=sys.stderr)
+        return 2
+    out, errors = incentives._annotate(readings, now=datetime.now(timezone.utc))
+    if errors:
+        print("unlimited: steering: " + ", ".join(errors), file=sys.stderr)
+    json.dump(out, sys.stdout)
+    sys.stdout.write("\n")
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     p = _parser()
     a = p.parse_args(argv)
@@ -742,6 +770,8 @@ def main(argv: list[str] | None = None) -> int:
         return _cards(a)
     if a.cmd == "accounts":
         return _accounts(a)
+    if a.cmd == "annotate":
+        return _annotate_cmd()
     if a.cmd == "routes":
         out = []
         for v in (a.vendor or [v for v in sorted(REGISTRY) if hasattr(REGISTRY[v], "models")]):
