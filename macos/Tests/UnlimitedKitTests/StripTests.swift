@@ -52,9 +52,9 @@ func strip() throws -> [String: Tile] {
 }
 
 @Test func aSpentWindowShowsACrossInsteadOfItsPercent() {
-    #expect(Tile.Value.percent(100).text == "†")
-    #expect(Tile.Value.percent(142).text == "†", "over the limit is spent, not a figure")
-    #expect(Tile.Value.localPercent(100).text == "†")
+    #expect(Tile.Value.percent(100).text == "✘")
+    #expect(Tile.Value.percent(142).text == "✘", "over the limit is spent, not a figure")
+    #expect(Tile.Value.localPercent(100).text == "✘")
     #expect(Tile.Value.percent(99).text == "99", "a window that still has room shows its figure")
 }
 
@@ -200,6 +200,13 @@ func strip() throws -> [String: Tile] {
     let measured = Tile(id: "woyo/logged", label: "WYO", value: .tokens(2_936, windowMinutes: 10_080), dimmed: false)
     let quota = Tile(id: "woyo/quota", label: "WYO2", value: .percent(60), dimmed: false)
     #expect(Tile.pick([measured, quota]) == quota.id)
+}
+
+@Test func aSpentAccountIsNeverThePick() {
+    // Healthy health on a spent figure: the exclusion is the spent mark, not the colour.
+    let spent = Tile(id: "openai/spent", label: "CDX", value: .percent(100), dimmed: false, health: .normal)
+    let roomy = Tile(id: "openai/roomy", label: "CDX2", value: .percent(20), dimmed: false, health: .normal)
+    #expect(Tile.pick([spent, roomy]) == roomy.id)
 }
 
 @Test func loggedTokenTilesUseTheStripLayoutForTheirWiderClickAndPopoverBounds() {

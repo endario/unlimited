@@ -37,8 +37,8 @@ public struct Tile: Identifiable, Equatable, Sendable {
         }
 
         /// Stands in for a figure that has used its limit: the count is no longer
-        /// the news once the window is spent.
-        public static let spentMark = "\u{2020}"
+        /// the news once the window is spent. It wears the figure's health colour.
+        public static let spentMark = "\u{2718}"
 
         public var text: String {
             if isSpent { return Self.spentMark }
@@ -102,7 +102,8 @@ public struct Tile: Identifiable, Equatable, Sendable {
     }
 
     /// Whether auto-hide may drop this tile while idle: a routine figure, or a window that has
-    /// spent its limit — neither is news until the owner opens the strip.
+    /// spent its limit — neither is news until the owner opens the strip. Spent dominates the
+    /// other exceptions: off, dimmed or steered, a window with no room left is nothing to act on.
     public var isRoutine: Bool {
         if value.isSpent { return true }
         return value.showsData && health == .normal && !dimmed && !off &&
@@ -123,7 +124,7 @@ public struct Tile: Identifiable, Equatable, Sendable {
     /// (blue), else the one with the most room at reset.
     static func pick(_ tiles: [Tile]) -> String? {
         let open = tiles.filter { t in
-            guard case .percent = t.value, !t.dimmed, !t.off, t.health < .amber else { return false }
+            guard case .percent = t.value, !t.value.isSpent, !t.dimmed, !t.off, t.health < .amber else { return false }
             return (t.alternate?.health ?? .normal) < .amber
         }
         guard tiles.count > 1 else { return nil }

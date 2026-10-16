@@ -61,6 +61,14 @@ import Testing
     cases.append(("spent overrides the other exceptions",
                   Tile(id: normal.id, label: normal.label, value: .percent(120), dimmed: true, health: .red,
                        alternate: .init(role: "session", value: .percent(90), health: .amber)), true))
+    var offSpent = Tile(id: normal.id, label: normal.label, value: .percent(120), dimmed: false, health: .red)
+    offSpent.off = true
+    cases.append(("spent overrides off", offSpent, true))
+    cases.append(("spent overrides steering",
+                  Tile(id: normal.id, label: normal.label, value: .percent(120), dimmed: false, health: .red,
+                       indicator: SteeringIndicator(routes: [.init(id: "up", target: "openai", multiplier: 10,
+                                                                   until: .distantFuture)],
+                                                    now: Date(timeIntervalSince1970: 0))), true))
     var off = normal
     off.off = true
     cases.append(("off", off, false))
