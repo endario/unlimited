@@ -20,8 +20,9 @@ private func usageImage(_ tile: Tile) throws -> NSBitmapImageRep {
 }
 
 @MainActor
-@Test func usageFiguresOnlyAppendPercentToKnownValues() {
-    for (value, text) in [(Tile.Value.percent(0), "0%"), (.percent(100), "100%"),
+@Test func usageFiguresAppendPercentOnlyToNumbers() {
+    for (value, text) in [(Tile.Value.percent(0), "0%"), (.percent(99), "99%"),
+                          (.percent(100), "†"), (.percent(142), "†"), (.localPercent(100), "†"),
                           (.unread, "?"), (.stale, "?"), (.unknown, "?"),
                           (.noWindow, "—"), (.waiting, "…")] {
         #expect(UsageFigure(value: value, health: .normal, percentSign: true).text == text)

@@ -54,6 +54,13 @@ import Testing
         cases.append(("alternate \(health)", tile, false))
     }
     cases.append(("dimmed", Tile(id: normal.id, label: normal.label, value: normal.value, dimmed: true), false))
+    for value: Tile.Value in [.percent(100), .percent(142), .localPercent(100)] {
+        cases.append(("spent \(value)",
+                      Tile(id: normal.id, label: normal.label, value: value, dimmed: false, health: .red), true))
+    }
+    cases.append(("spent overrides the other exceptions",
+                  Tile(id: normal.id, label: normal.label, value: .percent(120), dimmed: true, health: .red,
+                       alternate: .init(role: "session", value: .percent(90), health: .amber)), true))
     var off = normal
     off.off = true
     cases.append(("off", off, false))

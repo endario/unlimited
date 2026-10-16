@@ -36,7 +36,12 @@ public struct Tile: Identifiable, Equatable, Sendable {
             return String(format: "%.1fM", locale: Locale(identifier: "en_US_POSIX"), Double(total) / 1_000_000)
         }
 
+        /// Stands in for a figure that has used its limit: the count is no longer
+        /// the news once the window is spent.
+        public static let spentMark = "\u{2020}"
+
         public var text: String {
+            if isSpent { return Self.spentMark }
             switch self {
             case .percent(let p), .localPercent(let p): return "\(p)"
             case .tokens(let total, _):
@@ -44,6 +49,14 @@ public struct Tile: Identifiable, Equatable, Sendable {
             case .unread, .stale, .unknown: return "?"
             case .noWindow: return "—"
             case .waiting: return "…"
+            }
+        }
+
+        /// Whether the figure has used its limit, so the mark stands in for the count.
+        public var isSpent: Bool {
+            switch self {
+            case .percent(let p), .localPercent(let p): return p >= 100
+            default: return false
             }
         }
 
@@ -88,8 +101,11 @@ public struct Tile: Identifiable, Equatable, Sendable {
             (id, label, value, dimmed, health, alternate, best, indicator)
     }
 
+    /// Whether auto-hide may drop this tile while idle: a routine figure, or a window that has
+    /// spent its limit — neither is news until the owner opens the strip.
     public var isRoutine: Bool {
-        value.showsData && health == .normal && !dimmed && !off &&
+        if value.isSpent { return true }
+        return value.showsData && health == .normal && !dimmed && !off &&
             (indicator?.count ?? 0) == 0 &&
             (alternate.map { $0.value.showsData && $0.health == .normal } ?? true)
     }

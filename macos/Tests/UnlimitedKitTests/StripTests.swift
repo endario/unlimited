@@ -51,6 +51,13 @@ func strip() throws -> [String: Tile] {
     #expect(Tile.waiting.value.text == "…")
 }
 
+@Test func aSpentWindowShowsACrossInsteadOfItsPercent() {
+    #expect(Tile.Value.percent(100).text == "†")
+    #expect(Tile.Value.percent(142).text == "†", "over the limit is spent, not a figure")
+    #expect(Tile.Value.localPercent(100).text == "†")
+    #expect(Tile.Value.percent(99).text == "99", "a window that still has room shows its figure")
+}
+
 @Test func withNoAccountsTheStripIsOneWaitingTile() {
     #expect(Tile.strip([], now: now) == [.waiting])
 }
