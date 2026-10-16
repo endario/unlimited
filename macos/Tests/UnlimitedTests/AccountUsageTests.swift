@@ -20,8 +20,9 @@ private func usageImage(_ tile: Tile) throws -> NSBitmapImageRep {
 }
 
 @MainActor
-@Test func usageFiguresOnlyAppendPercentToKnownValues() {
-    for (value, text) in [(Tile.Value.percent(0), "0%"), (.percent(100), "100%"),
+@Test func usageFiguresAppendPercentOnlyToNumbers() {
+    for (value, text) in [(Tile.Value.percent(0), "0%"), (.percent(99), "99%"),
+                          (.percent(100), "✘"), (.percent(142), "✘"), (.localPercent(100), "✘"),
                           (.unread, "?"), (.stale, "?"), (.unknown, "?"),
                           (.noWindow, "—"), (.waiting, "…")] {
         #expect(UsageFigure(value: value, health: .normal, percentSign: true).text == text)
@@ -59,6 +60,18 @@ private func greenColumns(_ image: NSBitmapImageRep) throws -> [Int] {
     }
     let gap = arrowStart - (try #require(aliasEnd)) - 1
     #expect(gap <= 3 * image.pixelsWide / 560)
+}
+
+@MainActor
+@Test func theSpentMarkStandsAsTallAsTheFiguresItReplaces() throws {
+    let digits = try bitmap(UsageFigure(value: .percent(27), health: .red)
+        .font(TileView.valueFont).monospacedDigit().fixedSize(), width: 60, height: 22)
+    let mark = try bitmap(UsageFigure(value: .percent(120), health: .red)
+        .font(TileView.valueFont).monospacedDigit().fixedSize(), width: 60, height: 22)
+    let digitInk = try inkBounds(digits)
+    let markInk = try inkBounds(mark)
+    print("Spent-mark ink heights (pixels): digits=\(digitInk.height), mark=\(markInk.height)")
+    #expect(abs(digitInk.height - markInk.height) <= 1, "the cross stands as tall as the figures it replaces")
 }
 
 @MainActor

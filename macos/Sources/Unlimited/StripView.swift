@@ -33,7 +33,7 @@ struct UsageFigure: View {
     let health: Health
     var percentSign = false
 
-    var text: String { value.text + (percentSign && value.showsData ? "%" : "") }
+    var text: String { value.text + (percentSign && value.showsData && !value.isSpent ? "%" : "") }
 
     var body: some View {
         Text(text)
@@ -121,8 +121,8 @@ struct StripView: View {
                     Image(systemName: "ellipsis")
                         .font(.system(size: 12, weight: .medium))
                         .frame(width: TileView.width, height: 22)
-                        .help("Normal accounts hidden automatically. Hover to show; click to open.")
-                        .accessibilityLabel("\(model.tiles.count) normal accounts hidden. Show accounts.")
+                        .help("Accounts hidden automatically. Hover to show; click to open.")
+                        .accessibilityLabel("\(model.tiles.filter { !$0.id.isEmpty }.count) accounts hidden. Show accounts.")
                 } else {
                     TileView(tile: t, focused: model.open && t.id == model.selected, alternating: model.alternating)
                         .opacity(model.fades(t) ? 0 : 1)

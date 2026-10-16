@@ -289,6 +289,23 @@ import UnlimitedKit
 }
 
 @MainActor
+@Test func autoHideDropsASpentAccountAlongsideTheRoutineOnes() async throws {
+    let cli = try UsageCLI()
+    defer { cli.remove() }
+    let takenAt = Date(timeIntervalSince1970: 1_790_985_600)
+    try cli.succeed(takenAt: takenAt, used: 1.2)
+    let model = StripModel(runner: Runner(binary: cli.binary), defaults: cli.defaults, now: { takenAt })
+    model.refresh()
+    try await waitUntil { model.readings["openai/fixture"]?.primary?.usedAtLeast == 1.2 }
+    #expect(model.tiles.count == 1)
+
+    #expect(model.collapsedNormal, "a spent account is not news while idle")
+    #expect(model.displayedTiles.count == 1)
+    model.hoverExpanded = true
+    #expect(model.displayedTiles.first?.value == .percent(120), "opening the strip still shows the spent account")
+}
+
+@MainActor
 @Test func allNormalSummaryOpensTheFirstManualAccountAndDoesNotEnterPreferences() async throws {
     let cli = try UsageCLI()
     defer { cli.remove() }
@@ -330,7 +347,9 @@ import UnlimitedKit
 
 @MainActor
 func waitUntil(_ message: String = "the CLI refresh did not finish", _ condition: () -> Bool) async throws {
-    let deadline = Date().addingTimeInterval(15)
+    // Generous: parallel runs share the main actor with the bitmap-rendering tests, which
+    // block it for stretches and can starve these polls well past a tight deadline.
+    let deadline = Date().addingTimeInterval(90)
     while !condition(), Date() < deadline {
         try await Task.sleep(for: .milliseconds(10))
     }

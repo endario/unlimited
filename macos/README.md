@@ -8,7 +8,8 @@ no vendor, and writes only through the CLI (`unlimited off`/`on`/`incentive`). I
 later in `~/.local/bin`, `/opt/homebrew/bin` or `/usr/local/bin` (0.1.1 or later for the
 switching; an older CLI simply loses the greying).
 
-Unavailable or stale usage displays `?`; the popover explains the reported failure. Where the CLI supplies
+Unavailable or stale usage displays `?`; the popover explains the reported failure. A window that
+has spent its limit displays `✘` instead of its percentage. Where the CLI supplies
 locally observed gateway-log usage, the strip shows its rolling weekly figure: estimated cost as a
 percentage of a configured USD budget, a configured token-budget percentage, or compact raw tokens.
 Settings and the popover retain an exact token total; snapshot and cost details are in tooltips.
@@ -30,10 +31,11 @@ Account/reset steering requires caller account bindings (`choose --account OFFER
 `rank(accounts=...)`).
 
 Auto-hide normal accounts is enabled by default in General. White, readable accounts without
-warnings, bans or account steering disappear from the compact strip; hover restores them. After leaving,
+warnings, bans or account steering disappear from the compact strip, as do accounts whose window is
+spent or whose usage is missing; hover restores them. After leaving,
 the strip holds for five seconds before fading back. An open popover keeps it expanded. The eye's
 manual hiding still applies, tracking is unchanged, and Reduce Motion disables the fade. When all
-visible accounts are normal, an ellipsis remains available to hover or activate.
+visible accounts are normal, spent or without usage, an ellipsis remains available to hover or activate.
 
 With unlimited 0.1.10, Settings can encourage or discourage vendors, accounts, models and routes.
 Until reset is the default; an explicit duration overrides it. A green upward or red downward

@@ -36,7 +36,13 @@ public struct Tile: Identifiable, Equatable, Sendable {
             return String(format: "%.1fM", locale: Locale(identifier: "en_US_POSIX"), Double(total) / 1_000_000)
         }
 
+        /// Stands in for a figure that has used its limit: the count is no longer
+        /// the news once the window is spent. It wears the figure's health colour,
+        /// dimmed readings included.
+        public static let spentMark = "\u{2718}"
+
         public var text: String {
+            if isSpent { return Self.spentMark }
             switch self {
             case .percent(let p), .localPercent(let p): return "\(p)"
             case .tokens(let total, _):
@@ -47,12 +53,29 @@ public struct Tile: Identifiable, Equatable, Sendable {
             }
         }
 
+        /// Whether the figure has used its limit, so the mark stands in for the count.
+        public var isSpent: Bool {
+            switch self {
+            case .percent(let p), .localPercent(let p): return p >= 100
+            default: return false
+            }
+        }
+
         /// Whether a figure stands behind the value; the rest stand for the absence of a
         /// reading, and render in the grey that is not a colour anyone reads as usage.
         public var showsData: Bool {
             switch self {
             case .percent, .localPercent: return true
             default: return false
+            }
+        }
+
+        /// Whether the value only stands for a missing reading: the question mark, the
+        /// dash and the ellipsis.
+        public var isMissing: Bool {
+            switch self {
+            case .percent, .localPercent, .tokens: return false
+            case .unread, .stale, .unknown, .noWindow, .waiting: return true
             }
         }
     }
@@ -88,8 +111,14 @@ public struct Tile: Identifiable, Equatable, Sendable {
             (id, label, value, dimmed, health, alternate, best, indicator)
     }
 
+    /// Whether auto-hide may drop this tile while idle: a routine figure, a window that has
+    /// spent its limit, or no figure at all — none is news until the owner opens the strip.
+    /// Spent and missing dominate the other exceptions: off, dimmed or steered, an account
+    /// that cannot be used or read is nothing to act on. Measured token observations stay:
+    /// they say something even when the quota read does not.
     public var isRoutine: Bool {
-        value.showsData && health == .normal && !dimmed && !off &&
+        if value.isSpent || value.isMissing { return true }
+        return value.showsData && health == .normal && !dimmed && !off &&
             (indicator?.count ?? 0) == 0 &&
             (alternate.map { $0.value.showsData && $0.health == .normal } ?? true)
     }
@@ -107,7 +136,7 @@ public struct Tile: Identifiable, Equatable, Sendable {
     /// (blue), else the one with the most room at reset.
     static func pick(_ tiles: [Tile]) -> String? {
         let open = tiles.filter { t in
-            guard case .percent = t.value, !t.dimmed, !t.off, t.health < .amber else { return false }
+            guard case .percent = t.value, !t.value.isSpent, !t.dimmed, !t.off, t.health < .amber else { return false }
             return (t.alternate?.health ?? .normal) < .amber
         }
         guard tiles.count > 1 else { return nil }

@@ -36,15 +36,18 @@ import Testing
     #expect(back == prefs)
 }
 
-@Test func routineEligibilityKeepsVisualExceptionsVisible() {
+@Test func autoHideDropsQuietTilesAndKeepsVisualExceptions() {
     let normal = Tile(id: "openai/a", label: "A", value: .percent(42), dimmed: false)
     var cases: [(String, Tile, Bool)] = [("normal percentage", normal, true)]
     var best = normal
     best.best = true
     cases.append(("best underline", best, true))
     for value: Tile.Value in [.unread, .stale, .noWindow, .unknown, .waiting] {
-        cases.append(("primary \(value)", Tile(id: normal.id, label: normal.label, value: value, dimmed: false), false))
+        cases.append(("primary \(value)", Tile(id: normal.id, label: normal.label, value: value, dimmed: false), true))
     }
+    var offMissing = Tile(id: normal.id, label: normal.label, value: .unread, dimmed: false)
+    offMissing.off = true
+    cases.append(("missing overrides off", offMissing, true))
     for health: Health in [.sprint, .underUsed, .amber, .red] {
         var tile = normal
         tile.health = health
@@ -54,6 +57,21 @@ import Testing
         cases.append(("alternate \(health)", tile, false))
     }
     cases.append(("dimmed", Tile(id: normal.id, label: normal.label, value: normal.value, dimmed: true), false))
+    for value: Tile.Value in [.percent(100), .percent(142), .localPercent(100)] {
+        cases.append(("spent \(value)",
+                      Tile(id: normal.id, label: normal.label, value: value, dimmed: false, health: .red), true))
+    }
+    cases.append(("spent overrides the other exceptions",
+                  Tile(id: normal.id, label: normal.label, value: .percent(120), dimmed: true, health: .red,
+                       alternate: .init(role: "session", value: .percent(90), health: .amber)), true))
+    var offSpent = Tile(id: normal.id, label: normal.label, value: .percent(120), dimmed: false, health: .red)
+    offSpent.off = true
+    cases.append(("spent overrides off", offSpent, true))
+    cases.append(("spent overrides steering",
+                  Tile(id: normal.id, label: normal.label, value: .percent(120), dimmed: false, health: .red,
+                       indicator: SteeringIndicator(routes: [.init(id: "up", target: "openai", multiplier: 10,
+                                                                   until: .distantFuture)],
+                                                    now: Date(timeIntervalSince1970: 0))), true))
     var off = normal
     off.off = true
     cases.append(("off", off, false))
