@@ -37,7 +37,8 @@ public struct Tile: Identifiable, Equatable, Sendable {
         }
 
         /// Stands in for a figure that has used its limit: the count is no longer
-        /// the news once the window is spent. It wears the figure's health colour.
+        /// the news once the window is spent. It wears the figure's health colour,
+        /// dimmed readings included.
         public static let spentMark = "\u{2718}"
 
         public var text: String {

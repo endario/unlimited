@@ -36,7 +36,7 @@ import Testing
     #expect(back == prefs)
 }
 
-@Test func routineEligibilityKeepsVisualExceptionsVisible() {
+@Test func autoHideDropsQuietTilesAndKeepsVisualExceptions() {
     let normal = Tile(id: "openai/a", label: "A", value: .percent(42), dimmed: false)
     var cases: [(String, Tile, Bool)] = [("normal percentage", normal, true)]
     var best = normal

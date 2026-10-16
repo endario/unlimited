@@ -65,9 +65,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
         let width = model.displayedTiles.last.map { layout.rect(of: $0).maxX + Double(StripView.padding) } ?? 0
         host.frame = NSRect(x: 0, y: 0, width: width, height: 22)
         setLength(width)
-        let summary = "\(model.tiles.count) normal accounts hidden. Show accounts."
+        let summary = "\(model.tiles.filter { !$0.id.isEmpty }.count) accounts hidden. Show accounts."
         button.setAccessibilityLabel(model.collapsedNormal ? summary : "Account usage")
-        button.toolTip = model.collapsedNormal ? "Normal accounts hidden automatically. Hover to show; click to open." : nil
+        button.toolTip = model.collapsedNormal ? "Accounts hidden automatically. Hover to show; click to open." : nil
         if popover.isShown { popover.positioningRect = rect(of: button) }
     }
 
