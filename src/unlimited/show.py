@@ -12,7 +12,7 @@ from .schema import moment
 
 VENDOR_NAMES = {"anthropic": "Claude", "openai": "Codex", "zai": "Z.ai GLM", "opencode": "OpenCode", "xai": "Grok",
                 "kimi": "Kimi Code", "neuralwatt": "Neuralwatt", "commandcode": "Command Code", "woyo": "Woyo",
-                "mimo": "MiMo"}
+                "mimo": "MiMo", "deepseek": "DeepSeek"}
 WINDOW_NAMES = {"five_hour": "5-hour", "seven_day": "weekly", "month": "monthly", "codex": "weekly",
                 "gpt-reserve": "weekly reserve", "seven_day_opus": "weekly Opus",
                 "seven_day_sonnet": "weekly Sonnet", "period": "billing period",
