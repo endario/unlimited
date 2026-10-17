@@ -170,7 +170,7 @@ public struct Tile: Identifiable, Equatable, Sendable {
         ("anthropic", "CL", "Claude"), ("openai", "CDX", "Codex"), ("zai", "ZAI", "Z.ai"), ("kimi", "KMI", "Kimi"),
         ("opencode", "OPC", "OpenCode"), ("woyo", "WY", "Woyo"), ("xai", "GRK", "Grok"), ("neuralwatt", "NW", "Neuralwatt"),
         ("commandcode", "CMD", "Command Code"), ("anthropic-console", "API", "Claude API"),
-        ("mimo", "MMO", "MiMo"),
+        ("mimo", "MMO", "MiMo"), ("deepseek", "DS", "DeepSeek"),
     ]
 
     /// The vendor's name for a person; an unknown vendor shows its id.

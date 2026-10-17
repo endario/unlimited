@@ -14,7 +14,7 @@ from contextlib import redirect_stdout
 from unittest import mock
 
 from unlimited import cache, cli
-from unlimited.adapters import anthropic, commandcode, kimi, neuralwatt, opencode, openai, xai, zai
+from unlimited.adapters import anthropic, commandcode, deepseek, kimi, neuralwatt, opencode, openai, xai, zai
 from unlimited.credential import Credential, EnvKeys, account_of, env_value
 from unlimited.transport import Answer
 
@@ -34,7 +34,7 @@ class Base(unittest.TestCase):
         p = mock.patch.dict(os.environ, {"XDG_CACHE_HOME": str(self.tmp / "cache"), "HOME": str(self.home),
                                           **dict.fromkeys(anthropic.OVERRIDES, ""),
                                           "CLAUDE_GLM_ENV": "", "GLM_API_KEY": "",
-                                          "CLAUDE_KIMI_ENV": "", "KIMI_API_KEY": "", "COMMAND_CODE_API_KEY": "",
+                                          "CLAUDE_KIMI_ENV": "", "KIMI_API_KEY": "", "CLAUDE_DS_ENV": "", "DEEPSEEK_API_KEY": "", "COMMAND_CODE_API_KEY": "",
                                           "FY_API_KEY": ""})
         p.start()
         self.addCleanup(p.stop)
@@ -522,6 +522,42 @@ class Neuralwatt(Base):
     def test_an_answer_with_nothing_recognised_is_unread(self):
         got = neuralwatt.read(Credential("a", {"key": "k"}), NOW, self.up(Answer({"snapshot_at": "x"}, 200, None)))
         self.assertEqual((got["status"], got["why"]), ("unread", "no-limits"))
+
+
+class DeepSeek(Base):
+    BODY = {"is_available": True, "balance_infos": [
+        {"currency": "USD", "total_balance": "12.50", "granted_balance": "2.50", "topped_up_balance": "10.00"}]}
+
+    def test_the_prepaid_balance_is_the_whole_reading(self):
+        got = deepseek.read(Credential("a", {"key": "k"}), NOW, self.up(Answer(self.BODY, 200, None)))
+        self.assertEqual((got["status"], got["limits"], got["plan"]), ("ok", [], None))
+        c = got["credits"]
+        self.assertEqual((c["balance"], c["currency"], c["enabled"], c["used"], c["limit"]),
+                         (12.5, "USD", True, None, None))
+        self.assertEqual(self.calls, ["https://api.deepseek.com/user/balance"])
+
+    def test_an_account_the_vendor_calls_unavailable_is_not_enabled(self):
+        body = dict(self.BODY, is_available=False, balance_infos=[dict(self.BODY["balance_infos"][0], total_balance="0.00")])
+        c = deepseek.read(Credential("a", {"key": "k"}), NOW, self.up(Answer(body, 200, None)))["credits"]
+        self.assertEqual((c["balance"], c["enabled"]), (0.0, False))
+
+    def test_the_wrapper_env_file_and_the_environment_are_an_account_once(self):
+        (self.home / ".config").mkdir()
+        (self.home / ".config" / "claude-ds.env").write_text("DEEPSEEK_API_KEY='sk-one'\n")
+        (self.home / ".config" / "claude-ds-2.env").write_text("DEEPSEEK_API_KEY=sk-two\n")
+        with mock.patch.dict(os.environ, {"DEEPSEEK_API_KEY": "sk-one"}):
+            got = deepseek.discover()
+        self.assertEqual(sorted(c.secret["key"] for c in got), ["sk-one", "sk-two"])
+        self.assertEqual(deepseek.names()[account_of("sk-two")], ["claude-ds-2"])
+
+    def test_an_answer_with_no_balance_is_unread(self):
+        for body in ({"is_available": True, "balance_infos": []}, {"balance_infos": [{"total_balance": "n/a"}]}):
+            got = deepseek.read(Credential("a", {"key": "k"}), NOW, self.up(Answer(body, 200, None)))
+            self.assertEqual((got["status"], got["why"]), ("unread", "no-limits"))
+
+    def test_a_refused_key_is_refused(self):
+        got = deepseek.read(Credential("a", {"key": "k"}), NOW, self.up(Answer(None, 401, "http-401")))
+        self.assertEqual(got["status"], "refused")
 
 
 class CommandCode(Base):
