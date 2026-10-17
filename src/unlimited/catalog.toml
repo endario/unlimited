@@ -246,6 +246,15 @@ price = { input = 0.15, output = 0.60, cache_read = 0.003 }
 source = "https://commandcode.ai/docs/plans/goat"
 as_of = 2026-10-15
 
+# The direct API's off-peak price (17 h a day); peak is 0.30 / 1.20.
+[[cards]]
+vendor = "deepseek"
+name = "DeepSeek V4.1 Flash"
+models = ["deepseek-flash"]
+price = { input = 0.15, output = 0.60, cache_read = 0.003 }
+source = "https://api-docs.deepseek.com/quick_start/pricing"
+as_of = 2026-10-17
+
 [[cards]]
 vendor = "commandcode"
 plan = "goat"
@@ -292,3 +301,60 @@ from = "14:00"
 to = "18:00"
 tz = "+08:00"
 factor = 3
+
+# DeepSeek charges its flash model twice the off-peak price on weekdays 01:00-04:00 and
+# 06:00-10:00 UTC (api-docs.deepseek.com/quick_start/pricing, 2026-10-17), and Chinese public
+# holidays are off-peak all day; a weekly window cannot name a holiday, so a holiday weekday is
+# priced dear. The direct key and the plans that count DeepSeek dollars against a monthly
+# allowance (opencode Go, Command Code GOAT) all pay it.
+[[rates]]
+vendor = "deepseek"
+days = ["mon", "tue", "wed", "thu", "fri"]
+from = "01:00"
+to = "04:00"
+tz = "+00:00"
+factor = 2
+
+[[rates]]
+vendor = "deepseek"
+days = ["mon", "tue", "wed", "thu", "fri"]
+from = "06:00"
+to = "10:00"
+tz = "+00:00"
+factor = 2
+
+[[rates]]
+vendor = "opencode"
+offerings = ["opencode-go/deepseek-v4.1-flash"]
+days = ["mon", "tue", "wed", "thu", "fri"]
+from = "01:00"
+to = "04:00"
+tz = "+00:00"
+factor = 2
+
+[[rates]]
+vendor = "opencode"
+offerings = ["opencode-go/deepseek-v4.1-flash"]
+days = ["mon", "tue", "wed", "thu", "fri"]
+from = "06:00"
+to = "10:00"
+tz = "+00:00"
+factor = 2
+
+[[rates]]
+vendor = "commandcode"
+offerings = ["commandcode/deepseek/deepseek-v4.1-flash"]
+days = ["mon", "tue", "wed", "thu", "fri"]
+from = "01:00"
+to = "04:00"
+tz = "+00:00"
+factor = 2
+
+[[rates]]
+vendor = "commandcode"
+offerings = ["commandcode/deepseek/deepseek-v4.1-flash"]
+days = ["mon", "tue", "wed", "thu", "fri"]
+from = "06:00"
+to = "10:00"
+tz = "+00:00"
+factor = 2
