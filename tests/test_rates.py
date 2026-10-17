@@ -60,6 +60,21 @@ class Catalog(unittest.TestCase):
         factors = {r["meter"]: r["factor"] for r in cat.rates if r["vendor"] == "zai"}
         self.assertEqual(factors, {"CREDIT_LIMIT": 2, "TOKENS_LIMIT": 3})
 
+    def test_the_shipped_deepseek_rates_bind_its_peak_windows(self):
+        cat = catalog.load(Path(scratch.mkdtemp()) / "catalog.toml")
+        windows = [("01:00", "04:00", 2), ("06:00", "10:00", 2)]
+        direct = [r for r in cat.rates if r["vendor"] == "deepseek"]
+        self.assertEqual([(r["from"], r["to"], r["factor"]) for r in direct], windows)
+        got = rates.spans(direct, {"vendor": "deepseek", "limits": []},
+                          datetime(2026, 10, 15, 2, tzinfo=timezone.utc))
+        self.assertEqual(got[0], {"offerings": None, "from": "2026-10-15T02:00:00+00:00",
+                                  "to": "2026-10-15T04:00:00+00:00", "factor": 2})
+        self.assertTrue({datetime.fromisoformat(s["from"]).strftime("%a") for s in got}
+                        <= {"Mon", "Tue", "Wed", "Thu", "Fri"}, got)
+        for route in ("opencode-go/deepseek-v4.1-flash", "commandcode/deepseek/deepseek-v4.1-flash"):
+            rows = [r for r in cat.rates if route in r.get("offerings", [])]
+            self.assertEqual([(r["from"], r["to"], r["factor"]) for r in rows], windows)
+
     def test_a_malformed_rate_is_refused_with_why(self):
         for bad, why in [({**PEAK, "from": "18:00", "to": "14:00"}, "from is before to"),
                          ({**PEAK, "tz": "Asia/Singapore"}, "fixed offset"),
