@@ -166,6 +166,16 @@ class Contract(unittest.TestCase):
         self.assertEqual((second["account"], second["plan"], second["limits"][0]["used_at_least"], len(self.up.calls)),
                          ("acct-other", "fixture-other", .83, 2))
 
+    def test_a_second_codex_home_is_read_as_its_own_account(self):
+        second = self.tmp / "home" / ".codex-2"
+        second.mkdir(parents=True)
+        (second / "auth.json").write_text(json.dumps(
+            {"tokens": {"access_token": OPENAI_SECRET, "account_id": "acct-other"}}))
+        got = self.read(openai)
+        self.assertEqual(sorted((r["account"], r["limits"][0]["used_at_least"]) for r in got),
+                         [("acct-fixture", .44), ("acct-other", .83)])
+        self.assertEqual(self.up.calls, [openai.URL, openai.URL])
+
     def test_a_window_past_its_reset_has_no_used_figure_even_from_cache(self):
         self.read(zai)
         self.now = NOW + timedelta(hours=4)  # five-hour window has reset; weekly has not

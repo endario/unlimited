@@ -1239,12 +1239,24 @@ class CodexSessionLog(Base):
         self.addCleanup(p.stop)
 
     def log(self, name, events):
-        f = self.codex / "sessions" / "2026" / name
+        self.log_in(self.codex, name, events)
+
+    def log_in(self, home, name, events):
+        d = home / "sessions" / "2026"
+        d.mkdir(parents=True, exist_ok=True)
+        f = d / name
         f.write_text("\n".join(json.dumps({"timestamp": at.isoformat().replace("+00:00", "Z"),
                                            "type": "event_msg",
                                            "payload": {"type": "token_count", "rate_limits": snap}})
                                for at, snap in events))
         os.utime(f, (NOW.timestamp(),) * 2)
+
+    def codex_home(self, name, account, token="t"):
+        d = self.home / name
+        d.mkdir()
+        (d / "auth.json").write_text(json.dumps({"tokens": {"access_token": token, "account_id": account}}))
+        os.utime(d / "auth.json", (NOW.timestamp() - 3600,) * 2)
+        return d
 
     def snap(self, limit_id, pct, name=None):
         return {"limit_id": limit_id, "limit_name": name,
@@ -1275,6 +1287,48 @@ class CodexSessionLog(Base):
     def test_events_from_before_the_current_sign_in_are_ignored(self):
         self.log("a.jsonl", [(NOW - timedelta(hours=2), self.snap("codex", 90.0))])
         self.assertEqual(openai.local(NOW), [])
+
+    def test_a_second_home_is_a_second_account_and_its_logs_are_its_own(self):
+        second = self.codex_home(".codex-2", "acct-2")
+        self.log_in(second, "a.jsonl", [(NOW - timedelta(minutes=2), self.snap("codex", 70.0))])
+        self.log("a.jsonl", [(NOW - timedelta(minutes=5), self.snap("codex", 26.0))])
+        self.assertEqual([c.account for c in openai.discover()], ["acct", "acct-2"])
+        got = {r["account"]: r["limits"][0]["used_at_least"] for r in openai.local(NOW)}
+        self.assertEqual(got, {"acct": 0.26, "acct-2": 0.7})
+
+    def test_a_non_numeric_sibling_is_not_a_codex_home(self):
+        for name in (".codex-confine-6e_0r7ft", ".codex-old", ".codex-backup"):
+            self.codex_home(name, "acct-other")
+        self.assertEqual(openai.data_homes(), [self.codex])
+        self.assertEqual([c.account for c in openai.discover()], ["acct"])
+
+    def test_slots_sort_numerically_past_nine(self):
+        self.codex_home(".codex-10", "ten")
+        self.codex_home(".codex-2", "two")
+        self.assertEqual([p.name for p in openai.data_homes()],
+                         ["codex", ".codex-2", ".codex-10"])
+
+    def test_a_slot_pointed_at_by_codex_home_is_not_listed_twice(self):
+        slot = self.codex_home(".codex-2", "acct-2")
+        with mock.patch.dict(os.environ, {"CODEX_HOME": str(slot)}):
+            self.assertEqual(openai.data_homes(), [slot])
+
+    def test_one_account_signed_into_two_homes_is_one_credential_on_the_live_token(self):
+        def jwt(exp):
+            def part(value):
+                return base64.urlsafe_b64encode(json.dumps(value).encode()).decode().rstrip("=")
+            return f"{part({'alg': 'none'})}.{part({'exp': exp})}.sig"
+        live = int((datetime.now(timezone.utc) + timedelta(hours=1)).timestamp())
+        dead = int((datetime.now(timezone.utc) - timedelta(hours=1)).timestamp())
+        (self.codex / "auth.json").write_text(json.dumps(
+            {"tokens": {"access_token": jwt(dead), "account_id": "acct"}}))
+        self.codex_home(".codex-2", "acct", token=jwt(live))
+        self.assertEqual([(c.account, c.secret["access_token"]) for c in openai.discover()],
+                         [("acct", jwt(live))])
+
+    def test_names_label_each_home(self):
+        self.codex_home(".codex-2", "acct-2")
+        self.assertEqual(openai.names(), {"acct": ["codex"], "acct-2": ["codex-2"]})
 
 
 if __name__ == "__main__":
