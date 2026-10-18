@@ -96,10 +96,10 @@ public struct Card: Identifiable, Sendable {
         let state = c.enabled ? "on" : "off"  // the vendor's reason code means nothing to a person
         let money = { (v: Double) in String(format: "%.2f", v) }
         switch (c.used, c.limit) {
-        case (0?, nil), (nil, nil): return state  // never switched on, or nothing to say
         case let (used?, limit?): return "\(unit)\(money(used)) of \(money(limit)) · \(state)"
-        case let (used?, nil): return "\(unit)\(money(used)) used · \(state)"
-        default: return state
+        // A zero with no limit is an account that never switched credits on, not "0 used".
+        case let (used?, nil) where used > 0: return "\(unit)\(money(used)) used · \(state)"
+        default: return c.balance.map { "\(unit)\(money($0)) balance · \(state)" } ?? state
         }
     }
 

@@ -7,6 +7,8 @@ public struct Tile: Identifiable, Equatable, Sendable {
         case localPercent(Int)
         /// Locally observed gateway-log tokens for one rolling window, not a vendor quota.
         case tokens(Int, windowMinutes: Int)
+        /// Money left on a prepaid balance, for a vendor that reports no window.
+        case credit(Double, currency: String?)
         case unread      // the vendor refused, or could not be read
         case stale       // the last reading is older than `staleAfter`
         case noWindow    // the vendor reports no window for this account
@@ -47,6 +49,8 @@ public struct Tile: Identifiable, Equatable, Sendable {
             case .percent(let p), .localPercent(let p): return "\(p)"
             case .tokens(let total, _):
                 return Self.compactTokens(total)
+            case .credit(let amount, let currency):
+                return (currency.map { "\($0) " } ?? "") + String(format: "%.2f", amount)
             case .unread, .stale, .unknown: return "?"
             case .noWindow: return "—"
             case .waiting: return "…"
@@ -65,7 +69,7 @@ public struct Tile: Identifiable, Equatable, Sendable {
         /// reading, and render in the grey that is not a colour anyone reads as usage.
         public var showsData: Bool {
             switch self {
-            case .percent, .localPercent: return true
+            case .percent, .localPercent, .credit: return true
             default: return false
             }
         }
@@ -74,7 +78,7 @@ public struct Tile: Identifiable, Equatable, Sendable {
         /// dash and the ellipsis.
         public var isMissing: Bool {
             switch self {
-            case .percent, .localPercent, .tokens: return false
+            case .percent, .localPercent, .tokens, .credit: return false
             case .unread, .stale, .unknown, .noWindow, .waiting: return true
             }
         }
@@ -289,6 +293,9 @@ public struct Tile: Identifiable, Equatable, Sendable {
         } else if let c = r.credits, let used = c.used, let limit = c.limit, limit > 0 {
             // Pay as you go: no window, so the share of the credit spent stands in for it.
             value = .percent(Int((used / limit * 100).rounded()))
+        } else if let c = r.credits, let balance = c.balance {
+            // Prepaid: no window to show, so what is left of the balance is the figure.
+            value = .credit(balance, currency: c.currency)
         } else {
             value = .noWindow
         }
