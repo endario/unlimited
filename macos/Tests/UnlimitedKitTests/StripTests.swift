@@ -95,6 +95,19 @@ func strip() throws -> [String: Tile] {
     #expect(Tile.strip(payg, now: now).map(\.value) == [.percent(17), .noWindow])
 }
 
+@Test func withNoWindowTheRemainingBalanceIsTheFigure() throws {
+    let prepaid = try Reading.decode(Data("""
+    [{"schema": 1, "vendor": "deepseek", "account": "d", "status": "ok", "limits": [],
+      "taken_at": "2026-09-24T05:59:00+00:00",
+      "credits": {"enabled": true, "used": null, "limit": null, "balance": 48.09, "currency": "CNY"}}]
+    """.utf8))
+    let tile = try #require(Tile.strip(prepaid, now: now).first)
+    #expect(tile.value == .credit(48.09, currency: "CNY"))
+    #expect(tile.value.text == "CNY 48.09", "a balance is money, not a percentage or a token count")
+    #expect(tile.value.showsData)
+    #expect(!tile.value.isMissing)
+}
+
 @Test func offVendorsAreMarkedAndNeverThePick() throws {
     func weekly(_ used: Double) -> String {
         """

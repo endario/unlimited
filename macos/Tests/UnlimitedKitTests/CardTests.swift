@@ -66,6 +66,14 @@ func claude() throws -> Reading {
     #expect(Card.credits(r) == "off")
 }
 
+@Test func aPrepaidBalanceSaysWhatIsLeft() throws {
+    let r = try #require(Reading.decode(Data("""
+    [{"schema": 1, "vendor": "deepseek", "status": "ok",
+      "credits": {"enabled": true, "used": null, "limit": null, "balance": 48.09, "currency": "CNY"}}]
+    """.utf8)).first)
+    #expect(Card.credits(r) == "CNY 48.09 balance · on")
+}
+
 @Test func thePlanReadsInAPersonsWords() throws {
     #expect(Card.plan(try claude()) == "Max 20x")
 }
