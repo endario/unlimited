@@ -33,7 +33,7 @@ struct UsageFigure: View {
     let health: Health
     var percentSign = false
 
-    var text: String { value.text + (percentSign && value.showsData && !value.isSpent ? "%" : "") }
+    var text: String { value.text + (percentSign && value.isPercent && !value.isSpent ? "%" : "") }
 
     var body: some View {
         Text(text)

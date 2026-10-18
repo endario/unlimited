@@ -65,6 +65,14 @@ public struct Tile: Identifiable, Equatable, Sendable {
             }
         }
 
+        /// Whether the figure is a percentage, the only kind a caller may suffix with `%`.
+        public var isPercent: Bool {
+            switch self {
+            case .percent, .localPercent: return true
+            default: return false
+            }
+        }
+
         /// Whether a figure stands behind the value; the rest stand for the absence of a
         /// reading, and render in the grey that is not a colour anyone reads as usage.
         public var showsData: Bool {
