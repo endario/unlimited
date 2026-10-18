@@ -1,10 +1,11 @@
-"""OpenAI Codex (ChatGPT sign-in): `/wham/usage` on the token in Codex's own auth.json."""
+"""OpenAI Codex (ChatGPT sign-in): `/wham/usage` on the token in each Codex home's auth.json."""
 
 from __future__ import annotations
 
 import base64
 import json
 import os
+import re
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -19,6 +20,25 @@ URL = "https://chatgpt.com/backend-api/wham/usage"
 
 def _home() -> Path:
     return Path(os.environ.get("CODEX_HOME") or Path.home() / ".codex")
+
+
+# The provisioning convention: a numbered slot beside the default home, never an open-ended
+# prefix match, so `~/.codex-confine-*` sandbox directories and renamed backups are not accounts.
+_SLOT = re.compile(r"^\.codex-([0-9]+)$")
+
+
+def data_homes() -> list[Path]:
+    """The default home, plus every isolated one (`~/.codex-2`, `~/.codex-3`, ...), in slot
+    order. auth.json holds one sign-in, so a second concurrent account needs its own directory;
+    none may narrow discovery to just the default."""
+    default = _home()
+    slots = []
+    for p in Path.home().glob(".codex-*"):
+        m = _SLOT.match(p.name)
+        # A slot pointed at directly as CODEX_HOME is already `default`; never list it twice.
+        if m and p.is_dir() and p.resolve() != default.resolve():
+            slots.append((int(m.group(1)), p))
+    return [default] + [p for _, p in sorted(slots)]
 
 
 def _jwt_payload(token: object) -> dict | None:
@@ -38,22 +58,49 @@ def _account_id(value: object) -> bool:
             and all(32 <= ord(c) < 127 for c in value))
 
 
-def discover() -> list[Credential]:
+def _credential(home: Path) -> Credential | None:
     try:
-        got = json.loads((_home() / "auth.json").read_text())
+        got = json.loads((home / "auth.json").read_text())
     except (OSError, ValueError):
-        return []
+        return None
     tokens = got.get("tokens") if isinstance(got, dict) else None
     if not (isinstance(tokens, dict) and isinstance(tokens.get("access_token"), str)):
-        return []
+        return None
     who = tokens.get("account_id")
     if who is None or who == "":
         payload = _jwt_payload(tokens.get("id_token")) or {}
         auth = payload.get("https://api.openai.com/auth")
         who = auth.get("chatgpt_account_id") if isinstance(auth, dict) else None
     if not _account_id(who):
-        return []
-    return [Credential(who, {"access_token": tokens["access_token"], "account_id": who})]
+        return None
+    return Credential(who, {"access_token": tokens["access_token"], "account_id": who})
+
+
+def discover() -> list[Credential]:
+    """One credential per account. An account signed in under several homes is read once, on
+    whichever token is unexpired (or, failing that, any)."""
+    found: dict[str, list[Credential]] = {}
+    for home in data_homes():
+        cred = _credential(home)
+        if cred is not None:
+            found.setdefault(cred.account, []).append(cred)
+    now = datetime.now(timezone.utc)
+    return [Credential(account, next((c.secret for c in creds
+                                      if (e := _jwt_expiry(c.secret["access_token"])) is None or e > now),
+                                     creds[0].secret))
+            for account, creds in sorted(found.items())]
+
+
+def names() -> dict[str, list[str]]:
+    """Account id → the Codex home holding it: the default is bare `codex`, the Nth `codex-N`."""
+    out: dict[str, list[str]] = {}
+    default = _home()
+    for home in data_homes():
+        cred = _credential(home)
+        name = "codex" if home.resolve() == default.resolve() else home.name.removeprefix(".")
+        if cred is not None and cred.account and name not in out.setdefault(cred.account, []):
+            out[cred.account].append(name)
+    return out
 
 
 def _jwt_expiry(token: str) -> datetime | None:
@@ -179,21 +226,21 @@ def _tail(f) -> str:
     return data.decode(errors="replace")
 
 
-def local(now: datetime) -> list[dict]:
-    """The newest `rate_limits` Codex itself logged, with no network call.
+def _local_home(home: Path, now: datetime) -> dict | None:
+    """One home's newest `rate_limits`, or None when it holds no attributable reading.
 
-    A session log does not name its account, so only events written after auth.json last
-    changed are trusted to belong to the account signed in now. auth.json is also rewritten on
-    token refresh; that costs a network read, never a wrong attribution.
+    A session log does not name its account, so only events written after that home's auth.json
+    last changed are trusted to belong to the account signed in there now. auth.json is also
+    rewritten on token refresh; that costs a network read, never a wrong attribution.
     """
-    creds = discover()
-    if not creds or creds[0].account is None:
-        return []
+    cred = _credential(home)
+    if cred is None or cred.account is None:
+        return None
     try:
-        since = datetime.fromtimestamp((_home() / "auth.json").stat().st_mtime, tz=timezone.utc)
-        files = sorted((_home() / "sessions").rglob("*.jsonl"), key=lambda p: p.stat().st_mtime)
+        since = datetime.fromtimestamp((home / "auth.json").stat().st_mtime, tz=timezone.utc)
+        files = sorted((home / "sessions").rglob("*.jsonl"), key=lambda p: p.stat().st_mtime)
     except OSError:
-        return []
+        return None
     # Codex logs each limit as its own event, so one file may hold only some of them: gather the
     # newest of each across recent files.
     latest: dict[str, tuple[datetime, dict]] = {}
@@ -218,7 +265,13 @@ def local(now: datetime) -> list[dict]:
                 latest[key] = (at, snap)
     # Without the main limit a reading would look complete while missing the one that matters.
     if "codex" not in latest:
-        return []
+        return None
     taken = min(at for at, _ in latest.values())  # as old as its oldest part
     found = [l for _, snap in latest.values() for l in _session_limits(snap, now)]
-    return [reading(VENDOR, creds[0].account, taken, OK, limits=found, source="session-log")]
+    return reading(VENDOR, cred.account, taken, OK, limits=found, source="session-log")
+
+
+def local(now: datetime) -> list[dict]:
+    """Each home's newest `rate_limits`, with no network call, attributed to that home's own
+    account."""
+    return [r for home in data_homes() if (r := _local_home(home, now)) is not None]
