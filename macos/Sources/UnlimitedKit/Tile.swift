@@ -49,8 +49,8 @@ public struct Tile: Identifiable, Equatable, Sendable {
             case .percent(let p), .localPercent(let p): return "\(p)"
             case .tokens(let total, _):
                 return Self.compactTokens(total)
-            case .credit(let amount, let currency):
-                return (currency.map { "\($0) " } ?? "") + String(format: "%.2f", amount)
+            case .credit(let amount, _):
+                return String(format: "%.0f", amount)
             case .unread, .stale, .unknown: return "?"
             case .noWindow: return "—"
             case .waiting: return "…"

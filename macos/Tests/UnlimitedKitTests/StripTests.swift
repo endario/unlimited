@@ -103,7 +103,7 @@ func strip() throws -> [String: Tile] {
     """.utf8))
     let tile = try #require(Tile.strip(prepaid, now: now).first)
     #expect(tile.value == .credit(48.09, currency: "CNY"))
-    #expect(tile.value.text == "CNY 48.09", "a balance is money, not a percentage or a token count")
+    #expect(tile.value.text == "48", "a balance is a plain figure in the strip, rounded")
     #expect(tile.value.showsData)
     #expect(!tile.value.isMissing)
 }
