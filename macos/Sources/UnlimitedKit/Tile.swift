@@ -127,9 +127,10 @@ public struct Tile: Identifiable, Equatable, Sendable {
     /// spent its limit, or no figure at all — none is news until the owner opens the strip.
     /// Spent and missing dominate the other exceptions: off, dimmed or steered, an account
     /// that cannot be used or read is nothing to act on. Measured token observations stay:
-    /// they say something even when the quota read does not.
+    /// they say something even when the quota read does not, and so does a prepaid balance.
     public var isRoutine: Bool {
         if value.isSpent || value.isMissing { return true }
+        if case .credit = value { return false }
         return value.showsData && health == .normal && !dimmed && !off &&
             (indicator?.count ?? 0) == 0 &&
             (alternate.map { $0.value.showsData && $0.health == .normal } ?? true)
