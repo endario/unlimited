@@ -57,6 +57,9 @@ import Testing
         cases.append(("alternate \(health)", tile, false))
     }
     cases.append(("dimmed", Tile(id: normal.id, label: normal.label, value: normal.value, dimmed: true), false))
+    cases.append(("prepaid balance",
+                  Tile(id: normal.id, label: normal.label, value: .credit(48.09, currency: "CNY"), dimmed: false),
+                  false))
     for value: Tile.Value in [.percent(100), .percent(142), .localPercent(100)] {
         cases.append(("spent \(value)",
                       Tile(id: normal.id, label: normal.label, value: value, dimmed: false, health: .red), true))
