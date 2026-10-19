@@ -135,11 +135,14 @@ import UnlimitedKit
     let takenAt = Date(timeIntervalSince1970: 1_790_985_600)
     try cli.succeed(takenAt: takenAt, used: 0.1)
     try cli.publishWarm(takenAt: takenAt, used: 0.9)
+    try cli.publishSwitches([Runner.Switch(target: "openai", account: "fixture")])
     try cli.slowLiveRead()
     let model = StripModel(runner: Runner(binary: cli.binary), defaults: cli.defaults, now: { takenAt })
 
     model.refresh(maxAge: 0)
-    try await waitUntil("the cached reading was not painted first") { model.tiles.first?.value == .percent(90) }
+    try await waitUntil("the cached reading was painted without its probes") {
+        model.tiles.first?.value == .percent(90) && model.canOffer && model.canSteer && model.offSwitches.count == 1
+    }
     try await waitUntil("the live reading did not replace the cache") { model.tiles.first?.value == .percent(10) }
 }
 
