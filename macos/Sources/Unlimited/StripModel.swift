@@ -74,7 +74,6 @@ final class StripModel: ObservableObject {
                     self.offSwitches = probed
                     self.redraw()
                 }
-                self.refresh(maxAge: 86_400)
             }
         }
     }
@@ -85,6 +84,7 @@ final class StripModel: ObservableObject {
         guard let runner, canSteer, let seq = publication.beginCommand() else { return }
         steeringPending = true
         steeringProblem = nil
+        let held = lastReadJSON
         Task.detached {
             do {
                 try runner.setIncentive(target, multiplier: multiplier, account: account, duration: duration)
@@ -109,11 +109,18 @@ final class StripModel: ObservableObject {
                 await MainActor.run {
                     if self.publication.accepts(seq) { self.incentives = groups }
                 }
-                let readings = try runner.read(maxAge: 86_400)
+                let readings: [Reading]
+                var refreshed: Data?
+                if let held, let annotated = try? runner.annotate(held) {
+                    readings = annotated
+                } else {
+                    (refreshed, readings) = try runner.readRaw(maxAge: 86_400)
+                }
                 await MainActor.run {
                     guard self.publication.finish(seq) else { return }
                     self.steeringPending = false
                     self.problem = nil
+                    if let refreshed { self.lastReadJSON = refreshed }
                     self.lastRead = readings
                     self.readings = Dictionary(readings.map { ("\($0.vendor)/\($0.account ?? "")", $0) },
                                                uniquingKeysWith: { a, _ in a })
@@ -172,6 +179,9 @@ final class StripModel: ObservableObject {
     }
 
     private var lastRead: [Reading] = []
+    /// The JSON `lastRead` was decoded from, so a policy change can re-annotate it without a
+    /// vendor being asked again.
+    private var lastReadJSON: Data?
     private let now: () -> Date
     private let defaults: UserDefaults
 
@@ -233,7 +243,7 @@ final class StripModel: ObservableObject {
         let checked = stamp != nil && stamp == versionChecked
         Task.detached {
             let recent = checked || runner.isRecentEnough()
-            let result: Result<[Reading], Error> = recent ? Result { try runner.read(maxAge: maxAge) } : .failure(Problem.tooOld)
+            let result: Result<(Data, [Reading]), Error> = recent ? Result { try runner.readRaw(maxAge: maxAge) } : .failure(Problem.tooOld)
             // A probe that fails (an older CLI, a file it refuses) means no greying, not a fault.
             let probed = recent ? try? runner.switches() : nil
             let steering = recent ? try? runner.incentives() : nil
@@ -255,8 +265,9 @@ final class StripModel: ObservableObject {
                 self.canSteer = steering != nil
                 self.incentives = steering ?? []
                 switch result {
-                case .success(let readings):
+                case .success(let (data, readings)):
                     self.problem = nil
+                    self.lastReadJSON = data
                     self.lastRead = readings
                     self.redraw()
                     self.readings = Dictionary(readings.map { ("\($0.vendor)/\($0.account ?? "")", $0) },

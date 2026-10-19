@@ -118,7 +118,19 @@ public struct Runner: Sendable {
 
     /// A cold read asks every vendor in turn; the timeout leaves room for a slow one.
     public func read(maxAge: Int? = nil, timeout: TimeInterval = 45) throws -> [Reading] {
-        try Reading.decode(run(["read", "--json"] + (maxAge.map { ["--max-age", String($0)] } ?? []), timeout: timeout))
+        try readRaw(maxAge: maxAge, timeout: timeout).1
+    }
+
+    /// The readings and the exact JSON they came in, so a later policy change can re-annotate
+    /// without asking any vendor again.
+    public func readRaw(maxAge: Int? = nil, timeout: TimeInterval = 45) throws -> (Data, [Reading]) {
+        let data = try run(["read", "--json"] + (maxAge.map { ["--max-age", String($0)] } ?? []), timeout: timeout)
+        return (data, try Reading.decode(data))
+    }
+
+    /// Apply the current policy to readings this app already holds; no vendor is asked.
+    public func annotate(_ readings: Data, timeout: TimeInterval = 45) throws -> [Reading] {
+        try Reading.decode(run(["annotate"], timeout: timeout, stdin: readings))
     }
 
     /// Whether this install emits what the strip needs.
@@ -134,23 +146,33 @@ public struct Runner: Sendable {
         return nums?.count == 3 ? nums : nil
     }
 
-    public func run(_ args: [String], timeout: TimeInterval) throws -> Data {
-        try runCaptured(args, timeout: timeout).0
+    public func run(_ args: [String], timeout: TimeInterval, stdin: Data? = nil) throws -> Data {
+        try runCaptured(args, timeout: timeout, stdin: stdin).0
     }
 
     /// The one process-plumbing copy: run the CLI, kill it at the timeout, keep its stderr for
     /// the error a caller may want to surface. Stderr goes to a file, not a pipe — a chatty
     /// child cannot then stall the stdout read until the timeout.
-    func runCaptured(_ args: [String], timeout: TimeInterval) throws -> (Data, String) {
+    func runCaptured(_ args: [String], timeout: TimeInterval, stdin: Data? = nil) throws -> (Data, String) {
         let errPath = FileManager.default.temporaryDirectory.appending(path: "unlimited-\(UUID().uuidString).err")
         FileManager.default.createFile(atPath: errPath.path, contents: nil,
                                        attributes: [.posixPermissions: 0o600])
+        // Input goes through a private file, not a pipe: a child that exits without reading it
+        // cannot then break the writer, and the payload has no pipe buffer to overflow.
+        var inPath: URL?
+        if let stdin {
+            let path = FileManager.default.temporaryDirectory.appending(path: "unlimited-\(UUID().uuidString).in")
+            FileManager.default.createFile(atPath: path.path, contents: stdin,
+                                           attributes: [.posixPermissions: 0o600])
+            inPath = path
+        }
         let p = Process()
         p.executableURL = binary
         p.arguments = args
         let out = Pipe()
         p.standardOutput = out
         p.standardError = try FileHandle(forWritingTo: errPath)
+        if let inPath { p.standardInput = try FileHandle(forReadingFrom: inPath) }
         try p.run()
         let killer = DispatchWorkItem { p.terminate() }
         DispatchQueue.global().asyncAfter(deadline: .now() + timeout, execute: killer)
@@ -159,6 +181,7 @@ public struct Runner: Sendable {
         killer.cancel()
         let message = String(decoding: (try? Data(contentsOf: errPath)) ?? Data(), as: UTF8.self)
         try? FileManager.default.removeItem(at: errPath)
+        if let inPath { try? FileManager.default.removeItem(at: inPath) }
         guard p.terminationStatus == 0 else { throw RunError.exit(p.terminationStatus, stderr: message) }
         return (data, message)
     }
