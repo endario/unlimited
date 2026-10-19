@@ -147,8 +147,12 @@ def through(adapter, *, max_age: float, clock, get, directory: Path | None = Non
 
 
 def routes_through(adapter, *, max_age: float, clock, get, directory: Path | None = None) -> list[dict]:
-    """This vendor's routes readings (adapter.models), one freshness and refusal discipline
-    with `through`."""
+    """This vendor's routes readings (adapter.models); None keeps model capability unknown and
+    uses the quota cache for the account's meter facts."""
+    if adapter.models is None:
+        return [dict(r, routes=[], **({"status": "unread", "why": "model-routes-unavailable"}
+                                     if r["status"] == "ok" else {}))
+                for r in through(adapter, max_age=max_age, clock=clock, get=get, directory=directory)]
     directory = directory or default_dir()
     directory.mkdir(parents=True, exist_ok=True, mode=0o700)
     path = directory / f"{adapter.VENDOR}.routes.json"
@@ -182,4 +186,5 @@ def routes_through(adapter, *, max_age: float, clock, get, directory: Path | Non
                     got = dict(prior, retry_until=got["retry_until"])
                 out.append(got)
         write_json({"routes": out}, path)
-        return out
+    names = getattr(adapter, "names", dict)()
+    return [dict(r, names=names.get(r.get("account"), [])) for r in out]

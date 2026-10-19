@@ -438,11 +438,13 @@ examples:
     ROUTES_HELP = ("the youngest cached answer younger than this, else one upstream read; "
                    "a plan's model set changes on days, not minutes")
     rt = add("routes", "each account's plan's models, as JSON", f"""\
-Prints a JSON array, one routes reading per account of a vendor that names its plans' models:
-vendor, account id, status, and `routes` — every model id the plan includes, each with whether
+Prints a JSON array, one routes reading per account of a supported vendor:
+vendor, account id, status, and `routes` — model ids the vendor names, each with whether
 a caller may dispatch to it on this reading alone. A vendor whose endpoint names its whole
-catalog, not the plan's set, marks every route not dispatchable. unlimited reports what the
-vendor says; which route to use is the caller's.
+catalog, not the plan's set, marks every route not dispatchable. Z.ai reports
+`unread` / `model-routes-unavailable` with no models; its quota limits still identify the
+account's meter for catalog rate annotation. `steering.rates` is a schedule, not model entitlement.
+unlimited reports what the vendor says; which route to use is the caller's.
 
 Readings are cached per vendor, beside the usage readings, and share their discipline: a
 refusal's deadline binds every caller and the last good list stands.
@@ -801,6 +803,10 @@ def main(argv: list[str] | None = None) -> int:
                     catalog.write_discovered(recorded)
                 except (catalog.CatalogError, OSError) as e:
                     print(f"unlimited: discovery: {e}", file=sys.stderr)
+        from . import incentives
+        out, errors = incentives._annotate(out, now=datetime.now(timezone.utc))
+        if errors:
+            print("unlimited: steering: " + ", ".join(errors), file=sys.stderr)
         json.dump(out, sys.stdout)
         sys.stdout.write("\n")
         return 0

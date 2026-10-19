@@ -25,6 +25,7 @@ NAMES = {300: "five_hour", 10080: "seven_day"}
 # A GLM session exports its own file and key; neither may narrow discovery to that one account.
 KEYS = EnvKeys("GLM_API_KEY", "claude-glm*.env", named="CLAUDE_GLM_ENV")
 names = KEYS.names
+models = None
 
 
 def discover() -> list[Credential]:
