@@ -806,7 +806,10 @@ class Zai(Base):
                  (Answer({"success": True, "data": {}}, 200, None), "unread", "no-limits")]
         for answer, status, why in cases:
             with self.subTest(why=why):
-                got = zai.models(cred, NOW, self.up(answer))
+                with mock.patch.object(zai, "discover", return_value=[cred]), \
+                        mock.patch.object(zai, "whoami", return_value=(None, None)):
+                    [got] = cache.routes_through(zai, max_age=0, clock=lambda: NOW,
+                                                 get=self.up(answer), directory=self.tmp / why)
                 self.assertEqual((got["status"], got["why"], got["routes"], got["limits"]),
                                  (status, why, [], []))
                 self.assertEqual(got["retry_until"], answer.retry_until.isoformat() if answer.retry_until else None)
@@ -1349,10 +1352,54 @@ if __name__ == "__main__":
     unittest.main()
 
 
+class ZaiRoutesCache(Base):
+    def setUp(self):
+        super().setUp()
+        p = mock.patch.object(zai, "discover", return_value=[Credential("a", {"key": "fixture-key"})])
+        p.start()
+        self.addCleanup(p.stop)
+        p = mock.patch.object(zai, "whoami", return_value=(None, None))
+        p.start()
+        self.addCleanup(p.stop)
+
+    def test_usage_backoff_binds_routes(self):
+        get = self.up(Answer(None, 429, "http-429", NOW + timedelta(minutes=5)))
+        cache.through(zai, max_age=0, clock=lambda: NOW, get=get)
+        [got] = cache.routes_through(zai, max_age=0, clock=lambda: NOW, get=get)
+        self.assertEqual(self.calls, [zai.URL])
+        self.assertEqual((got["status"], got["why"]), ("refused", "http-429"))
+
+    def test_fresh_quota_is_shared_by_usage_and_route_reads(self):
+        body = {"success": True, "data": {"limits": [
+            {"type": "CREDIT_LIMIT", "unit": 3, "number": 5, "percentage": 0}]}}
+        get = self.up(Answer(body, 200, None))
+        with mock.patch.object(zai, "names", return_value={"a": ["glm-alias"]}):
+            for reader in (cache.through, cache.routes_through, cache.routes_through):
+                [got] = reader(zai, max_age=300, clock=lambda: NOW, get=get)
+                self.assertEqual(got["names"], ["glm-alias"])
+        self.assertEqual(self.calls, [zai.URL])
+        self.assertEqual((got["status"], got["why"], got["routes"]),
+                         ("unread", "model-routes-unavailable", []))
+        self.assertEqual(json.loads((cache.default_dir() / "zai.json").read_text())["readings"][0]["status"], "ok")
+
+
 class RoutesCache(Base):
     def adapter(self):
         return SimpleNamespace(VENDOR="opencode", discover=lambda: [Credential("acct-1", {"key": "k"})],
                                models=opencode.models)
+
+    def test_route_names_are_current_on_cache_hits_and_not_persisted(self):
+        adapter = self.adapter()
+        current = {"acct-1": ["first-alias"]}
+        adapter.names = lambda: current
+        get = self.up(Answer({"data": [{"id": "glm-5.3"}]}, 200, None))
+        for alias in ("first-alias", "renamed-alias"):
+            current["acct-1"] = [alias]
+            [got] = cache.routes_through(adapter, max_age=600, clock=lambda: NOW, get=get)
+            self.assertEqual(got["names"], [alias])
+        self.assertEqual(len(self.calls), 1)
+        cached = (cache.default_dir() / "opencode.routes.json").read_text()
+        self.assertNotIn("alias", cached)
 
     def test_a_fresh_routes_read_answers_without_asking_again(self):
         got = cache.routes_through(self.adapter(), max_age=600, clock=lambda: NOW,
@@ -1403,8 +1450,11 @@ class RoutesCli(Base):
                 {"type": kind, "unit": 3, "number": 5, "percentage": 0}]}}, 200, None)
 
         with mock.patch.object(zai, "discover", return_value=creds), \
+                mock.patch.object(zai, "whoami", return_value=(None, None)), \
+                mock.patch.object(zai, "names", return_value={"credit-account": ["credit-alias"]}), \
                 mock.patch.object(transport, "get", get), \
-                mock.patch.dict(os.environ, {"XDG_CONFIG_HOME": str(self.tmp / "config")}):
+                mock.patch.dict(os.environ, {"XDG_CONFIG_HOME": str(self.tmp / "config"),
+                                             "XDG_DATA_HOME": str(self.tmp / "data")}):
             for args in (["routes", "--vendor", "zai", "--json"], ["routes", "--json"]):
                 buf = io.StringIO()
                 with redirect_stdout(buf):
@@ -1418,6 +1468,8 @@ class RoutesCli(Base):
                     self.assertEqual((r["status"], r["why"], r["routes"]),
                                      ("unread", "model-routes-unavailable", []))
                     factor = 2 if r["account"] == "credit-account" else 3
+                    if r["account"] == "credit-account":
+                        self.assertIn("zai/credit-alias", r["policy_keys"])
                     self.assertEqual({s["factor"] for s in r["steering"]["rates"]}, {factor})
                     self.assertEqual(r["steering"]["rates_source"], "unlimited-catalog")
                     self.assertTrue(r["steering"]["rates_from"])

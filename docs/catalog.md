@@ -64,8 +64,8 @@ has no schedule coverage. These fields accompany `read`, `annotate` and `routes`
 
 `routes --vendor zai` retains the key's quota limits for meter-specific rates but returns
 `status: unread`, `why: model-routes-unavailable` and `routes: []` when quota is readable.
-That empty list is unknown capability, not a claim that the account serves no models. Quota
-failures keep their own status and reason. A schedule does not establish model entitlement.
+That empty list is unknown capability, not a claim that the account serves no models.
+A schedule does not establish model entitlement.
 
 One model may have several offerings, one per vendor that sells it; each is its own route, with its
 own history. `Catalog.routes(now, tier)` lists every live one (`id`, `provider`, `model`, `vendor`,
