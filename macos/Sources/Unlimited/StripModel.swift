@@ -145,6 +145,9 @@ final class StripModel: ObservableObject {
     @Published private(set) var accounts: [Tile] = []
     @Published private(set) var prefs: Preferences
 
+    /// The owner's name for an account where they gave one, else the label the strip made.
+    func name(of tile: Tile) -> String { prefs.labels[tile.id] ?? tile.label }
+
     private static let prefsKey = "preferences", pathKey = "unlimitedPath"
 
     private static func loadPrefs(_ defaults: UserDefaults) -> Preferences {

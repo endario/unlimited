@@ -87,7 +87,7 @@ import Testing
 
 @Test func integralHugeMultiplierFormatsWithoutIntegerConversion() {
     #expect(SteeringIndicator.format(1e20) == "1e+20x")
-    for factor in [Double.leastNonzeroMagnitude, 1e20, Double.greatestFiniteMagnitude, 1.0000000000000002] {
+    for factor in [0.01, Double.leastNonzeroMagnitude, 1e20, Double.greatestFiniteMagnitude, 1.0000000000000002] {
         #expect(Double(SteeringIndicator.format(factor).dropLast()) == factor)
     }
 }
