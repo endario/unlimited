@@ -129,6 +129,24 @@ import UnlimitedKit
 }
 
 @MainActor
+@Test func aFirstRefreshPaintsTheCachedReadingsWhileTheLiveReadRuns() async throws {
+    let cli = try UsageCLI()
+    defer { cli.remove() }
+    let takenAt = Date(timeIntervalSince1970: 1_790_985_600)
+    try cli.succeed(takenAt: takenAt, used: 0.1)
+    try cli.publishWarm(takenAt: takenAt, used: 0.9)
+    try cli.publishSwitches([Runner.Switch(target: "openai", account: "fixture")])
+    try cli.slowLiveRead()
+    let model = StripModel(runner: Runner(binary: cli.binary), defaults: cli.defaults, now: { takenAt })
+
+    model.refresh(maxAge: 0)
+    try await waitUntil("the cached reading was painted without its probes") {
+        model.tiles.first?.value == .percent(90) && model.canOffer && model.canSteer && model.offSwitches.count == 1
+    }
+    try await waitUntil("the live reading did not replace the cache") { model.tiles.first?.value == .percent(10) }
+}
+
+@MainActor
 @Test func accountBanWritesItsScopeAndPublishesTheCLIReadback() async throws {
     let cli = try UsageCLI()
     defer { cli.remove() }
@@ -136,9 +154,9 @@ import UnlimitedKit
     try cli.succeed(takenAt: takenAt, used: 0.42)
     let model = StripModel(runner: Runner(binary: cli.binary), defaults: cli.defaults, now: { takenAt })
     model.refresh()
-    try await waitUntil { model.canOffer }
+    try await waitUntil { model.canOffer && !model.busy }
 
-    let reads = try cli.calledCommands().filter { $0 == "read" }.count
+    let reads = try cli.calledCommands().filter { $0.hasPrefix("read") }.count
     try cli.publishSwitches([Runner.Switch(target: "openai", account: "fixture")])
     model.offer("openai", account: "fixture", true)
     #expect(model.steeringPending)
@@ -148,7 +166,7 @@ import UnlimitedKit
     #expect(model.offerProblem == nil)
     #expect(model.readings["openai/fixture"] != nil)
     #expect(model.prefs.hidden.isEmpty)
-    #expect(try cli.calledCommands().filter { $0 == "read" }.count == reads,
+    #expect(try cli.calledCommands().filter { $0.hasPrefix("read") }.count == reads,
             "a switch flips the mark, not the readings")
 
     try cli.publishSwitches([])
@@ -156,7 +174,7 @@ import UnlimitedKit
     try await waitUntil { !model.steeringPending }
     #expect(try cli.arguments() == ["on", "openai", "--account", "fixture"])
     #expect(model.tiles.first?.off == false)
-    #expect(try cli.calledCommands().filter { $0 == "read" }.count == reads)
+    #expect(try cli.calledCommands().filter { $0.hasPrefix("read") }.count == reads)
 }
 
 @MainActor
@@ -167,15 +185,15 @@ import UnlimitedKit
     try cli.succeed(takenAt: takenAt, used: 0.42)
     let model = StripModel(runner: Runner(binary: cli.binary), defaults: cli.defaults, now: { takenAt })
     model.refresh()
-    try await waitUntil { model.canSteer && model.readings["openai/fixture"] != nil }
-    let reads = try cli.calledCommands().filter { $0 == "read" }.count
+    try await waitUntil { model.canSteer && model.readings["openai/fixture"] != nil && !model.busy }
+    let reads = try cli.calledCommands().filter { $0.hasPrefix("read") }.count
 
     model.steer(target: "openai", multiplier: "0.01x", account: "fixture", duration: "12h")
     try await waitUntil { !model.steeringPending }
 
     #expect(model.steeringProblem == nil)
-    #expect(try cli.calledCommands().filter { $0 == "annotate" }.count == 1)
-    #expect(try cli.calledCommands().filter { $0 == "read" }.count == reads,
+    #expect(try cli.calledCommands().filter { $0.hasPrefix("annotate") }.count == 1)
+    #expect(try cli.calledCommands().filter { $0.hasPrefix("read") }.count == reads,
             "a policy change applies to the readings held, without asking a vendor again")
 }
 
@@ -187,15 +205,15 @@ import UnlimitedKit
     try cli.succeed(takenAt: takenAt, used: 0.42)
     let model = StripModel(runner: Runner(binary: cli.binary), defaults: cli.defaults, now: { takenAt })
     model.refresh()
-    try await waitUntil { model.canSteer && model.readings["openai/fixture"] != nil }
-    let reads = try cli.calledCommands().filter { $0 == "read" }.count
+    try await waitUntil { model.canSteer && model.readings["openai/fixture"] != nil && !model.busy }
+    let reads = try cli.calledCommands().filter { $0.hasPrefix("read") }.count
     try cli.refuseAnnotation()
 
     model.steer(target: "openai", multiplier: "5x", account: "fixture", duration: "12h")
     try await waitUntil { !model.steeringPending }
 
     #expect(model.steeringProblem == nil)
-    #expect(try cli.calledCommands().filter { $0 == "read" }.count == reads + 1)
+    #expect(try cli.calledCommands().filter { $0.hasPrefix("read") }.count == reads + 1)
     #expect(model.readings["openai/fixture"] != nil, "the fallback still publishes the readings")
 }
 
@@ -413,6 +431,8 @@ struct UsageCLI {
     private var calls: URL { directory.appending(path: "calls") }
     private var mutationFailure: URL { directory.appending(path: "mutation-failure") }
     private var annotateFailure: URL { directory.appending(path: "annotate-failure") }
+    private var warmReadings: URL { directory.appending(path: "warm.json") }
+    private var slowLive: URL { directory.appending(path: "slow-live") }
 
     init() throws {
         suiteName = "unlimited-tests-\(UUID().uuidString)"
@@ -424,13 +444,21 @@ struct UsageCLI {
         case "$1" in
           --version) printf 'unlimited 0.1.9\\n'; exit 0 ;;
         esac
-        printf '%s\\n' "$1" >> '\(calls.path)'
+        printf '%s\\n' "$*" >> '\(calls.path)'
         if [ -f '\(failure.path)' ]; then
           printf 'fixture CLI failure\\n' >&2
           exit 1
         fi
         case "$1" in
-          read) /bin/cat '\(readings.path)' ;;
+          read)
+            case "$*" in
+              *--max-age\\ 86400*)
+                if [ -f '\(warmReadings.path)' ]; then /bin/cat '\(warmReadings.path)'
+                else /bin/cat '\(readings.path)'; fi ;;
+              *)
+                if [ -f '\(slowLive.path)' ]; then sleep 2; fi
+                /bin/cat '\(readings.path)' ;;
+            esac ;;
           annotate)
             if [ -f '\(annotateFailure.path)' ]; then
               printf 'fixture annotate refused\\n' >&2
@@ -524,6 +552,19 @@ struct UsageCLI {
 
     func refuseAnnotation() throws {
         try Data().write(to: annotateFailure)
+    }
+
+    func publishWarm(takenAt: Date, used: Double) throws {
+        let timestamp = ISO8601DateFormatter().string(from: takenAt)
+        try """
+        [{"schema":1,"vendor":"openai","account":"fixture","status":"ok","taken_at":"\(timestamp)",
+          "limits":[{"name":"weekly","role":"weekly","window_minutes":10080,"used_at_least":\(used),
+          "resets_at":"2026-10-10T00:00:00Z"}]}]
+        """.write(to: warmReadings, atomically: true, encoding: .utf8)
+    }
+
+    func slowLiveRead() throws {
+        try Data().write(to: slowLive)
     }
 
     func arguments() throws -> [String] {
