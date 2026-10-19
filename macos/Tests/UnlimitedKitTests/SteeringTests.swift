@@ -6,6 +6,16 @@ import Testing
     let reading = try #require(try Reading.decode(Data(#"[{"schema":1,"vendor":"openai","account":"a","status":"ok"}]"#.utf8)).first)
     #expect(reading.steering.settings.isEmpty)
     #expect(reading.steering.routes.isEmpty)
+    #expect(reading.steering.rates.isEmpty)
+}
+
+@Test func rateSpansDecodeWithTheirWindows() throws {
+    let reading = try #require(try Reading.decode(Data(#"[{"schema":1,"vendor":"zai","status":"ok","steering":{"rates":[{"offerings":["opencode-go/deepseek-v4.1-flash"],"from":"2026-09-24T06:00:00+00:00","to":"2026-09-24T10:00:00.500000+00:00","factor":2.5}]}}]"#.utf8)).first)
+    let rate = try #require(reading.steering.rates.first)
+    #expect(rate.offerings == ["opencode-go/deepseek-v4.1-flash"])
+    #expect(rate.from == Date(timeIntervalSince1970: 1_790_229_600))
+    #expect(rate.to == Date(timeIntervalSince1970: 1_790_244_000.5))
+    #expect(rate.factor == 2.5)
 }
 
 @Test func partialSteeringOverlayDecodesMissingListsAsEmpty() throws {
