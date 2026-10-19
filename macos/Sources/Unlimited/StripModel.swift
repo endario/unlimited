@@ -182,6 +182,8 @@ final class StripModel: ObservableObject {
     /// The JSON `lastRead` was decoded from, so a policy change can re-annotate it without a
     /// vendor being asked again.
     private var lastReadJSON: Data?
+    /// A refresh asked for while one was running, run when it finishes.
+    private var queuedRefresh: (pending: Bool, maxAge: Int?) = (false, nil)
     private let now: () -> Date
     private let defaults: UserDefaults
 
@@ -214,7 +216,7 @@ final class StripModel: ObservableObject {
 
     static let interval: TimeInterval = 120
     private var runner: Runner?
-    private var busy = false
+    private(set) var busy = false
     private var timer: Timer?
     private var expiryTimer: Timer?
     private var versionChecked: Date?
@@ -231,7 +233,13 @@ final class StripModel: ObservableObject {
     }
 
     func refresh(maxAge: Int? = nil) {
-        guard !busy, !publication.pending else { return }
+        guard !publication.pending else { return }
+        if busy {
+            // A warm first paint leaves data on screen while the live read runs; a refresh asked
+            // for in that window still runs, after it, rather than being dropped.
+            queuedRefresh = (true, maxAge)
+            return
+        }
         let custom = customPath
         runner = runner ?? (custom.isEmpty ? Runner.locate()  // installed after launch: found on the next tick
                                            : Runner(binary: URL(filePath: (custom as NSString).expandingTildeInPath)))
@@ -241,17 +249,41 @@ final class StripModel: ObservableObject {
         // The version is checked again only when the binary is replaced (an upgrade).
         let stamp = (try? FileManager.default.attributesOfItem(atPath: runner.binary.resolvingSymlinksInPath().path))?[.modificationDate] as? Date
         let checked = stamp != nil && stamp == versionChecked
+        let warmStart = lastRead.isEmpty
         Task.detached {
             let recent = checked || runner.isRecentEnough()
-            let result: Result<(Data, [Reading]), Error> = recent ? Result { try runner.readRaw(maxAge: maxAge) } : .failure(Problem.tooOld)
+            // The probes answer at once, so the controls and off marks are usable while a read runs.
             // A probe that fails (an older CLI, a file it refuses) means no greying, not a fault.
             let probed = recent ? try? runner.switches() : nil
             let steering = recent ? try? runner.incentives() : nil
             await MainActor.run { if recent { self.versionChecked = stamp } }
+            // First paint: the CLI's cached readings answer at once while a cold vendor read runs.
+            // The probes land with it, so the warm tiles carry their off marks.
+            if recent, warmStart, (maxAge ?? 300) < 86_400,
+               let (data, readings) = try? runner.readRaw(maxAge: 86_400) {
+                await MainActor.run {
+                    guard self.publication.accepts(seq) else { return }
+                    if let probed {
+                        self.canOffer = true
+                        self.offSwitches = probed
+                    }
+                    self.canSteer = steering != nil
+                    self.incentives = steering ?? []
+                    self.problem = nil
+                    self.lastReadJSON = data
+                    self.lastRead = readings
+                    self.redraw()
+                    self.readings = Dictionary(readings.map { ("\($0.vendor)/\($0.account ?? "")", $0) },
+                                               uniquingKeysWith: { a, _ in a })
+                    self.launches = self.readings.compactMapValues { Launch.resolve(names: $0.names) }
+                }
+            }
+            let result: Result<(Data, [Reading]), Error> = recent ? Result { try runner.readRaw(maxAge: maxAge) } : .failure(Problem.tooOld)
             await MainActor.run {
                 self.busy = false
                 // A later mutation owns every published facet of the reading, including badges.
                 guard self.publication.accepts(seq) else {
+                    self.queuedRefresh = (false, nil)
                     self.refresh(maxAge: 86_400)
                     return
                 }
@@ -284,6 +316,9 @@ final class StripModel: ObservableObject {
                         self.redraw()
                     }
                 }
+                let queued = self.queuedRefresh
+                self.queuedRefresh = (false, nil)
+                if queued.pending { self.refresh(maxAge: queued.maxAge) }
             }
         }
     }
