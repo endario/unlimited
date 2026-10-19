@@ -6,7 +6,7 @@ import json
 import math
 import os
 from dataclasses import dataclass
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from . import rates
@@ -557,8 +557,10 @@ def _rated(readings: list[dict], cat: Catalog | None, now: datetime) -> list[dic
     except (OSError, UnicodeDecodeError, ValueError, TypeError):
         table = []
     for r in readings:
-        if spans := rates.spans(table, r, now):
-            r["steering"]["rates"] = spans
+        if any(rates.applies(rule, r) for rule in table):
+            r["steering"].update(rates=rates.spans(table, r, now), rates_source="unlimited-catalog",
+                                 rates_from=now.astimezone(timezone.utc).isoformat(),
+                                 rates_to=(now + rates.HORIZON).astimezone(timezone.utc).isoformat())
     return readings
 
 

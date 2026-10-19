@@ -797,6 +797,20 @@ class Zai(Base):
         self.assertEqual((got[300]["name"], got[300]["used_at_least"]), ("five_hour", 0.0))
         self.assertNotIn("seven_day", [l["name"] for l in got.values() if l["kind"] == "TIME_LIMIT"])
 
+    def test_model_route_failures_keep_the_quota_refusal_and_claim_no_models(self):
+        cred = Credential("a", {"key": "fixture-key"})
+        cases = [(Answer(None, 401, "http-401"), "refused", "http-401"),
+                 (Answer(None, 429, "http-429", NOW + timedelta(minutes=5)), "refused", "http-429"),
+                 (Answer(None, None, "unreachable"), "unread", "unreachable"),
+                 (Answer({"success": False, "code": 1001}, 200, None), "refused", "vendor-1001"),
+                 (Answer({"success": True, "data": {}}, 200, None), "unread", "no-limits")]
+        for answer, status, why in cases:
+            with self.subTest(why=why):
+                got = zai.models(cred, NOW, self.up(answer))
+                self.assertEqual((got["status"], got["why"], got["routes"], got["limits"]),
+                                 (status, why, [], []))
+                self.assertEqual(got["retry_until"], answer.retry_until.isoformat() if answer.retry_until else None)
+
     def test_an_idle_credit_limit_window_is_unopened_not_unknown(self):
         # A credit plan's idle five-hour window answers no reset time with zero use (#214); either
         # zero — the percentage or the value — is the account saying nothing is used.
@@ -1375,6 +1389,46 @@ class RoutesCache(Base):
 
 
 class RoutesCli(Base):
+    def test_zai_routes_keep_each_keys_meter_without_claiming_models(self):
+        from unlimited import catalog, transport
+        creds = [Credential("credit-account", {"key": "credit-key"}),
+                 Credential("token-account", {"key": "token-key", "host": "open.bigmodel.cn",
+                                              "organization": "org", "project": "project"})]
+        seen = []
+
+        def get(url, headers, now):
+            seen.append((url, headers))
+            kind = "CREDIT_LIMIT" if headers["Authorization"] == "Bearer credit-key" else "TOKENS_LIMIT"
+            return Answer({"success": True, "data": {"limits": [
+                {"type": kind, "unit": 3, "number": 5, "percentage": 0}]}}, 200, None)
+
+        with mock.patch.object(zai, "discover", return_value=creds), \
+                mock.patch.object(transport, "get", get), \
+                mock.patch.dict(os.environ, {"XDG_CONFIG_HOME": str(self.tmp / "config")}):
+            for args in (["routes", "--vendor", "zai", "--json"], ["routes", "--json"]):
+                buf = io.StringIO()
+                with redirect_stdout(buf):
+                    try:
+                        self.assertEqual(cli.main(args), 0)
+                    except SystemExit as error:
+                        self.fail(f"zai routes must be readable, exited {error.code}")
+                rows = [r for r in json.loads(buf.getvalue()) if r["vendor"] == "zai"]
+                self.assertEqual({r["account"] for r in rows}, {c.account for c in creds})
+                for r in rows:
+                    self.assertEqual((r["status"], r["why"], r["routes"]),
+                                     ("unread", "model-routes-unavailable", []))
+                    factor = 2 if r["account"] == "credit-account" else 3
+                    self.assertEqual({s["factor"] for s in r["steering"]["rates"]}, {factor})
+                    self.assertEqual(r["steering"]["rates_source"], "unlimited-catalog")
+                    self.assertTrue(r["steering"]["rates_from"])
+                    self.assertTrue(r["steering"]["rates_to"])
+            self.assertNotIn("zai", catalog.read_discovered())
+        self.assertEqual(seen[0], (zai.URL, {"Authorization": "Bearer credit-key"}))
+        self.assertEqual(seen[1], ("https://open.bigmodel.cn/api/monitor/usage/quota/limit?type=2",
+                                  {"Authorization": "Bearer token-key", "Bigmodel-Organization": "org",
+                                   "Bigmodel-Project": "project"}))
+        self.assertTrue(all("/quota/limit" in url for url, _ in seen))
+
     def test_woyo_vendor_filter_applies_before_or_after_the_routes_command(self):
         calls = []
 

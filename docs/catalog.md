@@ -58,7 +58,14 @@ factor = 2                             # times the usual rate; below 1 is a disc
 A vendor's usage answer does not say which rate is in force, so the catalog declares it. Each
 reading's `steering` context carries `rates`: the spans it resolves to over the next eight days,
 `{offerings, from, to, factor}` with UTC instants and `offerings` null for all. Outside every span
-the factor is 1; a reading no rate binds carries none.
+the factor is 1 within `rates_from` through `rates_to`, the resolution's UTC coverage bounds.
+`rates_source` is `unlimited-catalog`; a reading no rule binds, or whose rates cannot be loaded,
+has no schedule coverage. These fields accompany `read`, `annotate` and `routes` output.
+
+`routes --vendor zai` retains the key's quota limits for meter-specific rates but returns
+`status: unread`, `why: model-routes-unavailable` and `routes: []` when quota is readable.
+That empty list is unknown capability, not a claim that the account serves no models. Quota
+failures keep their own status and reason. A schedule does not establish model entitlement.
 
 One model may have several offerings, one per vendor that sells it; each is its own route, with its
 own history. `Catalog.routes(now, tier)` lists every live one (`id`, `provider`, `model`, `vendor`,

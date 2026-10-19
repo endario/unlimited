@@ -122,3 +122,11 @@ def read(cred: Credential, now: datetime, get) -> dict:
         return reading(VENDOR, cred.account, now, UNREAD, why="no-limits")
     level = (ans.body.get("data") or {}).get("level") if isinstance(ans.body.get("data"), dict) else None
     return reading(VENDOR, cred.account, now, OK, limits=found, plan=level if isinstance(level, str) else None)
+
+
+def models(cred: Credential, now: datetime, get) -> dict:
+    # The quota endpoint proves the meter, not which models this key may dispatch.
+    got = read(cred, now, get)
+    if got["status"] == OK:
+        got = dict(got, status=UNREAD, why="model-routes-unavailable")
+    return dict(got, routes=[])
