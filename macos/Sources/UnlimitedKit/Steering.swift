@@ -34,17 +34,29 @@ public struct SteeringPublicationFence: Sendable {
 public struct Steering: Decodable, Sendable, Equatable {
     public let settings: [Setting]
     public let routes: [Route]
+    /// The vendor's time-of-day rates, as absolute instants from now to the CLI's horizon.
+    public let rates: [Rate]
 
-    public init(settings: [Setting] = [], routes: [Route] = []) {
+    public init(settings: [Setting] = [], routes: [Route] = [], rates: [Rate] = []) {
         self.settings = settings
         self.routes = routes
+        self.rates = rates
     }
 
-    enum CodingKeys: String, CodingKey { case settings, routes }
+    enum CodingKeys: String, CodingKey { case settings, routes, rates }
     public init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         settings = try c.decodeIfPresent([Setting].self, forKey: .settings) ?? []
         routes = try c.decodeIfPresent([Route].self, forKey: .routes) ?? []
+        rates = try c.decodeIfPresent([Rate].self, forKey: .rates) ?? []
+    }
+
+    /// A window charged at `factor` times the usual rate; `offerings` nil covers the whole account.
+    public struct Rate: Decodable, Sendable, Equatable {
+        public let offerings: [String]?
+        public let from: Date
+        public let to: Date
+        public let factor: Double
     }
 
     public struct Setting: Decodable, Sendable, Equatable, Identifiable {

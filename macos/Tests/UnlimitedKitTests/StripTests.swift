@@ -108,6 +108,31 @@ func strip() throws -> [String: Tile] {
     #expect(!tile.value.isMissing)
 }
 
+@Test func aRunningPeakRateWindowMarksTheAccount() throws {
+    let readings = try Reading.decode(Data("""
+    [{"schema": 1, "vendor": "zai", "account": "a", "status": "ok", "taken_at": "2026-09-24T05:59:00+00:00",
+      "limits": [{"name": "seven_day", "window_minutes": 10080, "used_at_least": 0.2, "role": "weekly"}],
+      "steering": {"rates": [
+        {"offerings": null, "from": "2026-09-24T06:00:00+00:00", "to": "2026-09-24T10:00:00+00:00", "factor": 2},
+        {"offerings": null, "from": "2026-09-25T06:00:00+00:00", "to": "2026-09-25T10:00:00+00:00", "factor": 2}]}}]
+    """.utf8))
+    let tile = try #require(Tile.strip(readings, now: now).first)
+    #expect(tile.peak)
+    #expect(tile.labelled("OWN").peak, "kept when accounts are numbered apart")
+    #expect(!Tile.strip(readings, now: now.addingTimeInterval(-60)).first!.peak, "a window that has not opened")
+    #expect(!Tile.strip(readings, now: now.addingTimeInterval(4 * 3600)).first!.peak, "a window that has closed")
+}
+
+@Test func aDiscountedRateWindowIsNotPeak() throws {
+    let readings = try Reading.decode(Data("""
+    [{"schema": 1, "vendor": "zai", "account": "a", "status": "ok", "taken_at": "2026-09-24T05:59:00+00:00",
+      "limits": [{"name": "seven_day", "window_minutes": 10080, "used_at_least": 0.2, "role": "weekly"}],
+      "steering": {"rates": [
+        {"offerings": null, "from": "2026-09-24T05:00:00+00:00", "to": "2026-09-24T07:00:00+00:00", "factor": 0.5}]}}]
+    """.utf8))
+    #expect(Tile.strip(readings, now: now).first?.peak == false)
+}
+
 @Test func offVendorsAreMarkedAndNeverThePick() throws {
     func weekly(_ used: Double) -> String {
         """

@@ -55,6 +55,13 @@ struct TileView: View {
     let alternating: Bool
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
+    private var labelHelp: String {
+        let marks = [tile.best ? "Underline: best account by quota room, not steering" : nil,
+                     tile.peak ? "Amber: a peak-rate window is running for this account" : nil]
+            .compactMap { $0 }
+        return marks.isEmpty ? "Account label" : marks.joined(separator: "\n")
+    }
+
     var body: some View {
         let showAlt = alternating && tile.alternate != nil && !reduceMotion
         // Every label keeps room for the best account's underline, so the figures stay on one line.
@@ -62,8 +69,9 @@ struct TileView: View {
             HStack(spacing: 1) {
                 Text(tile.label)
                     .font(.system(size: 7, weight: .medium, design: .monospaced))
+                    .foregroundStyle(tile.peak ? Health.amber.color : Color.primary)
                     .underline(tile.best, color: .primary.opacity(0.7))
-                    .help(tile.best ? "Underline: best account by quota room, not steering" : "Account label")
+                    .help(labelHelp)
                 // Takes no height, so the marks never push the figure below off its line.
                 SteeringIndicatorView(indicator: tile.indicator).frame(height: 0)
             }

@@ -112,6 +112,8 @@ public struct Tile: Identifiable, Equatable, Sendable {
     public var best = false
     /// The vendor is switched off here (`unlimited off`): tracked, never offered.
     public var off = false
+    /// A published rate window runs now that charges this account more than usual.
+    public var peak = false
     /// The high end of the longest window's forecast, for choosing the best pick.
     var heading: Double?
     /// How much of the longest window has passed, 0 to 1.
@@ -140,6 +142,7 @@ public struct Tile: Identifiable, Equatable, Sendable {
     public func labelled(_ label: String) -> Tile {
         var t = Tile(id: id, label: label, value: value, dimmed: dimmed, health: health, alternate: alternate, best: best, indicator: indicator)
         t.off = off
+        t.peak = peak
         t.heading = heading
         t.elapsed = elapsed
         return t
@@ -320,6 +323,7 @@ public struct Tile: Identifiable, Equatable, Sendable {
         var tile = Tile(id: id, label: label(r), value: value, dimmed: throttled || !usable,
                         health: usable ? r.primary?.health(now: now) ?? .normal : .normal, alternate: alt,
                         indicator: steering.count == 0 ? nil : steering)
+        tile.peak = r.steering.rates.contains { $0.factor > 1 && $0.from <= now && now < $0.to }
         // Where it is heading, if the forecast is trusted yet; else how much is used so far.
         if case .localPercent(let percent) = value, usable, percent >= 100 { tile.health = .red }
         tile.heading = r.primary.flatMap { w in
