@@ -30,12 +30,14 @@ by an account row; broader policies can be created through the CLI.
 Account/reset steering requires caller account bindings (`choose --account OFFERING=ACCOUNT`, or
 `rank(accounts=...)`).
 
-Auto-hide normal accounts is enabled by default in General. White, readable accounts without
-warnings, bans or account steering disappear from the compact strip, as do accounts whose window is
-spent or whose usage is missing; hover restores them. After leaving,
-the strip holds for five seconds before fading back. An open popover keeps it expanded. The eye's
-manual hiding still applies, tracking is unchanged, and Reduce Motion disables the fade. When all
-visible accounts are normal, spent or without usage, an ellipsis remains available to hover or activate.
+Auto-hide normal accounts is enabled by default in General. Readable accounts disappear from the
+compact strip unless they ask for attention: red, sprint, under-used, banned or dimmed accounts
+stay, as do measured token figures and prepaid balances. Amber accounts and accounts carrying an
+incentive mark hide with the normal ones, as do accounts whose window is spent or whose usage is
+missing. Hover restores them. After leaving, the strip holds for five seconds before fading back.
+An open popover keeps it expanded. The eye's manual hiding still applies, tracking is unchanged,
+and Reduce Motion disables the fade. When every account is routine, an ellipsis remains available
+to hover or activate.
 
 With unlimited 0.1.10, Settings can encourage or discourage vendors, accounts, models and routes.
 Until reset is the default; an explicit duration overrides it. A green upward or red downward

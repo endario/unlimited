@@ -125,15 +125,15 @@ public struct Tile: Identifiable, Equatable, Sendable {
 
     /// Whether auto-hide may drop this tile while idle: a routine figure, a window that has
     /// spent its limit, or no figure at all — none is news until the owner opens the strip.
-    /// Spent and missing dominate the other exceptions: off, dimmed or steered, an account
-    /// that cannot be used or read is nothing to act on. Measured token observations stay:
-    /// they say something even when the quota read does not, and so does a prepaid balance.
+    /// Spent and missing dominate the other exceptions: off or dimmed, an account that cannot
+    /// be used or read is nothing to act on. Amber hides with normal, and an incentive mark
+    /// does not keep a routine account on the strip. Measured token observations stay: they
+    /// say something even when the quota read does not, and so does a prepaid balance.
     public var isRoutine: Bool {
         if value.isSpent || value.isMissing { return true }
         if case .credit = value { return false }
-        return value.showsData && health == .normal && !dimmed && !off &&
-            (indicator?.count ?? 0) == 0 &&
-            (alternate.map { $0.value.showsData && $0.health == .normal } ?? true)
+        return value.showsData && health.hidesWhenRoutine && !dimmed && !off &&
+            (alternate.map { $0.value.showsData && $0.health.hidesWhenRoutine } ?? true)
     }
 
     /// The same tile under another label.
@@ -336,4 +336,11 @@ public struct Tile: Identifiable, Equatable, Sendable {
         let digits = r.names.first.map { String($0.reversed().prefix { $0.isNumber }.reversed()) } ?? ""
         return code + digits
     }
+}
+
+private extension Health {
+    /// Whether a routine figure at this health may auto-hide. Amber forecasts a limit without
+    /// reaching one, so it hides with normal; red, and the colours that ask for use (sprint and
+    /// under-used), keep the tile on the strip.
+    var hidesWhenRoutine: Bool { self == .normal || self == .amber }
 }
