@@ -135,14 +135,27 @@ struct PopoverView: View {
                 }
             }
             Spacer()
-            Button { model.refresh(maxAge: 0) } label: { Image(systemName: "arrow.clockwise") }
-                .buttonStyle(.plain).help("Read now")
-            Button { model.closePopover(); SettingsWindow.show(model) } label: { Image(systemName: "gearshape") }
-                .buttonStyle(.plain).help("Settings").accessibilityLabel("Settings")
-            Button { NSApp.terminate(nil) } label: { Image(systemName: "power") }
-                .buttonStyle(.plain).help("Quit")
+            HStack(spacing: 4) {
+                if let t = tile, r != nil {
+                    AccountSteeringButton(model: model, tile: t, label: model.name(of: t))
+                    AccountOfferButton(model: model, tile: t, label: model.name(of: t))
+                }
+                Button { model.refresh(maxAge: 0) } label: { footerIcon("arrow.clockwise") }
+                    .buttonStyle(.borderless).help("Read now")
+                Button { model.closePopover(); SettingsWindow.show(model) } label: { footerIcon("gearshape") }
+                    .buttonStyle(.borderless).help("Settings").accessibilityLabel("Settings")
+                Button { NSApp.terminate(nil) } label: { footerIcon("power") }
+                    .buttonStyle(.borderless).help("Quit")
+            }
         }
         .font(.caption)
+    }
+
+    private func footerIcon(_ name: String) -> some View {
+        Image(systemName: name)
+            .font(.system(size: 14))
+            .frame(width: 26, height: 26)
+            .contentShape(Rectangle())
     }
 }
 

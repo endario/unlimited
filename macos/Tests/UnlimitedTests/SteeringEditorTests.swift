@@ -9,6 +9,11 @@ private func editorGroups(_ json: String) throws -> [Runner.Incentive] {
     try Runner.decodeIncentives(Data(json.utf8))
 }
 
+@Test func thePresetWeightsOfferANearBanFactor() {
+    #expect(SteeringDraft.multipliers.contains("0.01x"))
+    #expect(SteeringIndicator.format(0.01) == "0.01x")
+}
+
 @Test func accountDraftDoesNotCopyInheritedOrAnotherAccountsSettings() throws {
     let groups = try editorGroups(#"[{"target":"openai","account":null,"multiplier":5,"activated_at":"2026-10-03T00:00:00Z","until":"2026-10-04T00:00:00Z"},{"target":"openai","account":"other","multiplier":0.1,"activated_at":"2026-10-03T00:00:00Z","until":"2026-10-04T00:00:00Z"},{"target":"openai/gpt-6","account":"owner","multiplier":10,"activated_at":"2026-10-03T00:00:00Z","until":"2026-10-04T00:00:00Z"}]"#)
     let draft = SteeringDraft(target: "openai", account: "owner", groups: groups, now: editorNow)

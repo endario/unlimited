@@ -3,6 +3,9 @@ import SwiftUI
 import UnlimitedKit
 
 struct SteeringDraft: Equatable {
+    /// The preset weights the editor offers, strongest first; `off` sits between the two directions.
+    static let multipliers = ["100x", "10x", "5x", "2x", "off", "0.5x", "0.2x", "0.1x", "0.01x"]
+
     var multiplier = "off"
     var duration = "12h"
     var untilReset = true
@@ -46,7 +49,7 @@ struct SteeringEditor: View {
     let target: String
     let account: String?
     @StateObject private var state: SteeringEditorState
-    private let multipliers = ["100x", "10x", "5x", "2x", "off", "0.5x", "0.2x", "0.1x"]
+    private let multipliers = SteeringDraft.multipliers
     private let durations = ["1h", "6h", "12h", "24h", "3d", "7d"]
 
     init(model: StripModel, target: String, account: String?) {
