@@ -138,6 +138,7 @@ import UnlimitedKit
     model.refresh()
     try await waitUntil { model.canOffer }
 
+    let reads = try cli.calledCommands().filter { $0 == "read" }.count
     try cli.publishSwitches([Runner.Switch(target: "openai", account: "fixture")])
     model.offer("openai", account: "fixture", true)
     #expect(model.steeringPending)
@@ -147,12 +148,55 @@ import UnlimitedKit
     #expect(model.offerProblem == nil)
     #expect(model.readings["openai/fixture"] != nil)
     #expect(model.prefs.hidden.isEmpty)
+    #expect(try cli.calledCommands().filter { $0 == "read" }.count == reads,
+            "a switch flips the mark, not the readings")
 
     try cli.publishSwitches([])
     model.offer("openai", account: "fixture", false)
     try await waitUntil { !model.steeringPending }
     #expect(try cli.arguments() == ["on", "openai", "--account", "fixture"])
     #expect(model.tiles.first?.off == false)
+    #expect(try cli.calledCommands().filter { $0 == "read" }.count == reads)
+}
+
+@MainActor
+@Test func steeringReannotatesHeldReadingsInsteadOfReadingEveryVendorAgain() async throws {
+    let cli = try UsageCLI()
+    defer { cli.remove() }
+    let takenAt = Date(timeIntervalSince1970: 1_790_985_600)
+    try cli.succeed(takenAt: takenAt, used: 0.42)
+    let model = StripModel(runner: Runner(binary: cli.binary), defaults: cli.defaults, now: { takenAt })
+    model.refresh()
+    try await waitUntil { model.canSteer && model.readings["openai/fixture"] != nil }
+    let reads = try cli.calledCommands().filter { $0 == "read" }.count
+
+    model.steer(target: "openai", multiplier: "0.01x", account: "fixture", duration: "12h")
+    try await waitUntil { !model.steeringPending }
+
+    #expect(model.steeringProblem == nil)
+    #expect(try cli.calledCommands().filter { $0 == "annotate" }.count == 1)
+    #expect(try cli.calledCommands().filter { $0 == "read" }.count == reads,
+            "a policy change applies to the readings held, without asking a vendor again")
+}
+
+@MainActor
+@Test func aRefusedAnnotationFallsBackToReadingAndStillPublishes() async throws {
+    let cli = try UsageCLI()
+    defer { cli.remove() }
+    let takenAt = Date(timeIntervalSince1970: 1_790_985_600)
+    try cli.succeed(takenAt: takenAt, used: 0.42)
+    let model = StripModel(runner: Runner(binary: cli.binary), defaults: cli.defaults, now: { takenAt })
+    model.refresh()
+    try await waitUntil { model.canSteer && model.readings["openai/fixture"] != nil }
+    let reads = try cli.calledCommands().filter { $0 == "read" }.count
+    try cli.refuseAnnotation()
+
+    model.steer(target: "openai", multiplier: "5x", account: "fixture", duration: "12h")
+    try await waitUntil { !model.steeringPending }
+
+    #expect(model.steeringProblem == nil)
+    #expect(try cli.calledCommands().filter { $0 == "read" }.count == reads + 1)
+    #expect(model.readings["openai/fixture"] != nil, "the fallback still publishes the readings")
 }
 
 @MainActor
@@ -366,7 +410,9 @@ struct UsageCLI {
     private var switches: URL { directory.appending(path: "switches.json") }
     private var incentives: URL { directory.appending(path: "incentives.json") }
     private var command: URL { directory.appending(path: "command") }
+    private var calls: URL { directory.appending(path: "calls") }
     private var mutationFailure: URL { directory.appending(path: "mutation-failure") }
+    private var annotateFailure: URL { directory.appending(path: "annotate-failure") }
 
     init() throws {
         suiteName = "unlimited-tests-\(UUID().uuidString)"
@@ -378,12 +424,19 @@ struct UsageCLI {
         case "$1" in
           --version) printf 'unlimited 0.1.9\\n'; exit 0 ;;
         esac
+        printf '%s\\n' "$1" >> '\(calls.path)'
         if [ -f '\(failure.path)' ]; then
           printf 'fixture CLI failure\\n' >&2
           exit 1
         fi
         case "$1" in
           read) /bin/cat '\(readings.path)' ;;
+          annotate)
+            if [ -f '\(annotateFailure.path)' ]; then
+              printf 'fixture annotate refused\\n' >&2
+              exit 2
+            fi
+            /bin/cat ;;
           off|on|incentive)
             if [ "$2" = '--json' ]; then
               if [ "$1" = 'off' ]; then /bin/cat '\(switches.path)'
@@ -469,8 +522,17 @@ struct UsageCLI {
         try Data().write(to: mutationFailure)
     }
 
+    func refuseAnnotation() throws {
+        try Data().write(to: annotateFailure)
+    }
+
     func arguments() throws -> [String] {
         try String(contentsOf: command, encoding: .utf8).split(separator: "\n").map(String.init)
+    }
+
+    func calledCommands() throws -> [String] {
+        (try? String(contentsOf: calls, encoding: .utf8))?
+            .split(separator: "\n").map(String.init) ?? []
     }
 
     func fail() throws {
