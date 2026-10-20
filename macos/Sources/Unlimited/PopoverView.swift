@@ -39,7 +39,7 @@ struct PopoverView: View {
                 Text(failure.message).font(.callout).foregroundStyle(.secondary)
                 if let reading = failure.reading {
                     DescribedAccount(description: PopoverContent.description(for: reading),
-                                     help: "Retained measured snapshot", reading: reading)
+                                     help: failure.usage == nil ? "The account shown" : "Retained measured snapshot", reading: reading)
                         .font(.callout).foregroundStyle(.secondary)
                 }
                 if let usage = failure.usage { LoggedUsageView(usage: usage) }
