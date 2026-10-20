@@ -18,9 +18,7 @@ struct PopoverContent {
 
     static func failure(problem: String?, readings: [String: Reading], selected: String?) -> Failure? {
         guard let problem else { return nil }
-        let retained = selected.flatMap { readings[$0] }.flatMap { $0.usage == nil ? nil : $0 }
-            ?? readings.values.first { $0.usage != nil }
-        return Failure(message: problem, reading: retained)
+        return Failure(message: problem, reading: selected.flatMap { readings[$0] })
     }
 
     static func description(for reading: Reading) -> String {

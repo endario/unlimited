@@ -205,7 +205,7 @@ private func greenColumns(_ image: NSBitmapImageRep) throws -> [Int] {
 }
 
 @MainActor
-@Test func failureFallbackNamesTheMeasuredAccountWhenSelectedAccountHasNoUsage() throws {
+@Test func failureNamesTheSelectedAccountNeverAnotherWithUsage() throws {
     let readings = try Reading.decode(Data("""
     [{"schema":1,"vendor":"openai","account":"quota","status":"ok","limits":[]},
      {"schema":1,"vendor":"woyo","account":"measured","names":["gateway-account"],"status":"ok","limits":[],
@@ -216,8 +216,10 @@ private func greenColumns(_ image: NSBitmapImageRep) throws -> [Int] {
     let byID = Dictionary(uniqueKeysWithValues: readings.map { ("\($0.vendor)/\($0.account ?? "")", $0) })
     let failure = try #require(PopoverContent.failure(problem: "unlimited read failed", readings: byID, selected: "openai/quota"))
 
-    #expect(failure.reading?.vendor == "woyo")
-    #expect(PopoverContent.description(for: try #require(failure.reading)) == "Woyo · gateway-account")
+    #expect(failure.reading?.vendor == "openai")
+    #expect(failure.usage == nil)
+    #expect(try #require(PopoverContent.failure(problem: "unlimited read failed", readings: byID, selected: "woyo/measured")).reading?.vendor == "woyo")
+    #expect(PopoverContent.failure(problem: "unlimited read failed", readings: byID, selected: nil)?.reading == nil)
 }
 
 @MainActor
