@@ -56,6 +56,12 @@ tiers = ["standard"]
 provider = "meta"
 tiers = ["standard"]
 
+# FreeLLMAPI's virtual model: a panel of the pool's free models answers in parallel and a judge
+# model synthesizes their drafts.
+[models.fusion]
+provider = "freellmapi"
+tiers = ["standard"]
+
 # Unnamed preview models, whoever makes them.
 [models.space-bunny-alpha]
 provider = "stealth"
@@ -145,6 +151,12 @@ model = "space-bunny-alpha"
 vendor = "commandcode"
 free = true
 until = 2026-09-30
+
+[[offerings]]
+id = "freellmapi/fusion"
+model = "fusion"
+vendor = "freellmapi"
+free = true
 
 # What a vendor publishes about a model it sells: an expected figure until our own attempts say
 # otherwise (`unlimited cards`). Price and speed are the vendor's, not the model's: `models` are the
