@@ -1,21 +1,23 @@
 """Where each open window is heading: arithmetic on the readings unlimited has already taken.
 
 A reading says how much of a window is used; it cannot say whether that is a lot for the time
-elapsed. Two sources say where it is heading:
+elapsed. The projection is a vote of the windows before it:
 
-- This window's own readings give two paces extended to the reset: the average since the window
-  opened (long memory), and a recency-weighted pace whose half-life is a fourteenth of the window
-  (12 hours of a week, ~21 minutes of 5 hours), so a burst lifts it and a quiet spell lets it fall.
-- Past windows of the same limit give the shape of use: how much each one still used from this
-  point of the window to its end. That knows the night is quiet and Monday is busy, which no pace
-  does. A past window that hit its limit is extended at its own pace, as demand it could not spend.
+- Each past window of the same limit votes by what it still used from this point of the window to
+  its end. That knows the night is quiet and Monday is busy, which no pace does. This window's level
+  against the typical one scales the vote, at half strength.
+- A past window that hit its limit is a floor, never extended: it is silent once it was already at
+  the limit at this point, and otherwise may have wanted up to twice what it drew.
+- Each vote is blurred, more the more it still draws, so one window never decides the forecast.
+- This window's own pace is one more vote, half the average since it opened and the recent pace
+  (whose half-life is a fourteenth of the window). It counts for less as past windows accumulate:
+  for windows of a day or longer from the third, for shorter ones from the sixth.
 
-With few past windows the projection is the paces'; it moves to the past windows' as they
-accumulate. `at_reset` is [low, high], unclamped: 1.07 means use would pass the limit.
-`recent_at_reset` is the recent pace alone, extended to the reset: today's momentum, which
-past windows do not move.
-`exhausts_at` is when the high end reaches 1.0, if before the reset. `run_out` is how likely use
-passes the limit, from the past windows that, shifted to today's use, did. None of it is advice.
+`at_reset` is [low, high], the quartiles of the blurred votes, never below what is already used and
+unclamped above: 1.07 means use would pass the limit. `recent_at_reset` is the recent pace alone,
+extended to the reset: today's momentum, which past windows do not move. `run_out` is how likely
+use reaches 95%, which is as full as readings usually show a window that ran out. `exhausts_at` is
+when the votes that reach it do, if before the reset. None of it is advice.
 """
 
 from __future__ import annotations
@@ -34,8 +36,14 @@ HALF_LIFE = 14  # the recent pace halves its memory every window/HALF_LIFE
 MIN_SPAN = 50  # nothing is projected before window/MIN_SPAN has elapsed
 GRID = 168  # a past window is kept as its use at GRID+1 even points (hourly for a week)
 KEEP = 8  # past windows kept per limit
-MIN_PAST, FULL_PAST = 3, 8  # past windows start to count at MIN_PAST, fully at FULL_PAST
-AGE_TAU = 3.0  # a past window's weight is exp(-windows ago / AGE_TAU)
+MIN_PAST = 3  # past windows that mark a forecast as backed by history rather than a guess
+RAN = 0.95  # a window this full ran out: readings stop a hair short of 1.0
+AGE_TAU = 4.0  # a past window's weight is exp(-windows ago / AGE_TAU)
+LEVEL_OFFSET, LEVEL_LO, LEVEL_HI = 0.05, 0.25, 4.0  # this window's level against theirs, then taken at half strength
+SPREAD_BASE, SPREAD_GROW = 0.03, 0.25  # a vote's blur: this, plus SPREAD_GROW of what it still draws
+LIFT = 2.0  # a past window that ran dry may have wanted up to this many times what it drew
+LONG_WINDOW = timedelta(days=1)  # from this length, three past windows outweigh the own pace
+RAMP_LONG, RAMP_SHORT = 3, 6
 COVERED = 6 / 7  # a past window is kept only if it was read this far into it
 
 
@@ -166,14 +174,6 @@ def _at(curve: list[float], x: float) -> float:
     return curve[i] + (curve[i + 1] - curve[i]) * (x * GRID - i)
 
 
-def _extended(curve: list[float]) -> list[float]:
-    """A window that hit its limit, continued at its own pace to the end: the demand it could not spend."""
-    cap = next((i for i, y in enumerate(curve) if y >= 0.999), None)
-    if cap is None or cap == 0 or cap == GRID:
-        return curve
-    return curve[:cap] + [curve[cap] * i / cap for i in range(cap, GRID + 1)]
-
-
 def _quantile(values: list[float], weights: list[float], q: float) -> float:
     pairs = sorted(zip(values, weights))
     total, run = sum(weights), 0.0
@@ -184,27 +184,52 @@ def _quantile(values: list[float], weights: list[float], q: float) -> float:
     return pairs[-1][0]
 
 
-def _history(past: list[dict], resets: datetime, window: timedelta, x: float, u: float):
-    """From past windows: (low, high, run_out, ETA in seconds or None, strength 0..1), or None."""
-    scoped = [p for p in past if moment(p["resets_at"]) < resets - SAME_WINDOW]
-    if not scoped:
-        return None
-    ws = [math.exp(-max((resets - moment(p["resets_at"])) / window, 0) / AGE_TAU) for p in scoped]
-    strength = min(max((len(scoped) - MIN_PAST + 1) / (FULL_PAST - MIN_PAST + 1), 0.0), 1.0)
-    if strength == 0:
-        return None
-    ends, etas, out_w = [], [], 0.0
-    for p, w in zip(scoped, ws):
-        c = _extended(p["curve"])
-        shift = u - _at(c, x)
-        ends.append(c[-1] + shift)
-        if c[-1] + shift >= 1:
-            out_w += w
-            i = next(i for i in range(math.floor(x * GRID) + 1, GRID + 1) if c[i] + shift >= 1)
-            etas.append((max(i / GRID - x, 0) * window.total_seconds(), w))
-    run_out = (out_w + 0.5) / (sum(ws) + 1)
-    eta = _quantile([e for e, _ in etas], [w for _, w in etas], 0.5) if etas else None
-    return _quantile(ends, ws, 0.25), _quantile(ends, ws, 0.75), run_out, eta, strength
+def _cdf(votes: list[tuple[float, float, float]], v: float) -> float:
+    """The blurred votes' cumulative share at `v`; votes are (mean, spread, weight)."""
+    return sum(w * 0.5 * (1 + math.erf((v - m) / sd / math.sqrt(2))) for m, sd, w in votes)
+
+
+def _mixture_quantile(votes: list[tuple[float, float, float]], q: float) -> float:
+    lo, hi = -0.5, 4.0
+    for _ in range(40):
+        mid = (lo + hi) / 2
+        if _cdf(votes, mid) < q:
+            lo = mid
+        else:
+            hi = mid
+    return (lo + hi) / 2
+
+
+def _past_votes(past: list[dict], resets: datetime, window: timedelta, x: float, u: float):
+    """What past windows say from x of the way through, at use u: [(mean, spread, weight, phase it
+    reaches the limit or None)], weights summing to one. Each one's draw from here on, this window's
+    level against theirs; one that ran dry is a floor, lifted by at most what it drew, and silent
+    when it was already at the limit by x."""
+    kept = []
+    for p in past:
+        if moment(p["resets_at"]) >= resets - SAME_WINDOW:
+            continue
+        cap = next((i for i, y in enumerate(p["curve"]) if y >= RAN), None)
+        if cap is not None and cap / GRID <= x:
+            continue
+        kept.append(p)
+    if not kept:
+        return []
+    ws = [math.exp(-max((resets - moment(p["resets_at"])) / window, 0) / AGE_TAU) for p in kept]
+    total = sum(ws)
+    typical = sum(w * _at(p["curve"], x) for w, p in zip(ws, kept)) / total
+    k = math.sqrt(min(max((u + LEVEL_OFFSET) / (typical + LEVEL_OFFSET), LEVEL_LO), LEVEL_HI))
+    votes = []
+    for w, p in zip(ws, kept):
+        c = p["curve"]
+        here = _at(c, x)
+        drew = c[-1] - here
+        mean = u + k * drew
+        if c[-1] >= RAN:
+            mean = max(mean, min(1.0, u + LIFT * drew))
+        crosses = next((i / GRID for i in range(math.floor(x * GRID) + 1, GRID + 1) if u + k * (c[i] - here) >= RAN), None)
+        votes.append((mean, SPREAD_BASE + SPREAD_GROW * k * drew, w / total, crosses))
+    return votes
 
 
 def project(entry: object, l: dict, taken: datetime | None = None) -> dict | None:
@@ -227,23 +252,33 @@ def project(entry: object, l: dict, taken: datetime | None = None) -> dict | Non
     if left <= 0 or t - start < window / MIN_SPAN:
         return None
     avg, recent = _paces(pts, start, window)
-    lo, hi = sorted([u + avg * left, u + recent * left])
-    now_pace = u + recent * left
-    fast = max(avg, recent)
-    eta = (1 - u) / fast if u < 1 < u + fast * left else None
-    run_out = None
-    hist = _history(past, resets, window, (t - start) / window, u)
-    if hist:
-        h_lo, h_hi, run_out, h_eta, s = hist
-        lo, hi = s * h_lo + (1 - s) * lo, s * h_hi + (1 - s) * hi
-        if run_out >= 0.5 and h_eta is not None:
-            eta = s * h_eta + (1 - s) * (eta if eta is not None else left)
-        elif hi < 1:
-            eta = None
-    exhausts = t + timedelta(seconds=eta) if eta is not None and u < 1 and eta < left else None
-    return {"at_reset": [round(lo, 4), round(hi, 4)], "recent_at_reset": round(now_pace, 4),
-            "exhausts_at": iso(exhausts),
-            "run_out": round(run_out, 3) if run_out is not None else None,
+    x = (t - start) / window
+    pace = (avg + recent) / 2
+    history = _past_votes(past, resets, window, x, u)
+    ramp = RAMP_LONG if window >= LONG_WINDOW else RAMP_SHORT
+    s = min(len(history) / ramp, 1.0)
+    own = (u + pace * left, SPREAD_BASE + SPREAD_GROW * pace * left, 1 - s)
+    votes, crossings = [own], []
+    if u < RAN and pace > 0 and (RAN - u) / pace <= left:
+        crossings.append((x + (RAN - u) / pace / window.total_seconds(), own[2]))
+    for mean, sd, w, crosses in history:
+        votes.append((mean, sd, w * s))
+        if crosses is not None:
+            crossings.append((crosses, w * s))
+    run_out = 1 - _cdf(votes, RAN)
+    exhausts = None
+    if run_out >= 0.5:
+        told = [(phase, w) for phase, w in crossings if w > 0]  # a vote the mixture discarded tells no time
+        if told:
+            phase = _quantile([p for p, _ in told], [w for _, w in told], 0.5)
+            if phase < 1:
+                exhausts = start + timedelta(microseconds=round(phase * window / timedelta(microseconds=1)))
+
+    def bound(q: float) -> float:
+        return round(max(_mixture_quantile(votes, q), u), 4)  # use only accumulates, and never below zero
+
+    return {"at_reset": [bound(0.25), bound(0.75)], "recent_at_reset": round(u + recent * left, 4),
+            "exhausts_at": iso(exhausts), "run_out": round(run_out, 3),
             "samples": stored, "past_windows": len(past), "since": iso(pts[0][0])}
 
 
