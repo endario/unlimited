@@ -284,17 +284,21 @@ it refreshes is Grok's, whose sign-in lasts hours: the renewed token is kept, ow
 ## Projection
 
 Each limit also carries a `projection`: where the window is heading, from the readings unlimited
-has taken. Within the window, two paces are extended to the reset — the average since it opened,
-and a recency-weighted pace with a half-life of a fourteenth of the window, which rises with a
-burst and falls in a quiet spell. Past windows of the same limit, kept for
-eight windows, add the shape of use (quiet nights, busy Mondays): each one's use from this point
-to its end, shifted to today's. They take over from the paces between the third and eighth window.
+has taken. It is a vote of the windows before it. Each past window of the same limit, kept for
+eight windows, votes by how much it still used from this point to its end (quiet nights, busy
+Mondays), scaled by how this window's level compares with theirs. A past window that hit its limit
+is a floor, never extended: it says nothing once it was already at the limit at this point, and
+otherwise may have wanted up to twice what it drew. Each vote is blurred, so no single window decides
+the forecast. This window's own pace, half the average since it opened and a recency-weighted pace
+with a half-life of a fourteenth of the window, is one more vote; it counts for less as past windows
+accumulate, from the third for windows of a day or longer and the sixth for shorter ones.
 
-`at_reset` is `[low, high]`, unclamped, so `1.07` means use would pass the limit. `recent_at_reset` is the recent pace alone
-extended to the reset: today's momentum, which past windows do not move. `exhausts_at`
-is when the high end reaches it, if before the reset. `run_out` is how likely use passes it, from the past windows that did, or `null`
-without them. `samples`, `past_windows` and `since` say what it rests on. A projection is only as good as how often something reads: a statusline
-`capture` feeds it continuously.
+`at_reset` is `[low, high]`, the quartiles of the blurred votes: unclamped above, so `1.07` means use
+would pass the limit, and never below what is already used. `recent_at_reset` is the recent pace
+alone extended to the reset: today's momentum, which past windows do not move. `run_out` is how
+likely use reaches 95%, as full as a window that ran out usually reads. `exhausts_at` is when the votes that
+reach it do, if before the reset. `samples`, `past_windows` and `since` say what it rests on. A
+projection is only as good as how often something reads: a statusline `capture` feeds it continuously.
 
 ## Cache
 
