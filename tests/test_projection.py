@@ -178,9 +178,12 @@ class FromPastWindows(unittest.TestCase):
 
     def test_a_past_window_that_hit_its_limit_is_a_floor_never_extended(self):
         capped = lambda x: min(x * 1.4, 1.0)  # reached the limit at 71% of the way through
-        [(mean, _, weight, _)] = projection._past_votes(past(capped), RESET, timedelta(minutes=WEEK), 4 / 7, 0.4)
+        [(mean, _, weight, _, up)] = projection._past_votes(past(capped), RESET, timedelta(minutes=WEEK), 4 / 7, 0.4)
         self.assertLess(mean, 1.0)  # it drew 0.2 more after this point; it may have wanted up to twice that
         self.assertEqual(weight, 1.0)
+        self.assertTrue(up)  # a floor holds none of its blur below itself
+        [(mean, _, _, _, up)] = projection._past_votes(past(curve_to(0.7, 1.0)), RESET, timedelta(minutes=WEEK), 4 / 7, 0.4)
+        self.assertFalse(up)  # a window that did not run dry is an ordinary symmetric vote
 
 
 def curve_to(peak, by):
@@ -245,9 +248,34 @@ class Boundaries(unittest.TestCase):
                    for f in range(1, 21)]
         p = proj({"a\tseven_day": {"samples": samples, "past": p_}}, t, used)
         lo, hi = p["at_reset"]
-        self.assertAlmostEqual(lo, 0.86, delta=0.03)
-        self.assertAlmostEqual(hi, 1.08, delta=0.03)
-        self.assertAlmostEqual(p["run_out"], 0.57, delta=0.05)
+        # Every one of the six weeks ran dry, so each vote is a floor blurred only upward: the low
+        # end and the run-out sit higher than the symmetric blur's 0.86-1.08 and 0.57 (#9085).
+        self.assertAlmostEqual(lo, 1.03, delta=0.03)
+        self.assertAlmostEqual(hi, 1.15, delta=0.05)
+        self.assertAlmostEqual(p["run_out"], 0.90, delta=0.05)
+
+    def test_a_forecast_far_above_the_limit_is_not_capped_at_four(self):
+        # Before the quantile rewrite the figure was `u + pace * left`, unbounded, and every reader
+        # prints what it is given — steering's Python has printed round(x*100) with no cap since
+        # v0.8.43. A window spending 20x its limit by 3% of the way in must print around 2000%, not
+        # the bisect's old ceiling of 400% (#9085).
+        t, e = self.entry([], 0.03, 0.6)
+        p = proj(e, t, 0.6)
+        lo, hi = p["at_reset"]
+        self.assertTrue(15 < lo < 18, p)
+        self.assertTrue(15 < hi < 25, p)
+        self.assertGreater(p["run_out"], 0.99)
+
+    def test_a_dry_windows_blur_never_sits_below_its_floor(self):
+        # A window that ran dry wanted at least what it drew: its vote is a floor, and none of its
+        # blur may sit below that floor. Three weeks that capped by 60% of the way through, with
+        # this one 80% used at the half, lift every vote to the limit; the mixture's whole mass sits
+        # at or above 1.0, so even the low end is over the limit and running out is near-certain.
+        t, e = self.entry([curve_to(1, 0.6)] * 3, 0.5, 0.8)
+        p = proj(e, t, 0.8)
+        self.assertGreaterEqual(p["at_reset"][0], 1.0)
+        self.assertGreaterEqual(p["at_reset"][1], 1.0)
+        self.assertGreater(p["run_out"], 0.99)
 
 
 class ThroughCache(unittest.TestCase):

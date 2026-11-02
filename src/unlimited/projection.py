@@ -7,7 +7,8 @@ elapsed. The projection is a vote of the windows before it:
   its end. That knows the night is quiet and Monday is busy, which no pace does. This window's level
   against the typical one scales the vote, at half strength.
 - A past window that hit its limit is a floor, never extended: it is silent once it was already at
-  the limit at this point, and otherwise may have wanted up to twice what it drew.
+  the limit at this point, and otherwise may have wanted up to twice what it drew. Its blur is
+  one-sided, upward only: a floor holds none of its mass below itself.
 - Each vote is blurred, more the more it still draws, so one window never decides the forecast.
 - This window's own pace is one more vote, half the average since it opened and the recent pace
   (whose half-life is a fourteenth of the window). It counts for less as past windows accumulate:
@@ -184,13 +185,22 @@ def _quantile(values: list[float], weights: list[float], q: float) -> float:
     return pairs[-1][0]
 
 
-def _cdf(votes: list[tuple[float, float, float]], v: float) -> float:
-    """The blurred votes' cumulative share at `v`; votes are (mean, spread, weight)."""
-    return sum(w * 0.5 * (1 + math.erf((v - m) / sd / math.sqrt(2))) for m, sd, w in votes)
+def _cdf(votes: list[tuple[float, float, float, bool]], v: float) -> float:
+    """The blurred votes' cumulative share at `v`; votes are (mean, spread, weight, upward)."""
+    out = 0.0
+    for m, sd, w, up in votes:
+        share = 0.5 * (1 + math.erf((v - m) / sd / math.sqrt(2)))
+        # A vote marked upward is a floor: what that window wanted sits at or above it, so its blur
+        # is the upper half of the normal, none of its mass below the floor.
+        out += w * (max(2 * share - 1, 0.0) if up else share)
+    return out
 
 
-def _mixture_quantile(votes: list[tuple[float, float, float]], q: float) -> float:
-    lo, hi = -0.5, 4.0
+def _mixture_quantile(votes: list[tuple[float, float, float, bool]], q: float) -> float:
+    # The top is far above the limit because the own pace is unbounded and every reader prints the
+    # figure it is given (steering's Python has printed round(x*100) with no cap since v0.8.43); a
+    # bisect to 30 keeps a 25x window at 2500%.
+    lo, hi = -0.5, 30.0
     for _ in range(40):
         mid = (lo + hi) / 2
         if _cdf(votes, mid) < q:
@@ -202,9 +212,10 @@ def _mixture_quantile(votes: list[tuple[float, float, float]], q: float) -> floa
 
 def _past_votes(past: list[dict], resets: datetime, window: timedelta, x: float, u: float):
     """What past windows say from x of the way through, at use u: [(mean, spread, weight, phase it
-    reaches the limit or None)], weights summing to one. Each one's draw from here on, this window's
-    level against theirs; one that ran dry is a floor, lifted by at most what it drew, and silent
-    when it was already at the limit by x."""
+    reaches the limit or None, blurs upward)], weights summing to one. Each one's draw from here on,
+    this window's level against theirs; one that ran dry is a floor, lifted by at most what it drew
+    and blurred only upward — none of its mass below itself — and silent when it was already at the
+    limit by x."""
     kept = []
     for p in past:
         if moment(p["resets_at"]) >= resets - SAME_WINDOW:
@@ -225,10 +236,11 @@ def _past_votes(past: list[dict], resets: datetime, window: timedelta, x: float,
         here = _at(c, x)
         drew = c[-1] - here
         mean = u + k * drew
-        if c[-1] >= RAN:
+        dry = c[-1] >= RAN
+        if dry:
             mean = max(mean, min(1.0, u + LIFT * drew))
         crosses = next((i / GRID for i in range(math.floor(x * GRID) + 1, GRID + 1) if u + k * (c[i] - here) >= RAN), None)
-        votes.append((mean, SPREAD_BASE + SPREAD_GROW * k * drew, w / total, crosses))
+        votes.append((mean, SPREAD_BASE + SPREAD_GROW * k * drew, w / total, crosses, dry))
     return votes
 
 
@@ -257,12 +269,12 @@ def project(entry: object, l: dict, taken: datetime | None = None) -> dict | Non
     history = _past_votes(past, resets, window, x, u)
     ramp = RAMP_LONG if window >= LONG_WINDOW else RAMP_SHORT
     s = min(len(history) / ramp, 1.0)
-    own = (u + pace * left, SPREAD_BASE + SPREAD_GROW * pace * left, 1 - s)
+    own = (u + pace * left, SPREAD_BASE + SPREAD_GROW * pace * left, 1 - s, False)
     votes, crossings = [own], []
     if u < RAN and pace > 0 and (RAN - u) / pace <= left:
         crossings.append((x + (RAN - u) / pace / window.total_seconds(), own[2]))
-    for mean, sd, w, crosses in history:
-        votes.append((mean, sd, w * s))
+    for mean, sd, w, crosses, up in history:
+        votes.append((mean, sd, w * s, up))
         if crosses is not None:
             crossings.append((crosses, w * s))
     run_out = 1 - _cdf(votes, RAN)
