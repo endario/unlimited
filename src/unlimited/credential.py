@@ -87,3 +87,15 @@ class EnvKeys:
     def discover(self) -> list[Credential]:
         env = [v for k, v in sorted(os.environ.items()) if _named(k, self.var)]
         return dedupe(env + [env_value(f, self.var) for f in self.files()])
+
+    def discover_based(self, base_var: str) -> list[Credential]:
+        """`discover`, each credential carrying as `base` the address its env file (or the
+        environment, beside the key) names in `base_var`; one that names none carries no `base`."""
+        bases = {key: base for f in self.files()
+                 if (key := env_value(f, self.var)) and (base := env_value(f, base_var))}
+        out = []
+        for c in self.discover():
+            here = c.secret["key"] == os.environ.get(self.var) if isinstance(self.var, str) else False
+            base = bases.get(c.secret["key"]) or (os.environ.get(base_var) if here else None)
+            out.append(Credential(c.account, {**c.secret, "base": base.rstrip("/")}) if base else c)
+        return out

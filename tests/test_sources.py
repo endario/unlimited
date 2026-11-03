@@ -14,7 +14,7 @@ from contextlib import redirect_stdout
 from unittest import mock
 
 from unlimited import cache, cli
-from unlimited.adapters import anthropic, commandcode, deepseek, kimi, neuralwatt, opencode, openai, xai, zai
+from unlimited.adapters import anthropic, commandcode, deepseek, freellmapi, kimi, neuralwatt, opencode, openai, xai, zai
 from unlimited.credential import Credential, EnvKeys, account_of, env_value
 from unlimited.transport import Answer
 
@@ -35,7 +35,7 @@ class Base(unittest.TestCase):
                                           **dict.fromkeys(anthropic.OVERRIDES, ""),
                                           "CLAUDE_GLM_ENV": "", "GLM_API_KEY": "",
                                           "CLAUDE_KIMI_ENV": "", "KIMI_API_KEY": "", "CLAUDE_DS_ENV": "", "DEEPSEEK_API_KEY": "", "COMMAND_CODE_API_KEY": "",
-                                          "FY_API_KEY": ""})
+                                          "FY_API_KEY": "", "FREELLMAPI_API_KEY": "", "FREELLMAPI_URL": ""})
         p.start()
         self.addCleanup(p.stop)
         self.calls = []
@@ -522,6 +522,50 @@ class Neuralwatt(Base):
     def test_an_answer_with_nothing_recognised_is_unread(self):
         got = neuralwatt.read(Credential("a", {"key": "k"}), NOW, self.up(Answer({"snapshot_at": "x"}, 200, None)))
         self.assertEqual((got["status"], got["why"]), ("unread", "no-limits"))
+
+
+class FreeLLMAPI(Base):
+    # /v1/providers as v0.16.7 answered it live, one platform cooling down.
+    BODY = {"providers": [
+        {"platform": "aihorde", "name": "AI Horde", "status": "unknown", "keys": 1},
+        {"platform": "kilo", "name": "Kilo Gateway", "status": "healthy", "keys": 1, "requests_remaining_pct": 50},
+        {"platform": "ovh", "name": "OVH AI Endpoints", "status": "rate_limited", "keys": 1,
+         "resume_at": "2026-09-19T12:05:00.000Z"}],
+        "counts": {"healthy": 1, "rate_limited": 1, "invalid": 0, "unknown": 1}}
+    CRED = Credential("a", {"key": "k", "base": "http://gw.test"})
+
+    def test_the_pool_is_spent_by_at_least_its_unavailable_and_reported_share_until_utc_midnight(self):
+        got = freellmapi.read(self.CRED, NOW, self.up(Answer(self.BODY, 200, None)))
+        (pool,) = got["limits"]
+        # An unknown platform spends nothing it can be shown to have spent; a rate-limited one all.
+        self.assertEqual((got["status"], pool["used_at_least"], pool["held"], pool["resets_at"], pool["role"]),
+                         ("ok", 0.5, False, "2026-09-20T00:00:00+00:00", "extra"))
+        self.assertEqual(self.calls, ["http://gw.test/v1/providers"])
+
+    def test_a_pool_with_no_platform_able_to_serve_is_held_until_the_first_resumes(self):
+        body = {"providers": [dict(self.BODY["providers"][2]),
+                              {"platform": "kilo", "status": "rate_limited", "resume_at": "2026-09-19T12:01:00Z"},
+                              {"platform": "groq", "status": "invalid"}]}
+        (pool,) = freellmapi.read(self.CRED, NOW, self.up(Answer(body, 200, None)))["limits"]
+        self.assertEqual((pool["used_at_least"], pool["held"], pool["held_why"], pool["resets_at"]),
+                         (1.0, True, "all-upstreams-unavailable", "2026-09-19T12:01:00+00:00"))
+
+    def test_a_gateway_with_no_upstream_configured_is_unread(self):
+        got = freellmapi.read(self.CRED, NOW, self.up(Answer({"providers": [], "counts": {}}, 200, None)))
+        self.assertEqual((got["status"], got["why"]), ("unread", "no-upstreams"))
+
+    def test_the_routes_are_the_models_the_pool_can_serve_now(self):
+        body = {"data": [{"id": "fusion"}, {"id": "auto"}, {"id": "kilo/x:free"}, {"id": "auto"}, {"object": "model"}]}
+        got = freellmapi.models(self.CRED, NOW, self.up(Answer(body, 200, None)))
+        self.assertEqual([r["id"] for r in got["routes"]], ["auto", "fusion", "kilo/x:free"])
+        self.assertEqual(self.calls, ["http://gw.test/v1/models?available=true"])
+
+    def test_a_key_without_a_gateway_address_is_read_at_the_local_default(self):
+        (self.home / ".config").mkdir()
+        (self.home / ".config" / "freellmapi.env").write_text("FREELLMAPI_API_KEY=one\n")
+        (self.home / ".config" / "freellmapi-lan.env").write_text("FREELLMAPI_API_KEY=two\nFREELLMAPI_URL=http://nas:3001/\n")
+        got = {c.secret["key"]: c.secret["base"] for c in freellmapi.discover()}
+        self.assertEqual(got, {"one": "http://localhost:3001", "two": "http://nas:3001"})
 
 
 class DeepSeek(Base):

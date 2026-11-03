@@ -254,6 +254,7 @@ not projected: the vendor reports no reset for it.
 | Command Code | — | `alpha/billing/credits` and `alpha/billing/subscriptions` on `$COMMAND_CODE_API_KEY` and each `~/.config/commandcode*.env` |
 | Xiaomi MiMo (team token plan) | — | each claude-mimo wrapper key's seat (`teamTokenPlan/apiKey`, `my/seat`, an owner's `members`) on the platform's Chrome sign-in cookies (macOS) |
 | DeepSeek | — | `user/balance` on `$DEEPSEEK_API_KEY` and each `~/.config/claude-ds*.env`: the prepaid balance, as credits, with no usage window |
+| FreeLLMAPI (self-hosted free-tier pool) | — | `v1/providers` on `$FREELLMAPI_API_KEY` and each `~/.config/freellmapi*.env`, at the `FREELLMAPI_URL` beside it (default `http://localhost:3001`): the share of upstream platforms that cannot serve, against the UTC day |
 | Woyo | — | gateway-log observations from `api/log/token` on `$FY_API_KEY` at the `$FY_API_BASE_URL` beside it, in the environment or matching `~/.config/*.env` files |
 
 Woyo's rolling weekly display accepts `UNLIMITED_WEEKLY_TOKEN_LIMIT`, or a market-value

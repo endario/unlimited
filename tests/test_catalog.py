@@ -128,7 +128,8 @@ class Switches(unittest.TestCase):
         self.assertIsNone(c.model("codex", "heavy", NOW))
         self.assertIn(("claude", "sonnet"), got)
         j = c.to_json(NOW)
-        self.assertEqual((j["promotions"], "heavy" in j["providers"]["codex"]), ([], False))
+        off = [x for x in j["promotions"] if x["provider"] in ("stealth", "codex")]
+        self.assertEqual((off, "heavy" in j["providers"]["codex"]), ([], False))
         # The provider stays defined: a caller still needs its usage vendor.
         self.assertEqual(j["providers"]["codex"]["usage"], "openai")
 

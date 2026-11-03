@@ -4,12 +4,11 @@ from __future__ import annotations
 
 import hashlib
 import json
-import os
 from collections import Counter
 from datetime import datetime, timedelta, timezone
 
 from .. import usage
-from ..credential import Credential, EnvKeys, env_value
+from ..credential import Credential, EnvKeys
 from ..schema import OK, UNREAD, failed, reading
 
 VENDOR = "woyo"
@@ -24,13 +23,7 @@ attach = usage.attach
 
 def discover() -> list[Credential]:
     """Each key's credential, carrying the gateway base its env file (or the environment) names."""
-    bases = {key: base for f in KEYS.files()
-             if (key := env_value(f, KEYS.var)) and (base := env_value(f, BASE))}
-    out = []
-    for c in KEYS.discover():
-        base = bases.get(c.secret["key"]) or (os.environ.get(BASE) if c.secret["key"] == os.environ.get(KEYS.var) else None)
-        out.append(Credential(c.account, {**c.secret, "base": base.rstrip("/")}) if base else c)
-    return out
+    return KEYS.discover_based(BASE)
 
 
 def _get(cred: Credential, path: str, now: datetime, get):
