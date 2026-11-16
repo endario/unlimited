@@ -87,13 +87,13 @@ def config_dirs() -> list[Path]:
 
 
 def _unnamed_is_this(config_dir: Path) -> bool:
-    """Whether the unsuffixed keychain item is this default directory's account: Claude Code keeps
-    `~/.claude.json` in step with it, so another org there means the item is another account's."""
+    """Whether `~/.claude.json` names this default directory's own account."""
     try:
         o = json.loads((Path.home() / ".claude.json").read_text()).get("oauthAccount")
     except (OSError, ValueError, AttributeError):
         return False
-    return isinstance(o, dict) and _qualified(o) is not None and _qualified(o) == account_of(config_dir)
+    home_account = _qualified(o) if isinstance(o, dict) else None
+    return home_account is not None and home_account == account_of(config_dir)
 
 
 def _services(config_dir: Path) -> list[str]:
