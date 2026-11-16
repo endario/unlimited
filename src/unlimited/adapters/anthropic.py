@@ -64,13 +64,18 @@ def person_of(config_dir: Path) -> str | None:
     return next((p for o in _oauth_account(config_dir) if (p := _text(o, "accountUuid"))), None)
 
 
+def _qualified(o: dict) -> str | None:
+    person, org = _text(o, "accountUuid"), _text(o, "organizationUuid")
+    return person + ORG_JOIN + org if person and org else None
+
+
 def account_of(config_dir: Path) -> str | None:
     """The account a directory spends: its person in its current org, or None when the sign-in names
-    no org, which is never read as the person alone."""
+    no org, which is never read as the person alone. The first file naming a person decides, so an
+    org-less sign-in is not completed from another file's login."""
     for o in _oauth_account(config_dir):
-        person, org = _text(o, "accountUuid"), _text(o, "organizationUuid")
-        if person and org:
-            return person + ORG_JOIN + org
+        if _text(o, "accountUuid"):
+            return _qualified(o)
     return None
 
 
@@ -81,10 +86,23 @@ def config_dirs() -> list[Path]:
     return sorted(p for p in Path.home().glob(".claude*") if p.is_dir())
 
 
+def _unnamed_is_this(config_dir: Path) -> bool:
+    """Whether `~/.claude.json` names this default directory's own account."""
+    try:
+        o = json.loads((Path.home() / ".claude.json").read_text()).get("oauthAccount")
+    except (OSError, ValueError, AttributeError):
+        return False
+    home_account = _qualified(o) if isinstance(o, dict) else None
+    return home_account is not None and home_account == account_of(config_dir)
+
+
 def _services(config_dir: Path) -> list[str]:
     named = KEYCHAIN + "-" + hashlib.sha256(str(config_dir).encode()).hexdigest()[:8]
-    # The default directory's suffixed item can go stale while the unsuffixed one stays current.
-    return [named, KEYCHAIN] if config_dir.resolve() == _default_dir().resolve() else [named]
+    # The default directory's suffixed item can go stale while the unsuffixed one stays current,
+    # but only the unsuffixed item of the same account is this directory's.
+    if config_dir.resolve() == _default_dir().resolve() and _unnamed_is_this(config_dir):
+        return [named, KEYCHAIN]
+    return [named]
 
 
 def _oauth(config_dir: Path) -> list[dict]:
