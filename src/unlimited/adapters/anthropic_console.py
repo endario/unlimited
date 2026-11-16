@@ -2,8 +2,8 @@
 page reads. No public endpoint answers it, and an individual organisation has no Admin API, so this
 reads it on the Console's sign-in cookie, taken from Chrome's cookie store (macOS only).
 
-The account is the Console sign-in's own id, which is the same `accountUuid` a Claude Code sign-in
-to that login carries, so both readings share a `vendor_account` and this machine's names for it."""
+The account is the Console sign-in's own id, which is the `accountUuid` a Claude Code sign-in to that
+login carries, so it takes this machine's names for that person's directories, whatever org."""
 
 from __future__ import annotations
 

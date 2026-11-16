@@ -204,6 +204,12 @@ class Discovery(Base):
         self.assertIsNone(anthropic.account_of(d), "a bare person uuid is never an account")
         self.assertEqual(anthropic.discover(), [])
 
+    def test_a_sign_in_with_no_org_captures_nothing(self):
+        d = self.signed_in(".claude-a", org=None)
+        with mock.patch.dict(os.environ, {"CLAUDE_CONFIG_DIR": str(d)}):
+            self.assertIsNone(anthropic.capture({"rate_limits": RL}, NOW))
+        self.assertEqual(anthropic.local(NOW), [])
+
     def test_the_keychain_is_read_only_when_a_read_is_due(self):
         # `security` runs once per keychain item; on every cache hit it was pure cost.
         self.signed_in(".claude-a")

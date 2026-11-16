@@ -104,7 +104,7 @@ CLI and app share the builtin message definitions; JSON keeps the machine-readab
       "can_purchase": false
     },
     "names": ["work"],
-    "vendor_account": "11111111-2222-3333-4444-555555555555",
+    "vendor_account": "11111111-2222-3333-4444-555555555555_aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee",
     "limits": [
       {
         "name": "seven_day",
