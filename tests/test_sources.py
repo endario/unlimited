@@ -204,6 +204,29 @@ class Discovery(Base):
         self.assertIsNone(anthropic.account_of(d), "a bare person uuid is never an account")
         self.assertEqual(anthropic.discover(), [])
 
+    def test_the_default_directory_is_not_completed_from_the_home_file_with_another_login(self):
+        d = self.home / ".claude"
+        d.mkdir()
+        (d / ".claude.json").write_text(json.dumps({"oauthAccount": {"accountUuid": PERSON}}))
+        (self.home / ".claude.json").write_text(
+            json.dumps({"oauthAccount": {"accountUuid": "someone-else", "organizationUuid": ORG2}}))
+        self.assertIsNone(anthropic.account_of(d), "the directory's own sign-in names no org")
+        (d / ".claude.json").write_text("{}")
+        self.assertEqual(anthropic.account_of(d), f"someone-else_{ORG2}", "a file naming nobody defers")
+
+    def test_the_unnamed_keychain_item_is_the_default_directorys_only_when_the_home_file_names_its_account(self):
+        d = self.home / ".claude"
+        d.mkdir()
+        (d / ".claude.json").write_text(json.dumps({"oauthAccount": {"accountUuid": PERSON, "organizationUuid": ORG}}))
+        (self.home / ".claude.json").write_text(
+            json.dumps({"oauthAccount": {"accountUuid": PERSON, "organizationUuid": ORG2}}))
+        self.assertEqual(len(anthropic._services(d)), 1, "another org's token is not this account's")
+        (self.home / ".claude.json").write_text(
+            json.dumps({"oauthAccount": {"accountUuid": PERSON, "organizationUuid": ORG}}))
+        self.assertEqual(len(anthropic._services(d)), 2)
+        (self.home / ".claude.json").unlink()
+        self.assertEqual(len(anthropic._services(d)), 1)
+
     def test_a_sign_in_with_no_org_captures_nothing(self):
         d = self.signed_in(".claude-a", org=None)
         with mock.patch.dict(os.environ, {"CLAUDE_CONFIG_DIR": str(d)}):
