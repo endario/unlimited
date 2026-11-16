@@ -80,10 +80,12 @@ def credits(taken_at: datetime, *, enabled: bool, used: float | None, limit: flo
 def reading(vendor: str, account: str | None, taken_at: datetime, status: str, *,
             why: str | None = None, retry_until: datetime | None = None,
             limits: list[dict] | None = None, source: str = "api", plan: str | None = None,
-            credits: dict | None = None) -> dict:
+            credits: dict | None = None, organization_type: str | None = None) -> dict:
     # `plan` is the vendor's own word for the subscription, verbatim (e.g. `default_claude_max_5x`).
+    # `organization_type` is its word for what kind of organisation holds it (`claude_pro`,
+    # `claude_team`), which `plan` does not say: a team seat and a personal plan can share a tier.
     return {"schema": SCHEMA, "vendor": vendor, "account": account, "taken_at": iso(taken_at),
-            "source": source, "plan": plan, "status": status, "why": why, "retry_until": iso(retry_until), "limits": limits or [],
+            "source": source, "plan": plan, "organization_type": organization_type, "status": status, "why": why, "retry_until": iso(retry_until), "limits": limits or [],
             # Spend past the windows (see `credits()`); None where the vendor has no such thing or did not say.
             "credits": credits,
             # This machine's names for the account (config dirs, wrappers); set by `cache.through`.

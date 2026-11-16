@@ -21,7 +21,12 @@ from unlimited.transport import Answer
 import scratch
 
 NOW = datetime(2026, 9, 19, 12, 0, tzinfo=timezone.utc)
-UUID = "11111111-2222-3333-4444-555555555555"
+PERSON = "11111111-2222-3333-4444-555555555555"
+ORG = "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"
+ORG2 = "ffffffff-8888-7777-6666-555555555555"
+# A Claude account is a person in an org: limits belong to the org (design: 2mw2lt
+# documentation/accounts/anthropic-org-accounts-design.md).
+UUID = f"{PERSON}_{ORG}"
 RL = {"five_hour": {"used_percentage": 23.5, "resets_at": int((NOW + timedelta(hours=2)).timestamp())},
       "seven_day": {"used_percentage": 41.2, "resets_at": int((NOW + timedelta(days=2)).timestamp())}}
 
@@ -40,10 +45,11 @@ class Base(unittest.TestCase):
         self.addCleanup(p.stop)
         self.calls = []
 
-    def signed_in(self, name: str, uuid: str = UUID) -> Path:
+    def signed_in(self, name: str, person: str = PERSON, org: str | None = ORG) -> Path:
         d = self.home / name
         d.mkdir()
-        (d / ".claude.json").write_text(json.dumps({"oauthAccount": {"accountUuid": uuid}}))
+        account = {"accountUuid": person, **({"organizationUuid": org} if org else {})}
+        (d / ".claude.json").write_text(json.dumps({"oauthAccount": account}))
         return d
 
     def up(self, answer: Answer):
@@ -175,6 +181,35 @@ class Discovery(Base):
             creds = anthropic.discover()
             self.assertEqual([(c.account, c.secret["token"]) for c in creds], [(UUID, "new")])
 
+    def test_one_person_in_two_orgs_is_two_accounts_each_read_on_its_own_token(self):
+        self.signed_in(".claude-account4", org=ORG)
+        self.signed_in(".claude-account5", org=ORG2)
+        live = int((datetime.now(timezone.utc) + timedelta(hours=1)).timestamp() * 1000)
+        recs = {".claude-account4": [{"accessToken": "pro", "expiresAt": live}],
+                ".claude-account5": [{"accessToken": "team", "expiresAt": live}]}
+        with mock.patch.object(anthropic, "_oauth", lambda d: recs.get(d.name, [])):
+            creds = anthropic.discover()
+            self.assertEqual([(c.account, c.secret["token"]) for c in creds],
+                             [(f"{PERSON}_{ORG}", "pro"), (f"{PERSON}_{ORG2}", "team")])
+            self.assertEqual(anthropic.names(), {f"{PERSON}_{ORG}": ["account4"],
+                                                 f"{PERSON}_{ORG2}": ["account5"]})
+            self.assertEqual(anthropic.person_names(), {PERSON: ["account4", "account5"]})
+
+    def test_a_directory_follows_the_org_it_is_signed_in_to_and_one_with_no_org_is_no_account(self):
+        d = self.signed_in(".claude-a", org=ORG)
+        self.assertEqual(anthropic.account_of(d), f"{PERSON}_{ORG}")
+        (d / ".claude.json").write_text(json.dumps({"oauthAccount": {"accountUuid": PERSON, "organizationUuid": ORG2}}))
+        self.assertEqual(anthropic.account_of(d), f"{PERSON}_{ORG2}")
+        (d / ".claude.json").write_text(json.dumps({"oauthAccount": {"accountUuid": PERSON}}))
+        self.assertIsNone(anthropic.account_of(d), "a bare person uuid is never an account")
+        self.assertEqual(anthropic.discover(), [])
+
+    def test_a_sign_in_with_no_org_captures_nothing(self):
+        d = self.signed_in(".claude-a", org=None)
+        with mock.patch.dict(os.environ, {"CLAUDE_CONFIG_DIR": str(d)}):
+            self.assertIsNone(anthropic.capture({"rate_limits": RL}, NOW))
+        self.assertEqual(anthropic.local(NOW), [])
+
     def test_the_keychain_is_read_only_when_a_read_is_due(self):
         # `security` runs once per keychain item; on every cache hit it was pure cost.
         self.signed_in(".claude-a")
@@ -209,6 +244,7 @@ class Discovery(Base):
             return Answer(usage, 200, None)
         cred = Credential(UUID, {"token": "t", "expires": None})
         self.assertEqual(anthropic.read(cred, NOW, get)["plan"], "default_claude_max_5x")
+        self.assertIsNone(anthropic.read(cred, NOW, get)["organization_type"], "the profile named none")
         down = anthropic.read(cred, NOW, lambda u, h, n: Answer(usage, 200, None) if u == anthropic.URL
                               else Answer(None, 403, "http-403"))
         self.assertEqual((down["status"], down["plan"]), ("ok", None))
@@ -271,13 +307,23 @@ class Discovery(Base):
         claude = SimpleNamespace(VENDOR="anthropic", local=anthropic.local, read=anthropic.read,
                                  discover=lambda: [Credential(UUID, {"token": "t", "expires": None})])
         def get(url, headers, now):
-            return Answer({"organization": {"rate_limit_tier": "default_claude_max_5x"}} if url == anthropic.PROFILE_URL
+            return Answer({"organization": {"rate_limit_tier": "default_claude_max_5x",
+                                            "organization_type": "claude_team"}} if url == anthropic.PROFILE_URL
                           else {"five_hour": {"utilization": 1, "resets_at": (NOW + timedelta(hours=1)).isoformat()}}, 200, None)
         cache.through(claude, max_age=300, clock=lambda: NOW, get=get)
         with mock.patch.dict(os.environ, {"CLAUDE_CONFIG_DIR": str(d)}):
             anthropic.capture({"rate_limits": RL}, NOW + timedelta(seconds=30))
         got = cache.through(claude, max_age=300, clock=lambda: NOW + timedelta(seconds=40), get=get)[0]
-        self.assertEqual((got["source"], got["plan"]), ("statusline", "default_claude_max_5x"))
+        self.assertEqual((got["source"], got["plan"], got["organization_type"]),
+                         ("statusline", "default_claude_max_5x", "claude_team"))
+
+    def test_the_organisation_type_tells_a_personal_plan_from_a_team_seat(self):
+        usage = {"five_hour": {"utilization": 10.0, "resets_at": (NOW + timedelta(hours=2)).isoformat()}}
+        cred = Credential(UUID, {"token": "t", "expires": None})
+        for kind in ("claude_pro", "claude_team"):
+            get = lambda url, h, n, kind=kind: (Answer({"organization": {"organization_type": kind}}, 200, None)
+                                                if url == anthropic.PROFILE_URL else Answer(usage, 200, None))
+            self.assertEqual(anthropic.read(cred, NOW, get)["organization_type"], kind)
 
     def test_the_accounts_own_severity_is_kept_verbatim(self):
         body = {"limits": [

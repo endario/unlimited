@@ -217,10 +217,10 @@ class Names(unittest.TestCase):
     def test_the_bare_claude_directory_is_labeled_account1_not_default(self):
         home = Path(scratch.mkdtemp())
         (home / ".claude").mkdir()
-        (home / ".claude" / ".claude.json").write_text('{"oauthAccount": {"accountUuid": "u"}}')
+        (home / ".claude" / ".claude.json").write_text('{"oauthAccount": {"accountUuid": "u", "organizationUuid": "o"}}')
         from unlimited.adapters import anthropic
         with mock.patch.dict(os.environ, {"HOME": str(home)}):
-            self.assertEqual(anthropic.names(), {"u": ["account1"]})
+            self.assertEqual(anthropic.names(), {"u_o": ["account1"]})
 
     def test_a_zai_account_is_named_by_the_wrapper_holding_its_key(self):
         home = Path(scratch.mkdtemp())

@@ -22,8 +22,11 @@ from ..credential import Credential
 from ..schema import OK, UNREAD, credits, failed, limit, reading
 
 VENDOR = "anthropic"
-# `account` is already the vendor's own id (`accountUuid`).
+# `account` is already the vendor's own id: the person's `accountUuid` in the org whose limits the
+# sign-in spends, `<accountUuid>_<organizationUuid>`. One person in two orgs (a personal plan and a
+# team seat) is two accounts, since limits belong to the org.
 ACCOUNT_IS_VENDOR_ID = True
+ORG_JOIN = "_"
 URL = "https://api.anthropic.com/api/oauth/usage"
 PROFILE_URL = "https://api.anthropic.com/api/oauth/profile"
 WINDOWS = {"five_hour": 300, "seven_day": 10080, "seven_day_opus": 10080, "seven_day_sonnet": 10080}
@@ -35,16 +38,39 @@ def _default_dir() -> Path:
     return Path.home() / ".claude"
 
 
-def account_of(config_dir: Path) -> str | None:
-    for f in (config_dir / ".claude.json",) + ((Path.home() / ".claude.json",)
-                                               if config_dir.resolve() == _default_dir().resolve() else ()):
+def _oauth_account(config_dir: Path) -> list[dict]:
+    """Each `oauthAccount` this directory's sign-in is kept in: its own `.claude.json`, and for the
+    default directory also `~/.claude.json`."""
+    files = (config_dir / ".claude.json",) + ((Path.home() / ".claude.json",)
+                                              if config_dir.resolve() == _default_dir().resolve() else ())
+    out = []
+    for f in files:
         try:
             o = json.loads(f.read_text()).get("oauthAccount")
         except (OSError, ValueError, AttributeError):
             continue
-        uuid = o.get("accountUuid") if isinstance(o, dict) else None
-        if isinstance(uuid, str) and uuid:
-            return uuid
+        if isinstance(o, dict):
+            out.append(o)
+    return out
+
+
+def _text(o: dict, key: str) -> str | None:
+    v = o.get(key)
+    return v if isinstance(v, str) and v else None
+
+
+def person_of(config_dir: Path) -> str | None:
+    """The person (`accountUuid`) a directory is signed in as, whatever org."""
+    return next((p for o in _oauth_account(config_dir) if (p := _text(o, "accountUuid"))), None)
+
+
+def account_of(config_dir: Path) -> str | None:
+    """The account a directory spends: its person in its current org, or None when the sign-in names
+    no org, which is never read as the person alone."""
+    for o in _oauth_account(config_dir):
+        person, org = _text(o, "accountUuid"), _text(o, "organizationUuid")
+        if person and org:
+            return person + ORG_JOIN + org
     return None
 
 
@@ -132,6 +158,16 @@ def names() -> dict[str, list[str]]:
         who = account_of(d)
         if who:
             # "account1", not "default": sorts with its account2/account3 siblings, not after them.
+            out.setdefault(who, []).append(d.name.removeprefix(".claude").lstrip("-") or "account1")
+    return out
+
+
+def person_names() -> dict[str, list[str]]:
+    """A person's `accountUuid` → the directories signed in as them, whatever org: what a sign-in
+    that knows only the person (the Console's) is named by."""
+    out: dict[str, list[str]] = {}
+    for d in config_dirs():
+        if account_of(d) and (who := person_of(d)):
             out.setdefault(who, []).append(d.name.removeprefix(".claude").lstrip("-") or "account1")
     return out
 
@@ -260,7 +296,8 @@ def read(cred: Credential, now: datetime, get) -> dict:
     prof = get(PROFILE_URL, {"Authorization": f"Bearer {token}", "anthropic-beta": "oauth-2025-04-20"}, now)
     org = (prof.body or {}).get("organization") if isinstance((prof.body or {}).get("organization"), dict) else {}
     tier = org.get("rate_limit_tier") if isinstance(org.get("rate_limit_tier"), str) else None
-    return reading(VENDOR, cred.account, now, OK, plan=tier,
+    kind = org.get("organization_type") if isinstance(org.get("organization_type"), str) else None
+    return reading(VENDOR, cred.account, now, OK, plan=tier, organization_type=kind,
                    limits=limits(ans.body, now),
                    credits=_credits(ans.body, now))
 

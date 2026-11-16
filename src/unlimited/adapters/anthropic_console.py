@@ -2,8 +2,8 @@
 page reads. No public endpoint answers it, and an individual organisation has no Admin API, so this
 reads it on the Console's sign-in cookie, taken from Chrome's cookie store (macOS only).
 
-The account is the Console sign-in's own id, which is the same `accountUuid` a Claude Code sign-in
-to that login carries, so both readings share a `vendor_account` and this machine's names for it."""
+The account is the Console sign-in's own id, which is the `accountUuid` a Claude Code sign-in to that
+login carries, so it takes this machine's names for that person's directories, whatever org."""
 
 from __future__ import annotations
 
@@ -75,7 +75,7 @@ def whoami(cred: Credential, now: datetime, get):
 def names() -> dict[str, list[str]]:
     """A profile's cookie is named as the Claude Code sign-in to the same login is."""
     from .. import identities
-    cc = anthropic.names()
+    cc = anthropic.person_names()
     return {local: cc[who] for local, who in identities.accounts(VENDOR).items() if who in cc}
 
 
