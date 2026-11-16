@@ -75,7 +75,7 @@ def whoami(cred: Credential, now: datetime, get):
 def names() -> dict[str, list[str]]:
     """A profile's cookie is named as the Claude Code sign-in to the same login is."""
     from .. import identities
-    cc = anthropic.names()
+    cc = anthropic.person_names()
     return {local: cc[who] for local, who in identities.accounts(VENDOR).items() if who in cc}
 
 

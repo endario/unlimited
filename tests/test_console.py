@@ -123,9 +123,11 @@ class Linking(unittest.TestCase):
         d = Path(scratch.mkdtemp())
         identities.path(console.VENDOR, d).parent.mkdir(parents=True)
         identities.path(console.VENDOR, d).write_text('{"chrome:Default": {"account": "%s"}}' % ACCOUNT)
-        with mock.patch.object(anthropic, "names", return_value={ACCOUNT: ["account1"], "other": ["account2"]}), \
+        # The Console knows the person only: both of their orgs' directories name the cookie.
+        with mock.patch.object(anthropic, "person_names",
+                               return_value={ACCOUNT: ["account1", "account4"], "other": ["account2"]}), \
                 mock.patch.object(identities, "default_dir", return_value=d):
-            self.assertEqual(console.names(), {"chrome:Default": ["account1"]})
+            self.assertEqual(console.names(), {"chrome:Default": ["account1", "account4"]})
 
 
 class Decrypt(unittest.TestCase):
