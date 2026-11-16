@@ -105,6 +105,8 @@ def through(adapter, *, max_age: float, clock, get, directory: Path | None = Non
                 # A local source names no plan; the account's plan does not change with its source.
                 if best.get("plan") is None and prior is not None and prior.get("plan") is not None:
                     best = dict(best, plan=prior["plan"])
+                if best.get("organization_type") is None and prior is not None and prior.get("organization_type"):
+                    best = dict(best, organization_type=prior["organization_type"])
                 out.append(best)
             elif prior is not None and _backing_off(prior, now):
                 out.append(best or prior)

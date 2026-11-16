@@ -296,7 +296,8 @@ def read(cred: Credential, now: datetime, get) -> dict:
     prof = get(PROFILE_URL, {"Authorization": f"Bearer {token}", "anthropic-beta": "oauth-2025-04-20"}, now)
     org = (prof.body or {}).get("organization") if isinstance((prof.body or {}).get("organization"), dict) else {}
     tier = org.get("rate_limit_tier") if isinstance(org.get("rate_limit_tier"), str) else None
-    return reading(VENDOR, cred.account, now, OK, plan=tier,
+    kind = org.get("organization_type") if isinstance(org.get("organization_type"), str) else None
+    return reading(VENDOR, cred.account, now, OK, plan=tier, organization_type=kind,
                    limits=limits(ans.body, now),
                    credits=_credits(ans.body, now))
 

@@ -238,6 +238,7 @@ class Discovery(Base):
             return Answer(usage, 200, None)
         cred = Credential(UUID, {"token": "t", "expires": None})
         self.assertEqual(anthropic.read(cred, NOW, get)["plan"], "default_claude_max_5x")
+        self.assertIsNone(anthropic.read(cred, NOW, get)["organization_type"], "the profile named none")
         down = anthropic.read(cred, NOW, lambda u, h, n: Answer(usage, 200, None) if u == anthropic.URL
                               else Answer(None, 403, "http-403"))
         self.assertEqual((down["status"], down["plan"]), ("ok", None))
@@ -300,13 +301,23 @@ class Discovery(Base):
         claude = SimpleNamespace(VENDOR="anthropic", local=anthropic.local, read=anthropic.read,
                                  discover=lambda: [Credential(UUID, {"token": "t", "expires": None})])
         def get(url, headers, now):
-            return Answer({"organization": {"rate_limit_tier": "default_claude_max_5x"}} if url == anthropic.PROFILE_URL
+            return Answer({"organization": {"rate_limit_tier": "default_claude_max_5x",
+                                            "organization_type": "claude_team"}} if url == anthropic.PROFILE_URL
                           else {"five_hour": {"utilization": 1, "resets_at": (NOW + timedelta(hours=1)).isoformat()}}, 200, None)
         cache.through(claude, max_age=300, clock=lambda: NOW, get=get)
         with mock.patch.dict(os.environ, {"CLAUDE_CONFIG_DIR": str(d)}):
             anthropic.capture({"rate_limits": RL}, NOW + timedelta(seconds=30))
         got = cache.through(claude, max_age=300, clock=lambda: NOW + timedelta(seconds=40), get=get)[0]
-        self.assertEqual((got["source"], got["plan"]), ("statusline", "default_claude_max_5x"))
+        self.assertEqual((got["source"], got["plan"], got["organization_type"]),
+                         ("statusline", "default_claude_max_5x", "claude_team"))
+
+    def test_the_organisation_type_tells_a_personal_plan_from_a_team_seat(self):
+        usage = {"five_hour": {"utilization": 10.0, "resets_at": (NOW + timedelta(hours=2)).isoformat()}}
+        cred = Credential(UUID, {"token": "t", "expires": None})
+        for kind in ("claude_pro", "claude_team"):
+            get = lambda url, h, n, kind=kind: (Answer({"organization": {"organization_type": kind}}, 200, None)
+                                                if url == anthropic.PROFILE_URL else Answer(usage, 200, None))
+            self.assertEqual(anthropic.read(cred, NOW, get)["organization_type"], kind)
 
     def test_the_accounts_own_severity_is_kept_verbatim(self):
         body = {"limits": [

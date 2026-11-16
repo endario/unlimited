@@ -88,6 +88,7 @@ CLI and app share the builtin message definitions; JSON keeps the machine-readab
     "taken_at": "2026-09-21T14:00:00+00:00",
     "source": "api",
     "plan": "default_claude_max_20x",
+    "organization_type": "claude_team",
     "status": "ok",
     "why": null,
     "retry_until": null,
@@ -244,7 +245,7 @@ not projected: the vendor reports no reset for it.
 
 | Vendor | Local, no network | Network |
 |---|---|---|
-| Anthropic (Claude Code, claude.ai sign-in) | the `rate_limits` Claude Code hands its statusline, via `capture` | `oauth/usage` on Claude Code's own token |
+| Anthropic (Claude Code, claude.ai sign-in; one account per person and organisation, `<accountUuid>_<organizationUuid>`) | the `rate_limits` Claude Code hands its statusline, via `capture` | `oauth/usage` on Claude Code's own token |
 | OpenAI (Codex, ChatGPT sign-in) | `rate_limits` in each Codex home's session logs | `wham/usage` on each home's own token: `$CODEX_HOME` or `~/.codex`, and every `~/.codex-N` |
 | Z.ai (GLM coding plan) | — | `quota/limit` on each claude-glm wrapper's API key; a team plan's key is read as the team that `GLM_ORGANIZATION_ID` and `GLM_PROJECT_ID` name in its env file, on the host its `GLM_HOST` names |
 | Moonshot Kimi (Kimi Code coding plan) | — | `coding/v1/usages` on each claude-kimi wrapper's API key |
