@@ -166,6 +166,7 @@ def models(cred: Credential, now: datetime, get) -> dict:
     ids = sorted({model["id"] for model in (rows if isinstance(rows, list) else [])
                   if isinstance(model, dict) and isinstance(model.get("id"), str) and model["id"]})
     # Listed aliases need a successful dispatch; this is not an uptime guarantee.
-    dispatchable = {"glm-5.3", "glm-5.3-flash", "gpt-6-luna", "gpt-6.1-sol", "gpt-6-astra"}
+    dispatchable = {"glm-5.3", "glm-5.3-flash", "gpt-6-luna", "gpt-6.1-sol", "gpt-6-astra",
+                    "gpt-6.2-sol", "gpt-6.2-astra", "gpt-6.1-terra"}
     return dict(reading(VENDOR, cred.account, now, OK, why=ans.why, retry_until=ans.retry_until),
                 routes=[{"id": model, "dispatchable": model in dispatchable} for model in ids])
