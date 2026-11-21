@@ -16,7 +16,6 @@ struct AccountRow: View {
     }
 
     var body: some View {
-        let offer = AccountOffer(reading: reading, switches: model.offSwitches)
         let usage = UsageFigure(value: tile.value, health: tile.health, percentSign: true)
         VStack(alignment: .leading, spacing: 6) {
             HStack(alignment: .firstTextBaseline, spacing: 8) {
@@ -46,7 +45,6 @@ struct AccountRow: View {
                             .lineLimit(1)
                             .frame(maxWidth: 40, alignment: .leading)
                             .fixedSize(horizontal: true, vertical: false)
-                        SteeringIndicatorView(indicator: tile.indicator)
                     }
                     .frame(width: 48, alignment: .leading)
                     usage
@@ -68,13 +66,10 @@ struct AccountRow: View {
             }
             if let measured = reading?.usage { LoggedUsageView(usage: measured) }
         }
-        .opacity(model.canOffer && offer.row?.off == true ? 0.5 : 1)
     }
 
     private func controls() -> some View {
         HStack(spacing: 4) {
-            AccountSteeringButton(model: model, tile: tile, label: label)
-            AccountOfferButton(model: model, tile: tile, label: label)
             Button { model.arrange { $0.step(tile.id, by: -1) } } label: {
                 Image(systemName: "chevron.up")
                     .frame(width: 26, height: 26)

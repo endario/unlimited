@@ -89,7 +89,6 @@ struct PopoverView: View {
             DescribedAccount(description: ([Tile.vendorName(t.vendor)] + r.names).joined(separator: " · "),
                              help: "The account shown: pick another on the strip", reading: r)
                 .font(.callout).foregroundStyle(.secondary)
-            SteeringIndicatorView(indicator: t.indicator)
             Spacer()
             // The star is drawn taller than the rectangles beside it: 11.25pt medium matches their ink height and stroke.
             if t.best { Image(systemName: "star").font(.system(size: 11.25, weight: .medium)).help("Best pick") }
@@ -134,10 +133,6 @@ struct PopoverView: View {
             }
             Spacer()
             HStack(spacing: 4) {
-                if let t = tile, r != nil {
-                    AccountSteeringButton(model: model, tile: t, label: model.name(of: t))
-                    AccountOfferButton(model: model, tile: t, label: model.name(of: t))
-                }
                 Button { model.refresh(maxAge: 0) } label: { footerIcon("arrow.clockwise") }
                     .buttonStyle(.borderless).help("Read now")
                 Button { model.closePopover(); SettingsWindow.show(model) } label: { footerIcon("gearshape") }
