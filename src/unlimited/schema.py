@@ -21,6 +21,27 @@ def number(x: object) -> float | None:
     return None
 
 
+def decimal(x: object) -> float | None:
+    """An amount a vendor sends as a decimal string, or as a number; None for anything else."""
+    try:
+        return number(float(x)) if isinstance(x, str) else number(x)
+    except ValueError:
+        return None
+
+
+def balance(body: dict, field: str, now: datetime) -> dict | None:
+    """The credits of a prepaid account's `balance_infos` answer, `field` being the entry's amount;
+    None when it carries no amount. The vendor's `is_available` is its word for whether it is spendable."""
+    infos = body.get("balance_infos")
+    info = next((i for i in infos if isinstance(i, dict)), None) if isinstance(infos, list) else None
+    amount = decimal(info.get(field)) if info else None
+    if amount is None:
+        return None
+    currency = info.get("currency")
+    return credits(now, enabled=body.get("is_available") is True, used=None, limit=None, balance=amount,
+                   currency=currency if isinstance(currency, str) else None)
+
+
 def moment(value: object) -> datetime | None:
     if isinstance(value, str):
         try:
