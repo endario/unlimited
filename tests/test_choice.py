@@ -434,7 +434,7 @@ class Choose(unittest.TestCase):
             yield cat, args
 
     def test_cli_choose_keeps_canonical_binding_and_local_account_policy(self):
-        with self.local_policy_choice() as (cat, args):
+        with self.local_policy_choice() as (_, args):
             for identity in ("a", "alpha"):
                 out = io.StringIO()
                 with redirect_stdout(out):
@@ -448,16 +448,6 @@ class Choose(unittest.TestCase):
                 self.assertEqual(bad, 0)
                 self.assertEqual(logged[-1]["request"], got["request"])
                 self.assertEqual(got["candidates"][0]["rho"], .4)
-            cat.off = [{"target": "openai", "account": "alpha"}]
-            out = io.StringIO()
-            with redirect_stdout(out), redirect_stderr(io.StringIO()):
-                self.assertEqual(cli.main([*args, "--account", "route-a=a"]), 1)
-            self.assertEqual(out.getvalue(), "")
-            out = io.StringIO()
-            with redirect_stdout(out):
-                self.assertEqual(cli.main([*args, "--account", "route-a=b"]), 0)
-            sibling = json.loads(out.getvalue())
-            self.assertEqual(sibling["candidates"][0]["multiplier"], 1)
 
     def test_cli_choose_without_binding_does_not_invent_account_policy(self):
         with self.local_policy_choice() as (_, args):
@@ -524,7 +514,7 @@ class Choose(unittest.TestCase):
 
     def test_cli_context_account_is_canonical_even_when_it_is_a_receiver_alias(self):
         adapter = SimpleNamespace(names=lambda: {"b": ["a", "other"]})
-        with self.local_policy_choice() as (cat, args), \
+        with self.local_policy_choice() as (_, args), \
              mock.patch.dict(cli.REGISTRY, {"openai": adapter}, clear=True):
             for contexts in ({"route-a": self.choice_context()}, {}, {"route-a": None}):
                 with self.subTest(contexts=contexts):
@@ -534,9 +524,6 @@ class Choose(unittest.TestCase):
                     got = json.loads(text)
                     self.assertEqual(got["request"]["accounts"], {"route-a": {"account": "a", "names": []}})
                     self.assertEqual(got["candidates"][0]["multiplier"], 3 if contexts.get("route-a") else 1)
-            cat.off = [{"target": "openai", "account": "a"}]
-            code, text, err = self.context_call(args, io.StringIO("{}"), ["--account", "route-a=a"])
-            self.assertEqual((code, text), (1, ""))
 
     def test_cli_missing_context_stdin_fails_before_clock_or_log_work(self):
         with self.local_policy_choice() as (_, args), mock.patch.object(cli, "datetime") as clock, \
@@ -659,19 +646,13 @@ class Choose(unittest.TestCase):
                 self.assertEqual((got["context_evaluations"]["route-a"]["status"],
                                   got["context_evaluations"]["route-a"]["reason"]), ("unavailable", reason))
 
-    def test_cli_context_identity_conflicts_and_alias_off_use_sdk_rules(self):
-        with self.local_policy_choice() as (cat, args):
+    def test_cli_context_identity_conflicts_use_sdk_rules(self):
+        with self.local_policy_choice() as (_, args):
             conflicting = {**self.choice_context(), "account": "b"}
             code, text, err = self.context_call(args, io.StringIO(json.dumps({"route-a": conflicting})),
                                                ["--account", "route-a=a"])
             self.assertEqual((code, text), (2, ""))
             self.assertIn("context vendor/account conflict", err)
-            cat.off = [{"target": "openai", "account": "alpha"}]
-            malformed = {**self.choice_context(), "settings": "bad"}
-            code, text, err = self.context_call(args, io.StringIO(json.dumps({"route-a": malformed})),
-                                               ["--account", "route-a=a"])
-            self.assertEqual((code, text), (1, ""))
-            self.assertIn("no candidate", err)
 
     def test_cli_unknown_account_offering_is_refused_before_choice(self):
         with self.local_policy_choice() as (_, args), \

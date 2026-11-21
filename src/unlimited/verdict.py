@@ -10,7 +10,6 @@ from __future__ import annotations
 import math
 from datetime import datetime, timedelta
 
-from .identity import policy_keys
 from .schema import moment
 
 # The least fraction of a window the paced figure and the score divide by: a window that has only
@@ -97,18 +96,9 @@ def _iso(t: datetime | None) -> str | None:
 
 def verdict(reading: object, *, model_scope: str | None, now: datetime, work: timedelta,
             max_age: timedelta, starts: datetime | None = None,
-            off: dict[str, str | None] | None = None, policy: dict | None = None) -> dict:
+            policy: dict | None = None) -> dict:
     """`unread`, `excluded` or `ranked` for `work` on `model_scope` starting at `starts`.
-    `ranked` is advisory: it describes one reading and reserves nothing. `off` is the machine's
-    policy (`catalog.off_policy(now)`), keyed by vendor for a whole-vendor switch or
-    `vendor/account` for one account's: a reading whose vendor it names, or one of whose account
-    id or identity names a `vendor/…` key names, is `excluded` outright, with the switch's
-    `until` and no window."""
-    if isinstance(reading, dict):
-        ids = policy_keys(reading.get("vendor"), reading)
-        hit = next((k for k in ids if k in (off or {})), None)
-        if hit is not None:
-            return {"state": "excluded", "reason": "off", "until": (off or {})[hit]}
+    `ranked` is advisory: it describes one reading and reserves nothing."""
     starts = starts or now
     if not isinstance(reading, dict):
         return {"state": "unread", "reason": "no-reading"}

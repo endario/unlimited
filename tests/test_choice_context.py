@@ -38,15 +38,6 @@ class ChoiceContext(unittest.TestCase):
                         self.assertEqual(plain[key], contextual[key])
                     self.assertEqual(contextual["request"]["contexts"], {ROUTE: context})
 
-    def test_malformed_policy_preserves_context_account_off_identity(self):
-        self.cat.off = [{"target": "openai", "account": "a"}]
-        for context in (dict(ctx(), settings="malformed"), dict(ctx(), v=99),
-                        dict(ctx(), error="policy-unavailable")):
-            with self.subTest(context=context):
-                self.assertIsNone(choice.rank(self.cat, **self.args, contexts={ROUTE: context}))
-        sibling = choice.rank(self.cat, **self.args, contexts={ROUTE: ctx(account="b", factor=10)})
-        self.assertEqual(sibling["candidates"][0]["multiplier"], 10)
-
     def test_conflicting_identity_is_rejected_before_policy_failure_or_exclusion(self):
         for context in (ctx(), dict(ctx(), settings="malformed"), dict(ctx(), v=99),
                         dict(ctx(), error="policy-unavailable")):
@@ -54,7 +45,6 @@ class ChoiceContext(unittest.TestCase):
                 with self.subTest(context=context, filters=filters), self.assertRaises(ValueError):
                     choice.rank(self.cat, **self.args, **filters, contexts={ROUTE: context},
                                 accounts={ROUTE: {"account": "b", "names": ["a"]}})
-        self.cat.off = [{"target": "openai", "account": "a"}]
         with self.assertRaises(ValueError):
             choice.rank(self.cat, **self.args, contexts={ROUTE: dict(ctx(), vendor="anthropic", v=99)})
 
@@ -68,26 +58,6 @@ class ChoiceContext(unittest.TestCase):
             for contexts in ({ROUTE: ctx()}, {}):
                 with self.subTest(extra=extra, contexts=contexts), self.assertRaises(ValueError):
                     choice.rank(self.cat, **self.args, contexts=contexts, **extra)
-
-    def test_local_alias_and_uncovered_identity_still_enforce_off(self):
-        self.cat.off = [{"target": "openai", "account": "alpha"}]
-        for contexts in ({ROUTE: ctx()}, {}, {ROUTE: dict(ctx(), vendor=None)},
-                         {ROUTE: ctx(account=None)}, {ROUTE: dict(ctx(), settings="malformed")}):
-            with self.subTest(contexts=contexts):
-                self.assertIsNone(choice.rank(self.cat, **self.args, contexts=contexts,
-                                              accounts={ROUTE: {"account": "a", "names": ["alpha"]}}))
-
-    def test_uncovered_canonical_account_still_enforces_off(self):
-        self.cat.off = [{"target": "openai", "account": "a"}]
-        for contexts in ({}, {ROUTE: dict(ctx(), account=" ")}, {ROUTE: ctx(account=None)}):
-            with self.subTest(contexts=contexts):
-                self.assertIsNone(choice.rank(self.cat, **self.args, contexts=contexts,
-                                              accounts={ROUTE: {"account": "a", "names": []}}))
-
-    def test_context_aliases_do_not_supply_off_identity(self):
-        self.cat.off = [{"target": "openai", "account": "alpha"}]
-        got = choice.rank(self.cat, **self.args, contexts={ROUTE: dict(ctx(), names=["alpha"])})
-        self.assertIsNotNone(got)
 
     def test_supplied_aliases_do_not_become_context_policy(self):
         context = dict(ctx(), settings=[setting("openai", 10, account="alpha")])

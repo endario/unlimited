@@ -1,6 +1,5 @@
 """`unlimited` (a table for people), `unlimited read [--vendor V]... [--max-age S] --json`,
 `unlimited models [--tier T] [--provider P] [--json]`,
-`unlimited off [TARGET [--for D] [--why W]]`, `unlimited on TARGET`,
 `unlimited attempt start|end ...`, `unlimited outcomes [--json]`, `unlimited choose ... --json`,
 `unlimited cards [--tier T] [--json]`,
 `unlimited verdict --work S [--offering ID] [--model-scope M] --json`,
@@ -71,50 +70,6 @@ def _positive_int(text: str) -> int:
     if n <= 0:
         raise argparse.ArgumentTypeError(f"{text!r}: must be positive")
     return n
-
-
-def _switch(a) -> int:
-    """Switch a provider, a model, a `provider:model` pair, or (with --account) one account of a
-    usage vendor off (or back on) on this machine."""
-    from . import catalog
-    try:
-        cat = catalog.load()
-        now = datetime.now(timezone.utc)
-    except catalog.CatalogError as e:
-        print(f"unlimited: catalog: {e}", file=sys.stderr)
-        return 2
-    if a.cmd == "off" and a.target is None:
-        off = [x for x in cat.off if catalog.live(x, now)]
-        if a.json:
-            json.dump([catalog.project_switch(x) for x in off], sys.stdout)
-            return 0
-        for x in off:
-            what = x["target"] if x.get("account") is None else f"{x['target']}/{x['account']}"
-            print(f"{what:<48} {'until ' + x['until'] if x.get('until') else 'until switched on'}"
-                  + (f"  ({x['why']})" if x.get("why") else ""))
-        return 0
-    account = getattr(a, "account", None)
-    known = catalog.target_known(cat, a.target, account=account)
-    if not known:
-        why = (f"unlimited: --account applies only to a usage vendor ({', '.join(sorted(REGISTRY))})"
-               if account is not None else
-               f"unlimited: {a.target}: not a provider, model, offering, usage vendor or "
-               f"provider:model pair in the catalog")
-        print(why, file=sys.stderr)
-        return 1
-    try:
-        wrote = catalog.switch(a.target, on=a.cmd == "on",
-                               until=(now + a.for_) if getattr(a, "for_", None) else None,
-                               why=getattr(a, "why", None), account=account, now=now)
-    except catalog.NotOff as e:
-        print(f"unlimited: {e}: not switched off here", file=sys.stderr)
-        return 1
-    except catalog.CatalogError as e:
-        print(f"unlimited: catalog: {e}", file=sys.stderr)
-        return 2
-    if a.json:
-        json.dump([catalog.project_switch(x) for x in wrote], sys.stdout)
-    return 0
 
 
 def _warn_unrouted(provider: str, route: str) -> None:
@@ -361,7 +316,6 @@ READ_HELP = ("seconds a cached reading may be before this reads the vendor again
 VENDOR_HELP = "only this vendor, repeatable (default: every vendor)"
 FILES = """files:
   ~/.config/unlimited/catalog.toml   this machine's catalog additions (docs/catalog.md); optional
-  ~/.config/unlimited/switches.json  what `unlimited off` switched off here
   ~/.config/unlimited/incentives.json
                                      operator multipliers and their expiry
   ~/.local/state/unlimited/decisions.jsonl
@@ -482,7 +436,7 @@ example:
     vd = add("verdict", "whether each account can take a unit of work, as JSON", f"""\
 For each account, whether it can take a unit of work of --work seconds now: `unread` (no fresh
 reading), `excluded` (the vendor stopped it, a window is used up, one runs out before the work
-would finish, or the vendor is switched off here; with which window and when it lifts) or
+would finish; with which window and when it lifts) or
 `ranked`, with a `tier` (0: no window
 projected past its limit; 1: one is, but after the work) and a raw quota `score`. Ranked results
 also include source-local `preference`; compare tiers before its effective score. Each row carries
@@ -506,8 +460,8 @@ examples:
     m = add("models", "what each provider runs at a tier; the whole catalog with --catalog", f"""\
 The model catalog: which models exist, which maker (provider) makes each, which tiers each
 serves, and which vendors sell it (offerings, each with the id a caller launches). It ships
-with unlimited; ~/.config/unlimited/catalog.toml adds to or replaces entries on this machine,
-and `unlimited off` switches entries off. Format: {DOCS}/catalog.md
+with unlimited; ~/.config/unlimited/catalog.toml adds to or replaces entries on this machine.
+Format: {DOCS}/catalog.md
 
 Without --catalog, prints each provider's live routes at --tier, promotions first.""", """\
 examples:
@@ -531,32 +485,6 @@ examples:
   unlimited cards --json""")
     cd.add_argument("--tier", metavar="TIER", help="only the routes at this tier (default: every tier)")
     cd.add_argument("--json", action="store_true", help="a JSON array of {provider, model, tiers, expected, observed}")
-    of = add("off", "switch a provider, model, vendor or route off here; list what is off", """\
-Switches a catalog entry off on this machine, so it is never a candidate, until switched on or
-until --for lapses. TARGET is a provider, a model, a vendor (by its usage name, also one with no
-catalog route here), an offering id, or PROVIDER:MODEL. The shipped catalog is untouched; the
-switch lives in ~/.config/unlimited/switches.json. With no TARGET, lists what is off and until
-when.""", """\
-examples:
-  unlimited off                                         # what is off
-  unlimited off commandcode --for 12h --why "overloaded"
-  unlimited off zai --account claude-glm-2              # one account, not the vendor
-  unlimited off claude:opus
-  unlimited on commandcode""")
-    of.add_argument("target", nargs="?", metavar="TARGET", help="what to switch off (omit to list)")
-    of.add_argument("--account", metavar="NAME",
-                    help="switch off one account of a usage vendor TARGET, not the vendor: its "
-                         "account id (`unlimited read`) or an identity name (claude-glm-2); a "
-                         "name no account here answers to is accepted and matches nothing")
-    of.add_argument("--json", action="store_true", help="a JSON array of what is off (after any change)")
-    of.add_argument("--for", dest="for_", type=_duration, metavar="DURATION",
-                    help="lapse after this long: a number and m, h, d or w (90m, 12h, 1d, 1w); default never")
-    of.add_argument("--why", metavar="NOTE", help="a note, shown when listing")
-    on = add("on", "undo `unlimited off TARGET`", "Switches TARGET back on; exit 1 if it was not off.",
-             "example:\n  unlimited on commandcode")
-    on.add_argument("target", metavar="TARGET", help="exactly as it was switched off")
-    on.add_argument("--account", metavar="NAME", help="exactly as it was switched off")
-    on.add_argument("--json", action="store_true", help="a JSON array of what is off (after any change)")
     inc = add("incentive", "encourage or discourage a catalog target here", """\
 A positive multiplier divides a route's expected time cost: 10 encourages it and 0.1 discourages
 it without making it unavailable. Without --for, expiry is the latest relevant reset on each
@@ -770,8 +698,6 @@ def main(argv: list[str] | None = None) -> int:
         return 0
     if a.cmd == "models":
         return _models(a)
-    if a.cmd in ("off", "on"):
-        return _switch(a)
     if a.cmd == "incentive":
         return _incentive(a)
     if a.cmd == "attempt":
@@ -822,7 +748,6 @@ def main(argv: list[str] | None = None) -> int:
         json.dump(out, sys.stdout)
         sys.stdout.write("\n")
         return 0
-    off = None
     verdict_cat = None
     vendors = getattr(a, "vendor", None) or sorted(REGISTRY)
     if a.cmd == "verdict":
@@ -836,13 +761,7 @@ def main(argv: list[str] | None = None) -> int:
             print("unlimited: --work and --max-age must be non-negative, finite durations "
                   "within the supported time range", file=sys.stderr)
             return 2
-        # Before the reads: a broken switches file fails the command without waiting on a vendor.
         from . import catalog
-        try:
-            off = catalog.off_policy(datetime.now(timezone.utc))
-        except catalog.CatalogError as e:
-            print(f"unlimited: catalog: {e}", file=sys.stderr)
-            return 2
         if a.offering is not None:
             try:
                 verdict_cat = catalog.load_metadata()
@@ -874,11 +793,6 @@ def main(argv: list[str] | None = None) -> int:
         from . import catalog, incentives
         from .verdict import verdict
         now = datetime.now(timezone.utc)
-        try:
-            off = catalog.off_policy(now)
-        except catalog.CatalogError as e:
-            print(f"unlimited: catalog: {e}", file=sys.stderr)
-            return 2
         errors = []
         if verdict_cat is None:
             try:
@@ -899,7 +813,7 @@ def main(argv: list[str] | None = None) -> int:
                     verdict_cat, r.get("steering"), vendor=vendor,
                     account=r.get("account"), offering=a.offering, now=now)
                 result = verdict(r, model_scope=a.model_scope, now=now,
-                                 work=work, max_age=max_age, off=off, policy=policy)
+                                 work=work, max_age=max_age, policy=policy)
                 if isinstance(r.get("budget"), dict):
                     result = dict(result, budget=r["budget"])
                 rows.append({

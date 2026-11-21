@@ -1,24 +1,18 @@
-"""Opaque exclusion keys preserve factual identity and existing enforcement."""
+"""Opaque policy keys preserve factual identity."""
 import copy
 import io
 import json
 import os
 import unittest
-from contextlib import redirect_stdout, redirect_stderr
+from contextlib import redirect_stdout
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from unittest import mock
 
-from unlimited import catalog, choice, cli, identity, incentives
-from unlimited.verdict import verdict
+from unlimited import catalog, cli, identity, incentives
 import scratch
 
 NOW = datetime(2026, 10, 5, 12, tzinfo=timezone.utc)
-
-
-def decide(reading, off):
-    return verdict(reading, model_scope=None, now=NOW, work=timedelta(),
-                   max_age=timedelta(), off=off)
 
 
 class Admission(unittest.TestCase):
@@ -27,47 +21,6 @@ class Admission(unittest.TestCase):
         self.assertEqual(identity.names(" W "), {" W "})
         self.assertEqual(identity.ordered_names({"account": " ", "names": ["a", "a", "", None]}),
                          [" ", "a", "a"])
-
-    def test_off_precedes_reading_admission_and_deadline_order(self):
-        reading = {"vendor": "openai", "account": "W", "names": ["B", "A", "B"]}
-        policy = {"openai": "vendor-deadline", "openai/W": "account-deadline",
-                  "openai/A": "A-deadline", "openai/B": "B-deadline"}
-        for key, until in (("openai", "vendor-deadline"), ("openai/W", "account-deadline"),
-                           ("openai/B", "B-deadline")):
-            self.assertEqual(decide(reading, policy), {"state": "excluded", "reason": "off", "until": until})
-            del policy[key]
-
-    def test_missing_and_nonstring_vendor_existing_verdict_behavior(self):
-        for reading, key in (({"account": "W"}, "None/W"),
-                             ({"vendor": 42, "account": "W"}, "42/W"),
-                             ({"vendor": "", "account": "W"}, "/W")):
-            self.assertEqual(decide(reading, {key: "deadline"}),
-                             {"state": "excluded", "reason": "off", "until": "deadline"})
-            self.assertEqual(decide(reading, {}), {"state": "unread", "reason": "not-ok"})
-
-    def test_off_policy_registry_live_filter_and_last_write(self):
-        path = Path(scratch.mkdtemp()) / "switches.json"
-        catalog.write_switches([{"target": "openai", "account": " W ", "until": None},
-                                {"target": "openai", "account": " W ", "until": (NOW + timedelta(hours=1)).isoformat()},
-                                {"target": "codex", "account": "W", "until": None},
-                                {"target": "unknown", "until": None},
-                                {"target": "openai", "until": NOW.isoformat()}], path)
-        self.assertEqual(catalog.off_policy(NOW, path), {"openai/ W ": "2026-10-05T13:00:00+00:00"})
-
-    def test_choice_manual_provider_switch_keeps_explicit_binding_guards(self):
-        cat = catalog.Catalog({"tiers": ["standard"],
-                               "models": {"m": {"provider": "manual", "tiers": ["standard"]}},
-                               "offerings": [{"id": "route", "model": "m", "vendor": "openai"}]},
-                              off=[{"target": "manual", "account": "alias", "until": None}])
-        candidate = {"model": "route"}
-        for binding, expected in ((None, False), ("", False), (" ", False), ("alias", True),
-                                  ({"account": "W", "names": ["alias"]}, True),
-                                  ({"account": "other", "names": []}, False)):
-            self.assertEqual(choice._account_off(cat, candidate, {"route": binding}, NOW), expected)
-        self.assertFalse(choice._account_off(cat, {"model": "absent"}, {"absent": "alias"}, NOW))
-        cat.off[0]["until"] = NOW.isoformat()
-        self.assertFalse(choice._account_off(cat, candidate, {"route": "alias"}, NOW))
-
 
 class Keys(unittest.TestCase):
     def test_shared_constructors_keep_literal_order_and_raw_selectors(self):
@@ -83,15 +36,6 @@ class Keys(unittest.TestCase):
                          ["openai", "openai/ ", "openai/A"])
         self.assertEqual(identity.policy_key("openai", "stored-alias"), "openai/stored-alias")
         self.assertEqual(identity.policy_key("openai"), "openai")
-
-    def test_switch_keys_admit_usage_vendor_only_without_expiry_filter(self):
-        self.assertTrue(callable(getattr(catalog, "switch_policy_keys", None)), "missing switch_policy_keys")
-        self.assertEqual(catalog.switch_policy_keys({"target": "openai", "account": " W ", "until": NOW.isoformat()}),
-                         ["openai/ W "])
-        self.assertEqual(catalog.switch_policy_keys({"target": "openai"}), ["openai"])
-        for target in ("unknown", "codex", "gpt-6.1-sol", "codex:gpt-6.1-sol"):
-            self.assertEqual(catalog.switch_policy_keys({"target": target, "account": "W"}), [])
-
 
 class Output(unittest.TestCase):
     def test_reading_projection_recomputes_forged_fields_without_changing_facts(self):
@@ -112,16 +56,6 @@ class Output(unittest.TestCase):
                 self.assertEqual(identity.project_reading({"vendor": vendor, "account": "W"})["policy_keys"], [])
         self.assertEqual(identity.project_reading({"account": "W"})["policy_keys"], [])
         self.assertEqual(identity.project_reading({"vendor": "custom", "account": None})["policy_keys"], ["custom"])
-
-    def test_switch_projection_preserves_raw_clear_selector_and_ignores_forgery(self):
-        self.assertTrue(callable(getattr(catalog, "project_switch", None)), "missing project_switch")
-        raw = {"target": "openai", "account": "stored-alias", "until": None, "why": "note", "extra": 7}
-        before = copy.deepcopy(raw)
-        self.assertEqual(catalog.project_switch(raw), {**raw, "policy_projection": "unlimited-policy-keys-v1",
-                                                      "policy_keys": ["openai/stored-alias"]})
-        self.assertEqual(raw, before)
-        self.assertEqual(catalog.project_switch({"target": "codex", "policy_keys": ["openai"],
-                                                "policy_projection": "forged"})["policy_keys"], [])
 
     def test_annotation_projection_survives_advisory_loading(self):
         rows = [{"vendor": "openai", "account": "W", "names": ["A"], "status": "unread"},
@@ -164,38 +98,6 @@ class Output(unittest.TestCase):
         self.assertEqual({k: v for k, v in shown[0].items()
                           if k not in {"steering", "policy_projection", "policy_keys"}}, before)
         self.assertEqual(raw, before)
-
-    def test_cli_switch_json_list_mutations_and_exact_clear_do_not_persist_projection(self):
-        root = Path(scratch.mkdtemp())
-        def command(argv):
-            out, err = io.StringIO(), io.StringIO()
-            with redirect_stdout(out), redirect_stderr(err):
-                code = cli.main(argv)
-            return code, json.loads(out.getvalue()) if out.getvalue() else None
-        with mock.patch.dict(os.environ, {"XDG_CONFIG_HOME": str(root)}), \
-                mock.patch.object(cli, "datetime") as clock:
-            clock.now.return_value = NOW
-            path = catalog.switches_path()
-            catalog.write_switches([{"target": "codex", "until": None, "why": "route only"},
-                                    {"target": "openai", "account": "expired", "until": NOW.isoformat()}])
-            code, listed = command(["off", "--json"])
-            self.assertEqual(code, 0)
-            self.assertEqual(listed, [{"target": "codex", "until": None, "why": "route only",
-                                      "policy_projection": "unlimited-policy-keys-v1", "policy_keys": []}])
-            code, changed = command(["off", "openai", "--account", "stored-alias", "--why", "raw note", "--for", "1h", "--json"])
-            self.assertEqual(code, 0)
-            self.assertEqual(changed[-1], {"target": "openai", "account": "stored-alias", "why": "raw note",
-                                          "until": "2026-10-05T13:00:00+00:00",
-                                          "policy_projection": "unlimited-policy-keys-v1", "policy_keys": ["openai/stored-alias"]})
-            stored = path.read_bytes()
-            self.assertNotIn(b"policy_", stored)
-            self.assertEqual(command(["on", "openai", "--account", "W", "--json"]), (1, None))
-            self.assertEqual(path.read_bytes(), stored)
-            self.assertEqual(command(["off", "unknown-target", "--json"]), (1, None))
-            self.assertEqual(path.read_bytes(), stored)
-            self.assertEqual(command(["on", "openai", "--account", "stored-alias", "--json"]), (0, listed))
-            self.assertNotIn(b"policy_", path.read_bytes())
-
 
 class CacheAcceptance(unittest.TestCase):
     def test_real_translation_cache_and_cli_projection_remain_transient(self):
@@ -256,29 +158,6 @@ class CacheAcceptance(unittest.TestCase):
                 self.assertEqual(cli.main(["read", "--vendor", "openai", "--json", "--max-age", "0"]), 0)
             self.assertEqual(json.loads(out.getvalue())[0]["policy_keys"],
                              ["openai", "openai/W", "openai/source-A", "openai/source-B"])
-
-    def test_literal_intersection_matrix_matches_verdict_without_using_incoming_keys(self):
-        reading = {"vendor": "openai", "account": "W", "names": ["source-A", "source-B"],
-                   "policy_keys": ["anthropic", "openai/unmatched"], "policy_projection": "forged"}
-        self.assertTrue(callable(getattr(identity, "project_reading", None)), "missing reading projection")
-        projected = identity.project_reading(reading)
-        self.assertEqual(projected["policy_keys"], ["openai", "openai/W", "openai/source-A", "openai/source-B"])
-        for target, account, expected in (("openai", None, True), ("openai", "W", True),
-                ("openai", "source-A", True), ("openai", "source-B", True),
-                ("openai", "unmatched", False), ("anthropic", "W", False), ("codex", None, False)):
-            switch = {"target": target, "account": account, "until": None}
-            keys = catalog.project_switch(switch)["policy_keys"]
-            self.assertEqual(bool(set(projected["policy_keys"]) & set(keys)), expected)
-            off = {key: "literal-deadline" for key in catalog.switch_policy_keys(switch)}
-            self.assertEqual(decide(reading, off), {"state": "excluded", "reason": "off", "until": "literal-deadline"}
-                             if expected else {"state": "unread", "reason": "not-ok"})
-        cat = catalog.Catalog({"tiers": ["standard"], "models": {"m": {"provider": "codex", "tiers": ["standard"]}},
-                               "offerings": [{"id": "r", "model": "m", "vendor": "openai"}]},
-                              off=[{"target": "codex", "until": None}])
-        self.assertEqual(cat.routes(NOW), [])
-        self.assertEqual(catalog.project_switch(cat.off[0])["policy_keys"], [])
-        self.assertEqual(decide(reading, {}), {"state": "unread", "reason": "not-ok"})
-
 
 if __name__ == "__main__":
     unittest.main()

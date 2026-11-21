@@ -121,29 +121,6 @@ class Ranking(unittest.TestCase):
                   reading(vendor="anthropic"), reading(window("seven_day", 0.1, WEEK, 100), vendor="anthropic")):
             self.assertEqual(v(r)["state"], "unread", r)
 
-    def test_a_vendor_switched_off_here_is_excluded_before_any_window(self):
-        r = reading(five(0.2, 300), vendor="openai")
-        self.assertEqual(v(r, off={"openai": None})["state"], "excluded")
-        self.assertEqual(v(r, off={"openai": "2026-09-24T10:00:00+00:00"}),
-                         {"state": "excluded", "reason": "off", "until": "2026-09-24T10:00:00+00:00"})
-        self.assertEqual(v(r)["state"], "ranked")                      # no policy: unchanged
-        self.assertEqual(v(r, off={"zai": None})["state"], "ranked")   # another vendor's switch
-        self.assertEqual(v("broken", off={"openai": None})["state"], "unread")  # not a reading
-
-    def test_one_account_of_a_vendor_switched_off_excludes_only_it(self):
-        zai = lambda **kw: {**reading(five(0.2, 300), window("seven_day", 0.2, WEEK, 5000), vendor="zai"), **kw}
-        glm2 = zai(account="4ff9f720f21e938b", names=["claude-glm-2"])
-        glm1 = zai(account="da68cb2cdf8f3998", names=["claude-glm"])
-        by_name = {"zai/claude-glm-2": None}
-        self.assertEqual(v(glm2, off=by_name)["state"], "excluded")
-        self.assertEqual(v(glm1, off=by_name)["state"], "ranked")
-        by_id = {"zai/4ff9f720f21e938b": "2026-09-25T00:00:00+00:00"}  # the account id works too
-        self.assertEqual(v(glm2, off=by_id),
-                         {"state": "excluded", "reason": "off", "until": "2026-09-25T00:00:00+00:00"})
-        self.assertEqual(v(glm1, off=by_id)["state"], "ranked")
-
-
-class Scope(unittest.TestCase):
     def test_an_exhausted_opus_week_excludes_opus_work_and_not_sonnet_work(self):
         r = reading(window("seven_day", 0.3, WEEK, 5000, at_reset=(0.4, 0.5)), five(0.1, 200),
                     window("seven_day_opus", 1.0, WEEK, 3000, role="weekly_model", scope="Opus"),
@@ -303,7 +280,6 @@ class Preference(unittest.TestCase):
             (reading(window("codex", 1, WEEK, 100)), {}),
             (reading(window("codex", .2, WEEK, 100, held=True, held_why="limit_reached")), {}),
             (risky, {"work": 3 * HOUR}),
-            (calm, {"off": {"openai/a": None}}),
         ]
         for r, kw in cases:
             with self.subTest(reading=r, options=kw):
@@ -434,8 +410,6 @@ class VerdictPolicyCli(unittest.TestCase):
         adapters = {v: SimpleNamespace(VENDOR=v) for v in ("openai", "neuralwatt")}
         self.stack.enter_context(mock.patch.dict(cli.REGISTRY, adapters, clear=True))
         self.stack.enter_context(mock.patch.object(catalog, "load_metadata", return_value=self.cat))
-        self.real_off_policy = catalog.off_policy
-        self.off = self.stack.enter_context(mock.patch.object(catalog, "off_policy", return_value={}))
         self.stack.enter_context(mock.patch.object(incentives, "read",
                                                   side_effect=lambda *a, **k: self.groups))
         self.clock = self.stack.enter_context(mock.patch.object(cli, "datetime"))
@@ -450,60 +424,17 @@ class VerdictPolicyCli(unittest.TestCase):
             code = cli.main(["verdict", "--work", "600", "--json", *args])
         return code, out.getvalue(), err.getvalue()
 
-    def test_hard_switch_expiry_uses_the_post_read_decision_time(self):
+    def test_steering_uses_the_post_read_decision_time(self):
         decision_time = NOW + timedelta(minutes=1)
-        self.readings[0]["names"] = ["alpha"]
-        self.off.side_effect = self.real_off_policy
-        for account in (None, "a", "alpha"):
-            with self.subTest(account=account):
-                self.clock.now.return_value = NOW
-                switch = {"target": "openai", "until": decision_time.isoformat()}
-                if account is not None:
-                    switch["account"] = account
-                catalog.write_switches([switch])
-                def read(adapter, **kw):
-                    self.clock.now.return_value = decision_time
-                    return copy.deepcopy(self.readings)
-                self.read_cache.side_effect = read
-                code, text, _ = self.run_cli("--vendor", "openai")
-                self.assertEqual(code, 0)
-                (got,) = json.loads(text)
-                self.assertEqual(got["verdict"]["state"], "ranked")
-                self.assertEqual(got["steering"]["observed_at"], decision_time.isoformat())
-                self.assertEqual(self.off.call_args.args, (decision_time,))
-
-    def test_hard_switch_changes_during_reads_apply_to_the_returned_verdict(self):
-        self.off.side_effect = self.real_off_policy
-        self.readings[0]["names"] = ["alpha"]
-        switch = {"target": "openai", "account": "alpha", "until": None}
-        for before, after, state in (([], [switch], "excluded"), ([switch], [], "ranked")):
-            with self.subTest(state=state):
-                catalog.write_switches(before)
-                def read(adapter, **kw):
-                    catalog.write_switches(after)
-                    return copy.deepcopy(self.readings)
-                self.read_cache.side_effect = read
-                code, text, _ = self.run_cli("--vendor", "openai")
-                self.assertEqual(code, 0)
-                (got,) = json.loads(text)
-                self.assertEqual(got["verdict"]["state"], state)
-                if state == "excluded":
-                    self.assertEqual(got["verdict"], {"state": "excluded", "reason": "off", "until": None})
-                else:
-                    self.assertIn("preference", got["verdict"])
-
-    def test_switches_broken_during_reads_fail_without_json_even_without_accounts(self):
-        self.off.side_effect = self.real_off_policy
-        for empty in (False, True):
-            with self.subTest(empty=empty):
-                catalog.write_switches([])
-                def read(adapter, **kw):
-                    catalog.switches_path().write_text("invalid-json")
-                    return [] if empty else copy.deepcopy(self.readings)
-                self.read_cache.side_effect = read
-                code, text, err = self.run_cli("--vendor", "openai")
-                self.assertEqual((code, text), (2, ""))
-                self.assertIn("catalog", err)
+        def read(adapter, **kw):
+            self.clock.now.return_value = decision_time
+            return copy.deepcopy(self.readings)
+        self.read_cache.side_effect = read
+        code, text, _ = self.run_cli("--vendor", "openai")
+        self.assertEqual(code, 0)
+        (got,) = json.loads(text)
+        self.assertEqual(got["verdict"]["state"], "ranked")
+        self.assertEqual(got["steering"]["observed_at"], decision_time.isoformat())
 
     def test_invalid_verdict_durations_fail_before_reads_even_without_accounts(self):
         cases = [("--work", value) for value in
@@ -528,7 +459,7 @@ class VerdictPolicyCli(unittest.TestCase):
                 self.assertEqual(code, 0)
                 (got,) = json.loads(text)
                 expected = verdict(self.readings[0], model_scope=None, now=NOW,
-                                   work=timedelta(seconds=work), max_age=timedelta(seconds=age), off={})
+                                   work=timedelta(seconds=work), max_age=timedelta(seconds=age))
                 self.assertEqual({k: v for k, v in got["verdict"].items() if k != "preference"}, expected)
                 self.assertEqual(got["verdict"]["state"], "ranked")
 
@@ -616,7 +547,6 @@ class VerdictPolicyCli(unittest.TestCase):
 
     def test_offering_identity_does_not_add_route_admission_to_verdict(self):
         self.cat.banned = frozenset({"route-a"})
-        self.cat.off = [{"target": "route-a"}]
         code, text, _ = self.run_cli("--offering", "route-a")
         self.assertEqual(code, 0)
         (got,) = json.loads(text)
@@ -667,9 +597,9 @@ class VerdictPolicyCli(unittest.TestCase):
                                             vendor=r["vendor"], account=r.get("account"),
                                             offering=offering, now=NOW)
         raw = verdict(r, model_scope=scope, now=NOW, work=timedelta(seconds=600),
-                      max_age=timedelta(seconds=300), off=self.off.return_value)
+                      max_age=timedelta(seconds=300))
         expected = verdict(r, model_scope=scope, now=NOW, work=timedelta(seconds=600),
-                           max_age=timedelta(seconds=300), off=self.off.return_value,
+                           max_age=timedelta(seconds=300),
                            policy=policy)
         self.assertEqual(got["steering"], annotated["steering"])
         self.assertEqual(got["verdict"], expected)
@@ -770,12 +700,6 @@ class VerdictPolicyCli(unittest.TestCase):
         self.assertNotIn("fixture-secret", text)
         self.assertNotIn("/private/fixture", text)
 
-    def test_bad_switches_remain_fatal_before_vendor_reads(self):
-        self.off.side_effect = catalog.CatalogError("broken switches")
-        code, text, _ = self.run_cli("--vendor", "openai")
-        self.assertEqual((code, text), (2, ""))
-        self.read_cache.assert_not_called()
-
     def test_neutral_cases_keep_raw_score(self):
         for groups in ([], [self.setting("openai", 1)],
                        [self.setting("openai", 10, until=NOW - timedelta(seconds=1))]):
@@ -800,8 +724,8 @@ class VerdictPolicyCli(unittest.TestCase):
         self.assertNotIn("/private/fixture", text)
         self.assertNotIn("fixture-secret", text)
 
-    def test_decode_failure_keeps_raw_off_exclusion(self):
-        self.off.return_value = {"openai/a": None}
+    def test_decode_failure_keeps_raw_exclusion(self):
+        self.readings = [reading(window("codex", 1, WEEK, 3000))]
         self.groups = []
         annotated = incentives.annotate(self.readings, now=NOW)
         annotated[0]["steering"]["v"] = 999
@@ -809,7 +733,8 @@ class VerdictPolicyCli(unittest.TestCase):
             code, text, _ = self.run_cli("--vendor", "openai")
         self.assertEqual(code, 0)
         (got,) = json.loads(text)
-        self.assertEqual(got["verdict"], {"state": "excluded", "reason": "off", "until": None})
+        self.assertEqual((got["verdict"]["state"], got["verdict"]["reason"]), ("excluded", "exhausted"))
+        self.assertNotIn("preference", got["verdict"])
         self.assertEqual(got["steering"]["account"], "a")
 
     def test_decode_failures_with_valid_identity_are_unavailable(self):
@@ -826,7 +751,7 @@ class VerdictPolicyCli(unittest.TestCase):
                              ("unavailable", reason, 1))
             self.assertEqual(got["steering"]["account"], "a")
             raw = verdict(self.readings[0], model_scope=None, now=NOW,
-                          work=timedelta(seconds=600), max_age=timedelta(seconds=300), off={})
+                          work=timedelta(seconds=600), max_age=timedelta(seconds=300))
             self.assertEqual({k: v for k, v in got["verdict"].items() if k != "preference"}, raw)
 
     def test_valid_policy_with_unavailable_catalog_uses_shared_failure_result(self):

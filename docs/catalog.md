@@ -93,32 +93,12 @@ offering id-prefixed as its vendor's shipped offerings are. A route this file sh
 shipped. A `tiers` list without `unproven` leaves discovery out
 entirely. A `discovered.json` that does not parse is an error, never ignored.
 
-## Switches
-
-JSON switch rows carry `policy_projection="unlimited-policy-keys-v1"` and `policy_keys`.
-Intersect these opaque keys with an annotated reading's keys to match factual exclusions; require
-both the marker and array. An empty array is authoritative, not permission to discard the switch:
-non-usage targets still exclude catalog routes. Preserve `target` and `account` as returned for
-exact `on` selectors, and `until` and `why` for display. `catalog.project_switch` returns a transient
-copy; these fields are not switch persistence.
-
-`unlimited off TARGET [--for 90m|12h|1d|1w] [--why TEXT]` takes a provider, model, vendor, offering id
-or `provider:model` pair out of the catalog on this machine, until `unlimited on TARGET` or the time
-passes; `unlimited off` lists what is off, `unlimited off --json` as a JSON array. A vendor target may
-name a usage vendor with no catalog route here — the switch then applies to that vendor's accounts
-(`verdict` excludes them), not to any route; `--account NAME` narrows it to one account (its id
-from `read`, or an identity name like `claude-glm-2`), leaving the vendor's other accounts
-offerable. A name that is both a provider and a usage vendor
-(`commandcode`) does both. Kept in `switches.json` beside the local catalog; a write holds
-`switches.lock` beside it across the whole read-modify-write. A banned model is permanent until
-the file changes; a switch is for a while.
-
 ## Incentives
 
 `unlimited incentive TARGET MULTIPLIER [--account NAME] [--for DURATION]` uses the same target
 syntax without removing a route. A positive finite multiplier divides its time cost: above one
 encourages, below one discourages. Quota cost is unchanged. Settings are machine-local in
-`incentives.json` beside the catalog, with locked atomic updates independent of switches.
+`incentives.json` beside the catalog, with locked atomic updates.
 
 Requested multipliers must be finite and at least `1e-6`. Resolution caps the winning factor at
 `1e6`; stored settings retain the request. A clamped winner reports the requested and effective

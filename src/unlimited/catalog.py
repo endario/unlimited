@@ -13,7 +13,6 @@ from importlib import resources
 from pathlib import Path
 
 from . import rates
-from .identity import POLICY_PROJECTION, policy_key
 from .state import flock as _flock
 from .state import write_json
 
@@ -30,10 +29,6 @@ class CatalogError(Exception):
     """The catalog cannot be read. A routing call that meets this must not start its run."""
 
 
-class NotOff(Exception):
-    """`switch` was asked to switch a target on that is not switched off."""
-
-
 @dataclass(frozen=True)
 class Candidate:
     provider: str
@@ -45,11 +40,6 @@ def local_path() -> Path:
     return Path(os.environ.get("XDG_CONFIG_HOME") or Path.home() / ".config") / "unlimited" / "catalog.toml"
 
 
-def switches_path(local: Path | None = None) -> Path:
-    """Beside the local catalog: the machine's own state, never shipped."""
-    return (local or local_path()).with_name("switches.json")
-
-
 def discovered_path(local: Path | None = None) -> Path:
     """Also beside the local catalog: this machine's live-discovered route ids per vendor,
     written by `unlimited routes`."""
@@ -58,8 +48,8 @@ def discovered_path(local: Path | None = None) -> Path:
 
 def read_discovered(path: Path | None = None) -> dict[str, list[str]]:
     """The discovered route ids per vendor (`{"opencode": ["minimax-m3", ...]}`). A file that
-    does not parse is an error, as the switches' is, since discovery that silently stops
-    applying is the failure it exists to prevent."""
+    does not parse is an error, since discovery that silently stops applying is the failure it
+    exists to prevent."""
     path = path or discovered_path()
     try:
         got = json.loads(path.read_text())
@@ -77,98 +67,6 @@ def write_discovered(vendors: dict[str, list[str]], path: Path | None = None) ->
     path = path or discovered_path()
     with _flock(path):
         write_json(vendors, path, indent=1)
-
-
-def read_switches(path: Path | None = None) -> list[dict]:
-    """This machine's switched-off targets: `{"target", "until", "why"}` and, for a switch on one
-    account of a vendor, `"account"` (its account id or an identity name), `until` an ISO time or
-    None. Written by `unlimited off/on`; a file that does not parse is an error, as the catalog's
-    is, since a switch that silently stops applying is the failure it exists to prevent."""
-    path = path or switches_path()
-    try:
-        got = json.loads(path.read_text())
-    except FileNotFoundError:
-        return []
-    except (OSError, ValueError) as e:
-        raise CatalogError(f"{path}: {e}") from None
-    # An older release left the file at the umask; it holds free-text --why. A mode that cannot
-    # be repaired is not a reason to refuse the command.
-    try:
-        if path.stat().st_mode & 0o777 != 0o600:
-            os.chmod(path, 0o600)
-    except OSError:
-        pass
-    off = got.get("off") if isinstance(got, dict) else None
-    if not isinstance(off, list) or not all(isinstance(x, dict) and isinstance(x.get("target"), str)
-                                            and (x.get("account") is None or isinstance(x["account"], str))
-                                            for x in off):
-        raise CatalogError(f"{path}: expected {{\"off\": [{{\"target\": ..., \"account\": ...}}]}}")
-    for x in off:
-        if x.get("until") is not None and moment_utc(x["until"]) is None:
-            raise CatalogError(f"{path}: {x['target']}: until {x['until']!r} is not an ISO time")
-        if x.get("account") is not None and not x["account"].strip():
-            raise CatalogError(f"{path}: {x['target']}: account {x['account']!r} is blank")
-    return off
-
-
-def _write(off: list[dict], path: Path) -> None:
-    """Keep the established switches shape through the generic state writer."""
-    write_json({"off": off}, path, indent=1)
-
-
-def write_switches(off: list[dict], path: Path | None = None) -> None:
-    path = path or switches_path()
-    with _flock(path):
-        _write(off, path)
-
-
-def switch(target: str, *, on: bool = False, until: datetime | None = None, why: str | None = None,
-           account: str | None = None, now: datetime, path: Path | None = None) -> list[dict]:
-    """Flip one switch — of a whole target, or with `account`, of one account of a usage vendor —
-    the whole read-mutate-write under the switches' lock; lapsed entries drop as they are passed.
-    `on` of a switch that is not off raises NotOff and writes nothing. Returns exactly what it
-    wrote, so a caller can echo the state it itself persisted."""
-    if account is not None and not account.strip():
-        raise CatalogError(f"{target}: --account needs an account id or a name")
-    account = account or None
-    path = path or switches_path()
-    with _flock(path):
-        was = [x for x in read_switches(path) if live(x, now)]
-        same = [x for x in was if x["target"] == target and x.get("account") == account]
-        if on and not same:
-            raise NotOff(target if account is None else f"{target}/{account}")
-        kept = [{"target": x["target"], "until": x.get("until"), "why": x.get("why"),
-                 **({"account": x["account"]} if x.get("account") is not None else {})}
-                for x in was if x not in same]
-        if not on:
-            kept.append({"target": target, "until": until.isoformat() if until else None, "why": why,
-                         **({"account": account} if account is not None else {})})
-        _write(kept, path)
-        return kept
-
-
-def live(x: dict, now: datetime) -> bool:
-    """Whether a switch holds at `now`: no end, or one not yet reached. One rule, read by the
-    catalog's blocking, `off`'s listing and `off_policy` alike."""
-    until = moment_utc(x.get("until"))
-    return until is None or until > now
-
-
-def switch_policy_keys(switch: dict) -> list[str]:
-    from .adapters import REGISTRY
-    return [policy_key(switch["target"], switch.get("account"))] if switch["target"] in REGISTRY else []
-
-
-def project_switch(switch: dict) -> dict:
-    return dict(switch, policy_projection=POLICY_PROJECTION, policy_keys=switch_policy_keys(switch))
-
-
-def off_policy(now: datetime, path: Path | None = None) -> dict[str, str | None]:
-    """The machine's live switches over usage vendors as a policy (`verdict`'s `off`): keyed by
-    the vendor (`zai`) for a whole-vendor switch, or `vendor/account` (`zai/claude-glm-2`) for one
-    account's, each to its switch's `until` (ISO text, None when it has no end)."""
-    return {key: x.get("until") for x in read_switches(path) if live(x, now)
-            for key in switch_policy_keys(x)}
 
 
 # What a schema-2 file may hold at its top level.
@@ -367,7 +265,7 @@ def target_known(cat: "Catalog", target: str, *, account: str | None = None) -> 
 
 
 class Catalog:
-    def __init__(self, data: dict, off: list[dict] | None = None, local: Path | None = None):
+    def __init__(self, data: dict, local: Path | None = None):
         self.local = local
         self.tiers: list[str] = data["tiers"]
         self.models: dict[str, dict] = data.get("models", {})
@@ -377,8 +275,6 @@ class Catalog:
         self.cards: list[dict] = data.get("cards", [])
         self.provider_keys: dict[str, dict] = data.get("provider_keys", {})
         self.rates: list[dict] = data.get("rates", [])
-        # Switched off on this machine: a provider, model, vendor, offering id or `provider:model`.
-        self.off: list[dict] = off or []
 
     def _route(self, o: dict) -> dict:
         m = self.models[o["model"]]
@@ -391,18 +287,10 @@ class Catalog:
                 f"{r['provider']}:{r['id']}"}
 
     def _blocked_route(self, r: dict, now: datetime) -> bool:
-        names = self.route_names(r)
-        if names & self.banned:
-            return True
-        for x in self.off:
-            # An account switch binds verdict alone: the vendor's other accounts still serve.
-            if live(x, now) and x.get("account") is None and x["target"] in names:
-                return True
-        return False
+        return bool(self.route_names(r) & self.banned)
 
     def blocked(self, provider: str, model: str, now: datetime) -> bool:
-        """Banned, or switched off here until a time not yet reached (or with no end). `model` is a
-        model name or an offering id."""
+        """Banned. `model` is a model name or an offering id."""
         o = next((o for o in self.offerings if o["id"] == model), None)
         if o is not None:
             return self._blocked_route(self._route(o), now)
@@ -485,16 +373,6 @@ class Catalog:
         return self.models[model]["provider"] if model in self.models else None
 
 
-def moment_utc(v: object) -> datetime | None:
-    if not isinstance(v, str):
-        return None
-    try:
-        t = datetime.fromisoformat(v)
-    except ValueError:
-        return None
-    return t if t.tzinfo else t.replace(tzinfo=timezone.utc)
-
-
 def _fold_discovered(data: dict, local: Path | None) -> dict:
     """Discovery overlays the merged catalog: a live-discovered dispatchable route the catalog
     does not ship becomes a model at the `unproven` tier (provider `stealth` unless the maker is
@@ -569,7 +447,5 @@ def load_rates(path: Path | None = None) -> list[dict]:
     return got if isinstance(got, list) and not any(map(rates.problem, got)) else shipped
 
 
-def load(path: Path | None = None, switches: Path | None = None) -> Catalog:
-    cat = load_metadata(path)
-    cat.off = read_switches(switches or switches_path(cat.local))
-    return cat
+def load(path: Path | None = None) -> Catalog:
+    return load_metadata(path)
