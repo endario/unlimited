@@ -429,6 +429,54 @@ class WoyoSource(unittest.TestCase):
         self.assertNotIn("estimated_cost", persisted)
         self.assertNotIn("USD_PER_MILLION", persisted)
 
+    def test_read_tallies_each_model_and_the_long_subset_only_when_asked(self):
+        # The threshold is the caller's: a cached reading must answer a different one, or none, unchanged.
+        import contextlib
+        import io
+
+        from unlimited import cli, transport
+        from unlimited.adapters import woyo
+
+        at = int(datetime.now(timezone.utc).timestamp()) - 60
+        rows = [{"request_id": name, "created_at": at, "type": 2, "model_name": model,
+                 "prompt_tokens": prompt, "completion_tokens": 10, "other": "{}"}
+                for name, model, prompt in (("short", "gpt-x", 100), ("long", "gpt-x", 5000), ("bare", None, 7))]
+        cred = Credential("fixture", {"key": "fixture-key", "base": "http://gateway.test"})
+        calls = []
+
+        def get(url, headers, now):
+            calls.append(url)
+            return Answer({"success": True, "data": rows}, 200, None)
+
+        def read(*args):
+            out, err = io.StringIO(), io.StringIO()
+            with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
+                try:
+                    code = cli.main(["read", "--vendor", "woyo", *args])
+                except SystemExit as e:
+                    code = e.code
+            return code, json.loads(out.getvalue()) if code == 0 else err.getvalue()
+
+        with mock.patch.dict(os.environ, {"XDG_CONFIG_HOME": str(self.tmp / "config")}), \
+                mock.patch.object(woyo, "discover", lambda: [cred]), \
+                mock.patch.object(woyo, "whoami", lambda *a: (None, None)), \
+                mock.patch.object(transport, "get", get):
+            code, asked = read("--long-input-threshold", "100")
+            _, plain = read()
+            refused = read("--long-input-threshold", "0")
+
+        self.assertEqual(code, 0)
+        self.assertEqual(len(calls), 1, "the second read is a cache hit")
+        [models] = [p["models"] for p in asked[0]["usage"]["periods"]]
+        self.assertEqual([(m["model"], m["requests"], m["input_tokens"], m["long"]["requests"], m["long"]["input_tokens"])
+                          for m in models], [("gpt-x", 2, 5100, 1, 5000), (None, 1, 7, 0, 0)])
+        [models] = [p["models"] for p in plain[0]["usage"]["periods"]]
+        self.assertEqual([(m["model"], m["input_tokens"], "long" in m) for m in models],
+                         [("gpt-x", 5100, False), (None, 7, False)])
+        self.assertEqual(refused[0], 2)
+        self.assertIn("must be positive", refused[1])
+        self.assertNotIn('"models"', (self.tmp / "cache-home" / "unlimited" / "woyo.json").read_text())
+
     def test_concurrent_woyo_reads_share_one_upstream_fetch(self):
         # Dropping the vendor lock would duplicate a sensitive upstream request for simultaneous callers.
         from unlimited.adapters import woyo

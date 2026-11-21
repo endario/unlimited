@@ -55,6 +55,61 @@ def events(r: dict) -> list[dict] | None:
         return None
 
 
+def tally(r: dict, long_input: int | None = None) -> dict:
+    """A gateway-log reading whose every period carries per-model totals, from its ledger.
+
+    One entry per distinct logged model, the requests with no model name under `model: null`.
+    The token sums count consistent requests only; one whose input is below its cache reads and
+    writes is counted in `inconsistent_requests` alone. With `long_input`, each entry's `long`
+    holds the same sums over the requests whose input exceeds it."""
+    usage = r.get("usage")
+    if not isinstance(usage, dict) or usage.get("source") != "gateway-log" \
+            or not isinstance(usage.get("periods"), list):
+        return r
+    retained = events(r) if usage.get("collected_at") is not None else None
+    periods = []
+    for period in usage["periods"]:
+        starts, ends = _moment(period.get("starts_at")), _moment(period.get("ends_at"))
+        if retained is None or period.get("input_tokens") is None or starts is None or ends is None:
+            periods.append(dict(period, models=None))
+            continue
+        included = [event for event in retained if starts <= _moment(event["at"]) < ends]
+        periods.append(dict(period, models=_models(included, long_input)))
+    return dict(r, usage=dict(usage, periods=periods))
+
+
+def _models(included: list[dict], long_input: int | None) -> list[dict]:
+    entries: dict[str | None, dict] = {}
+    for event in included:
+        name = event.get(_EVENT_MODEL)
+        name = name.strip() or None if isinstance(name, str) else None
+        entry = entries.get(name)
+        if entry is None:
+            entry = entries[name] = {"model": name, "requests": 0, "inconsistent_requests": 0,
+                                     **_sums(), "last_at": None,
+                                     **({"long": {"requests": 0, **_sums()}} if long_input is not None else {})}
+        entry["requests"] += 1
+        if entry["last_at"] is None or _moment(event["at"]) > _moment(entry["last_at"]):
+            entry["last_at"] = iso(_moment(event["at"]))
+        if event["input_tokens"] < event["cache_read_tokens"] + event["cache_creation_tokens"]:
+            entry["inconsistent_requests"] += 1
+            continue
+        _add(entry, event)
+        if long_input is not None and event["input_tokens"] > long_input:
+            entry["long"]["requests"] += 1
+            _add(entry["long"], event)
+    return sorted(entries.values(), key=lambda entry: (entry["model"] is None, entry["model"] or ""))
+
+
+def _sums() -> dict:
+    return {name: 0 for name in _EVENT_FIELDS[2:]}
+
+
+def _add(totals: dict, event: dict) -> None:
+    for name in _EVENT_FIELDS[2:]:
+        totals[name] += event[name]
+
+
 def _new() -> dict:
     return {"version": VERSION, "events": {}, "anchors": [], "empty": False, "monitored": [],
             "unparsed": [], "collected_at": None, "first_collected_at": None}

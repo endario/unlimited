@@ -301,6 +301,100 @@ class Usage(unittest.TestCase):
                           for p in got["usage"]["periods"]], [(20, 4, 24)])
 
 
+class Tally(unittest.TestCase):
+    """Per-model totals let a caller price a window without unlimited holding any price."""
+
+    def setUp(self):
+        self.p = Path(scratch.mkdtemp()) / "usage.json"
+
+    def tallied(self, events: list[dict], long_input: int | None = None, *, snapshot: bool = True) -> dict:
+        r = reading("woyo", "fixture", NOW, "ok")
+        if snapshot:
+            r["_usage_snapshot"] = {"events": events, "anchors": [e["id"] for e in events], "empty": not events,
+                                    "unparsed": []}
+        with mock.patch.object(usage, "path", return_value=self.p):
+            return usage.tally(usage.attach(r, NOW), long_input)
+
+    def models(self, *args, **kwargs) -> list[dict] | None:
+        [period] = self.tallied(*args, **kwargs)["usage"]["periods"]
+        return period["models"]
+
+    def test_each_logged_model_sums_its_own_requests_and_names_its_latest(self):
+        got = self.models([
+            event("a", NOW - 3 * HOUR, 100, 10, 40, 5, "gpt-x"),
+            event("b", NOW - HOUR, 200, 20, 50, 0, "gpt-x"),
+            event("c", NOW - 2 * HOUR, 30, 3, 0, 0, "glm-y"),
+        ])
+
+        self.assertEqual(got, [
+            {"model": "glm-y", "requests": 1, "inconsistent_requests": 0, "input_tokens": 30, "output_tokens": 3,
+             "cache_read_tokens": 0, "cache_creation_tokens": 0, "last_at": iso(NOW - 2 * HOUR)},
+            {"model": "gpt-x", "requests": 2, "inconsistent_requests": 0, "input_tokens": 300, "output_tokens": 30,
+             "cache_read_tokens": 90, "cache_creation_tokens": 5, "last_at": iso(NOW - HOUR)},
+        ])
+
+    def test_requests_with_no_model_name_share_one_null_entry(self):
+        got = self.models([event("a", NOW - HOUR, 10, 1, 0, 0), event("b", NOW - 2 * HOUR, 20, 2, 0, 0),
+                           event("c", NOW - HOUR, 5, 1, 0, 0, "m")])
+
+        self.assertEqual([(m["model"], m["requests"], m["input_tokens"]) for m in got], [("m", 1, 5), (None, 2, 30)])
+
+    def test_the_logged_name_is_only_stripped_never_normalised(self):
+        got = self.models([event("a", NOW - HOUR, model="Vendor/GPT-X"), event("b", NOW - HOUR, model=" Vendor/GPT-X ")])
+
+        self.assertEqual([(m["model"], m["requests"]) for m in got], [("Vendor/GPT-X", 2)])
+
+    def test_an_inconsistent_request_is_counted_apart_but_still_dates_its_entry(self):
+        # Input below its own cache reads and writes is a fact about the log; its tokens are not summed.
+        got = self.models([event("ok", NOW - 2 * HOUR, 100, 10, 60, 40, "m"),
+                           event("bad", NOW - HOUR, 100, 10, 60, 41, "m")])
+
+        [entry] = got
+        self.assertEqual((entry["requests"], entry["inconsistent_requests"], entry["input_tokens"],
+                          entry["cache_creation_tokens"], entry["last_at"]), (2, 1, 100, 40, iso(NOW - HOUR)))
+
+    def test_long_is_the_subset_strictly_above_the_threshold(self):
+        got = self.models([event("at", NOW - HOUR, 1000, 1, 0, 0, "m"), event("over", NOW - HOUR, 1001, 2, 500, 0, "m"),
+                           event("bad", NOW - HOUR, 5000, 3, 5001, 0, "m"), event("other", NOW - HOUR, 10, 1, 0, 0, "n")],
+                          long_input=1000)
+
+        self.assertEqual({m["model"]: m["long"] for m in got}, {
+            "m": {"requests": 1, "input_tokens": 1001, "output_tokens": 2, "cache_read_tokens": 500,
+                  "cache_creation_tokens": 0},
+            "n": {"requests": 0, "input_tokens": 0, "output_tokens": 0, "cache_read_tokens": 0,
+                  "cache_creation_tokens": 0},
+        })
+
+    def test_long_is_absent_when_no_threshold_is_asked(self):
+        got = self.models([event("a", NOW - HOUR, 10**6, 1, 0, 0, "m")])
+
+        self.assertNotIn("long", got[0])
+
+    def test_requests_outside_the_period_are_not_tallied(self):
+        got = self.models([event("old", NOW - timedelta(days=8), model="m"), event("now", NOW, model="m")])
+
+        self.assertEqual(got, [])
+
+    def test_a_period_with_unknown_counts_has_null_models(self):
+        got = self.tallied([], snapshot=False)
+
+        self.assertEqual([(p["coverage"], p["models"]) for p in got["usage"]["periods"]], [("unknown", None)])
+
+    def test_an_unreadable_ledger_is_null_models_not_an_empty_list(self):
+        r = self.tallied([event("a", NOW - HOUR, model="m")])
+        self.p.write_text("not json")
+
+        with mock.patch.object(usage, "path", return_value=self.p):
+            got = usage.tally({**r, "usage": {**r["usage"], "periods": [
+                {k: v for k, v in p.items() if k != "models"} for p in r["usage"]["periods"]]}})
+        self.assertEqual([p["models"] for p in got["usage"]["periods"]], [None])
+
+    def test_a_reading_without_gateway_log_usage_is_unchanged(self):
+        r = reading("anthropic", "fixture", NOW, "ok")
+
+        self.assertIs(usage.tally(r, 5), r)
+
+
 class StateDirectory(unittest.TestCase):
     def test_outcomes_keeps_its_existing_default_location(self):
         with mock.patch.dict(os.environ, {"XDG_STATE_HOME": "/tmp/unlimited-state"}):

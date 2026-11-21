@@ -275,6 +275,15 @@ The optional `budget` object reports rolling local progress: `used` is a fractio
 `local-market-value`, so a reader of `limits` ranks it like any weekly window. Being rolling, its
 `resets_at` is when every counted request has left the window, and its projection holds `used`.
 
+Each gateway-log period also carries `models`, one entry per distinct model name in its log
+(stripped, never normalised; requests with no name share the entry whose `model` is `null`):
+`requests`, `inconsistent_requests`, the four token sums, and `last_at`, the entry's latest
+request. The sums count only consistent requests; one whose `input_tokens` is below its
+`cache_read_tokens` plus `cache_creation_tokens` is counted in `inconsistent_requests` alone.
+`read --long-input-threshold N` adds `long` to every entry: the same sums over the requests whose
+`input_tokens` exceeds `N`, zeros included. Without the flag `long` is absent. A period whose
+counts are unknown has `"models": null`. The threshold is never cached.
+
 Woyo's `routes` lists gateway aliases, with dispatchability limited to IDs verified by inference.
 Some GPT aliases intermittently return empty Anthropic streams; dispatchability is not an uptime
 or upstream-model-identity guarantee.

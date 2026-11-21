@@ -68,7 +68,8 @@ def _roled(adapter, l: dict) -> dict:
     return dict(l, **(got(name, minutes) if got else {"role": role_of(name, minutes), "scope": None}))
 
 
-def through(adapter, *, max_age: float, clock, get, directory: Path | None = None) -> list[dict]:
+def through(adapter, *, max_age: float, clock, get, directory: Path | None = None,
+            long_input: int | None = None) -> list[dict]:
     """This vendor's readings: for each account, the newest of the cached reading and any local
     source the adapter has, asking upstream only when neither is younger than `max_age`."""
     directory = directory or default_dir()
@@ -141,6 +142,9 @@ def through(adapter, *, max_age: float, clock, get, directory: Path | None = Non
                      vendor_account=identities.vendor_account(adapter, r.get("account"), ids),
                      limits=[_roled(adapter, l) for l in r.get("limits", [])])
                 for r in done]
+    # Per-model totals come from the ledger after the cache: the caller's threshold is never cached.
+    from . import usage
+    returned = [usage.tally(r, long_input) for r in returned]
     budget_keys = getattr(adapter, "budget_keys", None)
     if budget_keys is not None:
         from . import local_budgets
