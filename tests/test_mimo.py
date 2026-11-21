@@ -35,6 +35,12 @@ MEMBERS = {"code": 0, "data": [
      "seat": {"seatId": "ST-1", "seatStatus": "ASSIGNED", "creditsTotal": 82000000000, "creditsUsed": 5178060}},
     {"memberId": 259, "userId": "7", "displayName": "Ren", "role": "MEMBER",
      "seat": {"seatId": "ST-2", "seatStatus": "ASSIGNED", "creditsTotal": 82000000000, "creditsUsed": 41000000000}}]}
+PLAN_KEY = "tp-" + "z" * 48
+# Read from the live endpoint on 2026-11-21 (individual Lite plan), the key and amounts left as they came.
+PLAN = {"object": "token_plan", "plan_code": "lite",
+        "period": {"start_at": "2026-11-17 02:44:36", "end_at": "2026-12-17 23:59:59"},
+        "quota": {"total_credits": 4100000000, "used_credits": 3268271284, "remaining_credits": 831728716},
+        "auto_renew": False, "claw_enabled": False}
 JAR = {"api-platform_serviceToken": "tok", "api-platform_ph": "ph", "api-platform_slh": "slh", "userId": "42"}
 
 
@@ -116,11 +122,10 @@ class Read(unittest.TestCase):
         self.assertFalse(mimo._fits("ttp-AAAA" + "x" * 38 + "other1", mimo._redacted(APIKEY["data"]["redactedApiKey"])))
         self.assertFalse(mimo._fits("ttp-AAAAowner1", ("ttp-AAAAo", "owner1")))
 
-    def test_an_individual_or_pay_as_you_go_key_is_unread_and_asks_nothing(self):
-        for k in ("tp-" + "a" * 40, "sk-" + "a" * 40):
-            get = api()
-            r = mimo.read(key(k), NOW, get)
-            self.assertEqual((r["status"], r["why"], get.calls), ("unread", "not-team-key", []))
+    def test_a_pay_as_you_go_key_is_unread_and_asks_nothing(self):
+        get = api()
+        r = mimo.read(key("sk-" + "a" * 40), NOW, get)
+        self.assertEqual((r["status"], r["why"], get.calls), ("unread", "not-team-key", []))
 
     def test_no_sign_in_and_an_undecryptable_one_are_told_apart(self):
         self.logins = []
@@ -170,6 +175,57 @@ class Read(unittest.TestCase):
     def test_it_shows_as_mimo(self):
         r = self.read(OWNER_KEY, **self.team())
         self.assertIn("MiMo", show.render([dict(r, names=["claude-mimo-1"])], NOW))
+
+
+class Plan(unittest.TestCase):
+    """An individual token plan's `tp-` key reads its own credits: no sign-in, no seat."""
+
+    def setUp(self):
+        for name, fake in (("_logins", lambda: ()), ("discover", lambda: [])):
+            patch = mock.patch.object(mimo, name, side_effect=fake)
+            patch.start()
+            self.addCleanup(patch.stop)
+
+    def read(self, ans, k=PLAN_KEY):
+        get = api(token_plan=ans)
+        return mimo.read(key(k), NOW, get), get
+
+    def test_a_plan_key_is_its_periods_credits_as_one_window_ending_at_the_period_end_utc(self):
+        r, get = self.read(ok(PLAN))
+        (lim,) = r["limits"]
+        self.assertEqual((r["status"], r["plan"], lim["name"], lim["role"]), ("ok", "lite", "month", "month"))
+        self.assertAlmostEqual(lim["used_at_least"], 3268271284 / 4100000000)
+        self.assertEqual(lim["resets_at"], "2026-12-17T23:59:59+00:00")
+        # The window is the period the vendor named, 30 days 21 h 15 m, not a calendar month's guess.
+        self.assertEqual(lim["window_minutes"], 44475)
+
+    def test_it_asks_the_plan_host_once_with_the_key_and_no_cookie(self):
+        _, get = self.read(ok(PLAN))
+        ((url, headers),) = get.calls
+        self.assertEqual(url, mimo.PLAN_URL)
+        self.assertEqual(headers["api-key"], PLAN_KEY)
+        self.assertNotIn("Cookie", headers)
+
+    def test_an_http_refusal_is_a_refusal(self):
+        r, _ = self.read(Answer(None, 401, "http-401"))
+        self.assertEqual((r["status"], r["why"]), ("refused", "http-401"))
+
+    def test_a_body_without_credits_is_the_vendors_error(self):
+        for body in ({"object": "token_plan"}, {**PLAN, "quota": "x"}):
+            r, _ = self.read(ok(body))
+            self.assertEqual((r["status"], r["why"]), ("unread", "vendor-error"))
+
+    def test_a_plan_with_no_credits_to_divide_by_says_so(self):
+        r, _ = self.read(ok({**PLAN, "quota": {**PLAN["quota"], "total_credits": 0}}))
+        self.assertEqual((r["status"], r["why"]), ("unread", "no-quota"))
+
+    def test_an_unparsable_period_still_reads_the_credits_on_a_months_window(self):
+        r, _ = self.read(ok({**PLAN, "period": {"start_at": "soon", "end_at": None}}))
+        (lim,) = r["limits"]
+        self.assertEqual((r["status"], lim["window_minutes"], lim["resets_at"]), ("ok", mimo.MONTH, None))
+
+    def test_whoami_names_no_one(self):
+        self.assertEqual(mimo.whoami(key(PLAN_KEY), NOW, api())[0], None)
 
 
 class Keys(unittest.TestCase):
