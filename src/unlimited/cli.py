@@ -63,6 +63,16 @@ def _duration(text: str) -> timedelta:
     return timedelta(seconds=n * units[text[-1]])
 
 
+def _positive_int(text: str) -> int:
+    try:
+        n = int(text)
+    except ValueError:
+        raise argparse.ArgumentTypeError(f"{text!r}: expected a whole number")
+    if n <= 0:
+        raise argparse.ArgumentTypeError(f"{text!r}: must be positive")
+    return n
+
+
 def _switch(a) -> int:
     """Switch a provider, a model, a `provider:model` pair, or (with --account) one account of a
     usage vendor off (or back on) on this machine."""
@@ -424,6 +434,8 @@ examples:
                    help=VENDOR_HELP + f": {', '.join(sorted(REGISTRY))}")
     r.add_argument("--max-age", type=float, default=300.0, metavar="SECONDS", help=READ_HELP)
     r.add_argument("--json", action="store_true", help="JSON output (the only format; accepted for clarity)")
+    r.add_argument("--long-input-threshold", type=_positive_int, metavar="TOKENS",
+                   help="also total, per logged model, the requests whose input exceeds TOKENS (`long`)")
     ac = add("accounts", "each account found here and the vendor's id for it", """\
 One line per account on this machine: its vendor, the vendor's own id for the account, its names
 here, and unlimited's account id. Reads only this machine, never a vendor: an account a `read`
@@ -851,7 +863,8 @@ def main(argv: list[str] | None = None) -> int:
     out = []
     for v in vendors:
         out += cache.through(REGISTRY[v], max_age=a.max_age,
-                             clock=lambda: datetime.now(timezone.utc), get=transport.get)
+                             clock=lambda: datetime.now(timezone.utc), get=transport.get,
+                             long_input=getattr(a, "long_input_threshold", None))
     if a.cmd in (None, "status", "read"):
         from . import incentives
         out, errors = incentives._annotate(out, now=datetime.now(timezone.utc))
