@@ -1,7 +1,5 @@
 import Foundation
 
-/// The live policy overlay from `unlimited read --json`. It is optional in schema 1 so clients
-/// built before steering continue to decode the same readings.
 /// The vendor's time-of-day rates from the `steering` stamp on `unlimited read --json`. It is
 /// optional in schema 1 so readings from any CLI release decode.
 public struct Steering: Decodable, Sendable, Equatable {
