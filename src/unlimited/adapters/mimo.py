@@ -1,4 +1,5 @@
-"""Xiaomi MiMo (platform.xiaomimimo.com): each team token plan key's seat allowance, on the platform's Chrome sign-in."""
+"""Xiaomi MiMo (platform.xiaomimimo.com): a token plan key's credits, on the key itself (individual plan) or its
+seat allowance, on the platform's Chrome sign-in (team plan)."""
 
 from __future__ import annotations
 
@@ -53,6 +54,9 @@ KEYS = EnvKeys(re.compile(r"MIMO(_\d+)?_API_KEY"), "claude-mimo*.env")
 names, discover = KEYS.names, KEYS.discover
 # A team token plan key. An individual plan's (`tp-`) or pay-as-you-go (`sk-`) key has no seat.
 TEAM = "ttp-"
+# An individual token plan's key answers for its own plan on the plan's host, no sign-in needed.
+PLAN = "tp-"
+PLAN_URL = "https://token-plan-cn.xiaomimimo.com/v1/platform/token_plan"
 
 
 def _headers(jar) -> dict[str, str]:
@@ -175,6 +179,27 @@ def _find(key: str, get, now):
     return None, "vendor-error" if erred and not projects else "no-seat-for-key", None
 
 
+def _plan(cred: Credential, now: datetime, get) -> dict:
+    """An individual plan's credits for its billing period: one window, as the vendor's own period."""
+    ans = get(PLAN_URL, {"api-key": cred.secret["key"]}, now)
+    if ans.body is None:
+        return failed(VENDOR, cred.account, now, ans)
+    body = ans.body
+    quota = body.get("quota") if isinstance(body.get("quota"), dict) else {}
+    total, used = number(quota.get("total_credits")), number(quota.get("used_credits"))
+    if body.get("object") != "token_plan" or total is None or used is None:
+        return reading(VENDOR, cred.account, now, UNREAD, why="vendor-error")
+    if total <= 0:
+        return reading(VENDOR, cred.account, now, UNREAD, why="no-quota")
+    period = body.get("period") if isinstance(body.get("period"), dict) else {}
+    start, end = _when(period.get("start_at")), _when(period.get("end_at"))
+    minutes = round((end - start).total_seconds() / 60) if start and end and end > start else MONTH
+    code = body.get("plan_code")
+    return reading(VENDOR, cred.account, now, OK, plan=code if isinstance(code, str) else None,
+                   limits=[limit("month", window_minutes=minutes, used_at_least=used / total, resets_at=end,
+                                 held=None)])
+
+
 def whoami(cred: Credential, now: datetime, get):
     seat, _, ans = _find(cred.secret["key"], get, now)
     who = (seat.get("seat") or {}).get("seatId") if seat else None
@@ -182,6 +207,8 @@ def whoami(cred: Credential, now: datetime, get):
 
 
 def read(cred: Credential, now: datetime, get) -> dict:
+    if cred.secret["key"].startswith(PLAN):
+        return _plan(cred, now, get)
     seat, scope, ans = _find(cred.secret["key"], get, now)
     if seat is None:
         return failed(VENDOR, cred.account, now, ans) if scope is None else reading(VENDOR, cred.account, now, UNREAD, why=scope)
