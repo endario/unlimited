@@ -51,6 +51,7 @@ class WoyoSource(unittest.TestCase):
         body = {"data": [
             {"id": "gpt-6-luna"}, {"id": "gpt-6.1-sol"}, {"id": "gpt-6-astra"},
             {"id": "gpt-6.1-luna"}, {"id": "vendor-alias"}, {"id": "glm-5.3-flash"}, {"id": "glm-5.3"},
+            {"id": "gpt-6.2-sol"}, {"id": "gpt-6.2-astra"}, {"id": "gpt-6.1-terra"},
             {"id": "glm-5.3"}, {"id": ""}, None, {"id": 17},
         ]}
 
@@ -70,6 +71,9 @@ class WoyoSource(unittest.TestCase):
             {"id": "gpt-6-luna", "dispatchable": True},
             {"id": "gpt-6.1-luna", "dispatchable": False},
             {"id": "gpt-6.1-sol", "dispatchable": True},
+            {"id": "gpt-6.1-terra", "dispatchable": True},
+            {"id": "gpt-6.2-astra", "dispatchable": True},
+            {"id": "gpt-6.2-sol", "dispatchable": True},
             {"id": "vendor-alias", "dispatchable": False},
         ])
 
