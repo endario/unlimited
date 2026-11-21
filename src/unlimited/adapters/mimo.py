@@ -1,5 +1,5 @@
 """Xiaomi MiMo (platform.xiaomimimo.com): a token plan key's credits, on the key itself (individual plan) or its
-seat allowance, on the platform's Chrome sign-in (team plan)."""
+seat allowance, on the platform's Chrome sign-in (team plan); a pay-as-you-go key's balance, on the key."""
 
 from __future__ import annotations
 
@@ -12,7 +12,7 @@ from urllib.parse import quote
 
 from .. import chrome_cookies
 from ..credential import Credential, EnvKeys
-from ..schema import OK, UNREAD, failed, limit, number, reading
+from ..schema import OK, UNREAD, balance, failed, limit, number, reading
 
 VENDOR = "mimo"
 BASE = "https://platform.xiaomimimo.com/api/v1"
@@ -57,6 +57,9 @@ TEAM = "ttp-"
 # An individual token plan's key answers for its own plan on the plan's host, no sign-in needed.
 PLAN = "tp-"
 PLAN_URL = "https://token-plan-cn.xiaomimimo.com/v1/platform/token_plan"
+# A pay-as-you-go key (`sk-`) is prepaid and names no window: its balance is the whole reading.
+PAYG = "sk-"
+BALANCE_URL = "https://api.xiaomimimo.com/v1/platform/balance"
 
 
 def _headers(jar) -> dict[str, str]:
@@ -200,6 +203,17 @@ def _plan(cred: Credential, now: datetime, get) -> dict:
                                  held=None)])
 
 
+def _balance(cred: Credential, now: datetime, get) -> dict:
+    """A pay-as-you-go key's available balance (cash, bonus and credit still free), as credits."""
+    ans = get(BALANCE_URL, {"api-key": cred.secret["key"]}, now)
+    if ans.body is None:
+        return failed(VENDOR, cred.account, now, ans)
+    spend = balance(ans.body, "total_available", now)
+    if spend is None:
+        return reading(VENDOR, cred.account, now, UNREAD, why="vendor-error")
+    return reading(VENDOR, cred.account, now, OK, credits=spend)
+
+
 def whoami(cred: Credential, now: datetime, get):
     seat, _, ans = _find(cred.secret["key"], get, now)
     who = (seat.get("seat") or {}).get("seatId") if seat else None
@@ -209,6 +223,8 @@ def whoami(cred: Credential, now: datetime, get):
 def read(cred: Credential, now: datetime, get) -> dict:
     if cred.secret["key"].startswith(PLAN):
         return _plan(cred, now, get)
+    if cred.secret["key"].startswith(PAYG):
+        return _balance(cred, now, get)
     seat, scope, ans = _find(cred.secret["key"], get, now)
     if seat is None:
         return failed(VENDOR, cred.account, now, ans) if scope is None else reading(VENDOR, cred.account, now, UNREAD, why=scope)

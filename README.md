@@ -255,6 +255,7 @@ not projected: the vendor reports no reset for it.
 | Command Code | — | `alpha/billing/credits` and `alpha/billing/subscriptions` on `$COMMAND_CODE_API_KEY` and each `~/.config/commandcode*.env` |
 | Xiaomi MiMo (team token plan) | — | each claude-mimo wrapper key's seat (`teamTokenPlan/apiKey`, `my/seat`, an owner's `members`) on the platform's Chrome sign-in cookies (macOS) |
 | Xiaomi MiMo (individual token plan) | — | a `tp-` key's own credits (`/v1/platform/token_plan`): the billing period as one window, no sign-in |
+| Xiaomi MiMo (pay-as-you-go) | — | an `sk-` key's available balance (`/v1/platform/balance`), as credits: the account is prepaid and names no window |
 | DeepSeek | — | `user/balance` on `$DEEPSEEK_API_KEY` and each `~/.config/claude-ds*.env`: the prepaid balance, as credits, with no usage window |
 | Woyo | — | gateway-log observations from `api/log/token` on `$FY_API_KEY` at the `$FY_API_BASE_URL` beside it, in the environment or matching `~/.config/*.env` files |
 

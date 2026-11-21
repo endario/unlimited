@@ -122,11 +122,6 @@ class Read(unittest.TestCase):
         self.assertFalse(mimo._fits("ttp-AAAA" + "x" * 38 + "other1", mimo._redacted(APIKEY["data"]["redactedApiKey"])))
         self.assertFalse(mimo._fits("ttp-AAAAowner1", ("ttp-AAAAo", "owner1")))
 
-    def test_a_pay_as_you_go_key_is_unread_and_asks_nothing(self):
-        get = api()
-        r = mimo.read(key("sk-" + "a" * 40), NOW, get)
-        self.assertEqual((r["status"], r["why"], get.calls), ("unread", "not-team-key", []))
-
     def test_no_sign_in_and_an_undecryptable_one_are_told_apart(self):
         self.logins = []
         self.assertEqual(self.read(OWNER_KEY)["why"], "no-sign-in")
@@ -226,6 +221,55 @@ class Plan(unittest.TestCase):
 
     def test_whoami_names_no_one(self):
         self.assertEqual(mimo.whoami(key(PLAN_KEY), NOW, api())[0], None)
+
+
+class Balance(unittest.TestCase):
+    """A pay-as-you-go `sk-` key is prepaid and names no window, so its balance is the whole reading."""
+    KEY = "sk-" + "b" * 40
+    BODY = {"object": "balance", "is_available": True, "balance_infos": [{
+        "currency": "CNY", "cash_balance": "8.50", "gift_balance": "1.50", "frozen_balance": "0.00",
+        "credit_limit": "0.00", "credit_available": "0.00", "total_available": "10.00"}]}
+
+    def read(self, ans, k=KEY):
+        get = api(balance=ans)
+        return mimo.read(key(k), NOW, get), get
+
+    def test_a_pay_as_you_go_key_is_its_available_balance_as_credits_and_no_window(self):
+        r, _ = self.read(ok(self.BODY))
+        c = r["credits"]
+        self.assertEqual((r["status"], r["limits"]), ("ok", []))
+        self.assertEqual((c["enabled"], c["balance"], c["currency"], c["used"], c["limit"]), (True, 10.0, "CNY", None, None))
+
+    def test_it_asks_the_balance_once_with_the_key_and_no_cookie(self):
+        _, get = self.read(ok(self.BODY))
+        ((url, headers),) = get.calls
+        self.assertEqual(url, mimo.BALANCE_URL)
+        self.assertEqual(headers["api-key"], self.KEY)
+        self.assertNotIn("Cookie", headers)
+
+    def test_an_empty_account_is_the_vendors_word_not_a_guess_from_the_amount(self):
+        body = {**self.BODY, "is_available": False}
+        c = self.read(ok(body))[0]["credits"]
+        self.assertEqual((c["enabled"], c["balance"]), (False, 10.0))
+
+    def test_an_amount_sent_as_a_number_reads_as_one_sent_as_text(self):
+        body = {**self.BODY, "balance_infos": [{**self.BODY["balance_infos"][0], "total_available": 10}]}
+        self.assertEqual(self.read(ok(body))[0]["credits"]["balance"], 10.0)
+
+    def test_an_http_refusal_is_a_refusal(self):
+        r, _ = self.read(Answer(None, 401, "http-401"))
+        self.assertEqual((r["status"], r["why"]), ("refused", "http-401"))
+
+    def test_a_body_without_an_amount_is_the_vendors_error(self):
+        for body in ({"object": "balance"}, {**self.BODY, "balance_infos": [{"currency": "CNY"}]},
+                     {**self.BODY, "balance_infos": [{"total_available": "lots"}]}):
+            r, _ = self.read(ok(body))
+            self.assertEqual((r["status"], r["why"]), ("unread", "vendor-error"))
+
+    def test_a_key_of_no_known_kind_is_still_unread_and_asks_nothing(self):
+        get = api()
+        r = mimo.read(key("zz-" + "a" * 40), NOW, get)
+        self.assertEqual((r["status"], r["why"], get.calls), ("unread", "not-team-key", []))
 
 
 class Keys(unittest.TestCase):
