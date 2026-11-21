@@ -1,8 +1,8 @@
 # Unlimited for the menu bar
 
 One tile per account, showing its monthly window where the plan enforces one, else its weekly
-window, drawn from `unlimited read --json`. The app reads no credential, calls no vendor, and
-writes only through the CLI (`unlimited incentive`). It needs `unlimited` 0.0.23 or later in
+window, drawn from `unlimited read --json`. The app shows usage only: it reads no credential,
+calls no vendor and writes nothing through the CLI. It needs `unlimited` 0.0.23 or later in
 `~/.local/bin`, `/opt/homebrew/bin` or `/usr/local/bin`.
 
 Unavailable or stale usage displays `?`; the popover explains the reported failure. A window that
@@ -16,32 +16,16 @@ sign-in failures, **Sign in** opens iTerm and runs the account's executable wrap
 `~/.local/bin` with `auth login --claudeai`. Choose the correct account in the browser, then
 refresh. Without a matching wrapper, sign in through that account's Claude Code setup.
 
-Settings keeps each account's controls together: the eye shows or hides its menu-bar tile;
-ban prevents offering it and fades the row. Neither stops tracking. The multiplier button opens
-an account override editor with a multiplier, Until reset, and a duration picker when reset is
-off. Apply writes the override; Clear override removes that scope without clearing inherited
-policies. None removes the override rather than storing a neutral multiplier. Right-click a picker
-for custom values. Global rules lists incentives without an account selector, with their own
-Edit/Clear controls. Other policies keeps account-specific policies and switches not represented
-by an account row; broader policies can be created through the CLI.
-Account/reset steering requires caller account bindings (`choose --account OFFERING=ACCOUNT`, or
-`rank(accounts=...)`).
+Settings keeps each account's controls together: the eye shows or hides its menu-bar tile, and
+the arrows reorder it. Neither stops tracking.
 
 Auto-hide normal accounts is enabled by default in General. Readable accounts disappear from the
-compact strip unless they ask for attention: red, sprint, under-used, banned or dimmed accounts
-stay, as do measured token figures and prepaid balances. Amber accounts and accounts carrying an
-incentive mark hide with the normal ones, as do accounts whose window is spent or whose usage is
-missing. Hover restores them. After leaving, the strip holds for five seconds before fading back.
+compact strip unless they ask for attention: red, sprint, under-used or dimmed accounts stay, as
+do measured token figures and prepaid balances. Amber accounts hide with the normal ones, as do
+accounts whose window is spent or whose usage is missing. Hover restores them. After leaving, the strip holds for five seconds before fading back.
 An open popover keeps it expanded. The eye's manual hiding still applies, tracking is unchanged,
 and Reduce Motion disables the fade. When every account is routine, an ellipsis remains available
 to hover or activate.
-
-With unlimited 0.1.10, Settings can encourage or discourage vendors, accounts, models and routes.
-Until reset is the default; an explicit duration overrides it. A green upward or red downward
-vertical fast-forward glyph beside the account name reflects account-scoped incentive strength.
-Global rules do not add account glyphs. `1x` has no glyph. Help gives the route, multiplier and expiry.
-Clear removes the selected scope, so an inherited setting may apply again. Steering is local to
-this machine, and the quota-room underline is independent of it.
 
 Native host tests use transparent off-screen AppKit windows and isolated fixture data. The test
 command checks xUnit completion as well as exit status: a native tracking loop can end the async

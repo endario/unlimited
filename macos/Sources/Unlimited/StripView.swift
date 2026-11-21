@@ -56,7 +56,7 @@ struct TileView: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     private var labelHelp: String {
-        let marks = [tile.best ? "Underline: best account by quota room, not steering" : nil,
+        let marks = [tile.best ? "Underline: best account by quota room" : nil,
                      tile.peak ? "Amber: a peak-rate window is running for this account" : nil]
             .compactMap { $0 }
         return marks.isEmpty ? "Account label" : marks.joined(separator: "\n")
@@ -66,15 +66,11 @@ struct TileView: View {
         let showAlt = alternating && tile.alternate != nil && !reduceMotion
         // Every label keeps room for the best account's underline, so the figures stay on one line.
         VStack(spacing: 0) {
-            HStack(spacing: 1) {
-                Text(tile.label)
-                    .font(.system(size: 7, weight: .medium, design: .monospaced))
-                    .foregroundStyle(tile.peak ? Health.amber.color : Color.primary)
-                    .underline(tile.best, color: .primary.opacity(0.7))
-                    .help(labelHelp)
-                // Takes no height, so the marks never push the figure below off its line.
-                SteeringIndicatorView(indicator: tile.indicator).frame(height: 0)
-            }
+            Text(tile.label)
+                .font(.system(size: 7, weight: .medium, design: .monospaced))
+                .foregroundStyle(tile.peak ? Health.amber.color : Color.primary)
+                .underline(tile.best, color: .primary.opacity(0.7))
+                .help(labelHelp)
             ZStack {
                 UsageFigure(value: tile.value, health: tile.health)
                     .opacity(showAlt ? 0 : 1)
@@ -96,9 +92,9 @@ struct TileView: View {
                 Circle().fill(alt.health.color).frame(width: 3, height: 3)
             }
         }
-        // Ghosted, not recoloured: an unusable or switched-off tile keeps its exact colours
-        // and drops to half transparency.
-        .opacity(tile.dimmed || tile.off ? 0.45 : 1)
+        // Ghosted, not recoloured: an unusable tile keeps its exact colours and drops to half
+        // transparency.
+        .opacity(tile.dimmed ? 0.45 : 1)
         // Room for the elapsed bar, and the text set against it: each bar belongs to the text before it.
         .padding(.trailing, tile.elapsed == nil ? 0 : 2.5)
         .frame(width: Self.width(of: tile), height: 22, alignment: tile.elapsed == nil ? .center : .trailing)

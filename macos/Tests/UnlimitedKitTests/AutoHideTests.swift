@@ -45,9 +45,6 @@ import Testing
     for value: Tile.Value in [.unread, .stale, .noWindow, .unknown, .waiting] {
         cases.append(("primary \(value)", Tile(id: normal.id, label: normal.label, value: value, dimmed: false), true))
     }
-    var offMissing = Tile(id: normal.id, label: normal.label, value: .unread, dimmed: false)
-    offMissing.off = true
-    cases.append(("missing overrides off", offMissing, true))
     for health: Health in [.sprint, .underUsed, .red] {
         var tile = normal
         tile.health = health
@@ -74,32 +71,6 @@ import Testing
     cases.append(("spent overrides the other exceptions",
                   Tile(id: normal.id, label: normal.label, value: .percent(120), dimmed: true, health: .red,
                        alternate: .init(role: "session", value: .percent(90), health: .amber)), true))
-    var offSpent = Tile(id: normal.id, label: normal.label, value: .percent(120), dimmed: false, health: .red)
-    offSpent.off = true
-    cases.append(("spent overrides off", offSpent, true))
-    cases.append(("spent overrides steering",
-                  Tile(id: normal.id, label: normal.label, value: .percent(120), dimmed: false, health: .red,
-                       indicator: SteeringIndicator(routes: [.init(id: "up", target: "openai", multiplier: 10,
-                                                                   until: .distantFuture)],
-                                                    now: Date(timeIntervalSince1970: 0))), true))
-    var off = normal
-    off.off = true
-    cases.append(("off", off, false))
-    // An incentive mark is not a usage warning: a routine account hides with one attached.
-    for factors in [[2.0], [0.5], [2.0, 0.5], [1.0], []] {
-        var tile = normal
-        tile.indicator = SteeringIndicator(routes: factors.enumerated().map {
-            .init(id: "route\($0.offset)", target: "openai", multiplier: $0.element, until: .distantFuture)
-        }, now: Date(timeIntervalSince1970: 0))
-        cases.append(("steering \(factors)", tile, true))
-    }
-    // Red stays on the strip even when steered: the warning outranks the incentive.
-    var redSteered = normal
-    redSteered.health = .red
-    redSteered.indicator = SteeringIndicator(routes: [
-        .init(id: "up", target: "openai", multiplier: 10, until: .distantFuture)
-    ], now: Date(timeIntervalSince1970: 0))
-    cases.append(("steering with red", redSteered, false))
     var alternate = normal
     alternate.alternate = .init(role: "session", value: .percent(12), health: .normal)
     cases.append(("normal alternate", alternate, true))

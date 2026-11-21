@@ -12,14 +12,14 @@ import UnlimitedKit
     try cli.succeed(takenAt: takenAt, used: 0.42)
     let model = StripModel(runner: Runner(binary: cli.binary), defaults: cli.defaults, now: { now })
     model.refresh()
-    try await waitUntil { model.canSteer }
+    try await waitUntil { !model.busy && model.problem == nil && model.readings["openai/fixture"] != nil }
     #expect(model.tiles.first?.value == .percent(42))
     #expect(model.problem == nil)
 
     now = takenAt.addingTimeInterval(Tile.staleAfter + 1)
     try cli.fail()
     model.refresh()
-    try await waitUntil { !model.canSteer }
+    try await waitUntil { !model.busy && model.problem != nil }
     #expect(model.readings["openai/fixture"]?.takenAt == takenAt)
     #expect(model.readings["openai/fixture"]?.primary?.usedAtLeast == 0.42)
     #expect(model.tiles.first?.id == "openai/fixture")
@@ -32,8 +32,7 @@ import UnlimitedKit
     let recoveredAt = now
     try cli.succeed(takenAt: recoveredAt, used: 0.71)
     model.refresh()
-    try await waitUntil { model.canSteer }
-    #expect(model.problem == nil)
+    try await waitUntil { !model.busy && model.problem == nil }
     #expect(model.readings["openai/fixture"]?.takenAt == recoveredAt)
     #expect(model.tiles.first?.value == .percent(71))
     #expect(model.tiles.first?.dimmed == false)
@@ -47,11 +46,11 @@ import UnlimitedKit
     try cli.succeed(takenAt: takenAt, used: 0.42)
     let model = StripModel(runner: Runner(binary: cli.binary), defaults: cli.defaults, now: { takenAt })
     model.refresh()
-    try await waitUntil { model.canSteer }
+    try await waitUntil { !model.busy && model.problem == nil && model.readings["openai/fixture"] != nil }
 
     try cli.fail()
     model.refresh()
-    try await waitUntil { !model.canSteer }
+    try await waitUntil { !model.busy && model.problem != nil }
     #expect(model.readings["openai/fixture"]?.takenAt == takenAt)
     #expect(model.tiles.first?.value == .percent(42))
     #expect(model.tiles.first?.dimmed == false)
@@ -102,20 +101,17 @@ import UnlimitedKit
     let model = StripModel(runner: Runner(binary: cli.binary), defaults: cli.defaults, now: { takenAt })
     model.refresh()
     try await waitUntil { model.readings["openai/fixture"] != nil }
-    let switches = model.offSwitches
 
     model.arrange { $0.hide("openai/fixture", true) }
     #expect(model.tiles == [.waiting])
     #expect(model.accounts.first?.id == "openai/fixture")
     #expect(model.readings["openai/fixture"]?.primary?.usedAtLeast == 0.42)
-    #expect(model.offSwitches == switches)
 
     try cli.succeed(takenAt: takenAt, used: 0.71)
     model.refresh()
     try await waitUntil { model.readings["openai/fixture"]?.primary?.usedAtLeast == 0.71 }
     #expect(model.tiles == [.waiting])
     #expect(model.accounts.first?.value == .percent(71))
-    #expect(model.offSwitches == switches)
 
     let relaunched = StripModel(runner: Runner(binary: cli.binary), defaults: cli.defaults, now: { takenAt })
     #expect(relaunched.prefs.hidden.contains("openai/fixture"))
@@ -135,132 +131,12 @@ import UnlimitedKit
     let takenAt = Date(timeIntervalSince1970: 1_790_985_600)
     try cli.succeed(takenAt: takenAt, used: 0.1)
     try cli.publishWarm(takenAt: takenAt, used: 0.9)
-    try cli.publishSwitches([Runner.Switch(target: "openai", account: "fixture")])
     try cli.slowLiveRead()
     let model = StripModel(runner: Runner(binary: cli.binary), defaults: cli.defaults, now: { takenAt })
 
     model.refresh(maxAge: 0)
-    try await waitUntil("the cached reading was painted without its probes") {
-        model.tiles.first?.value == .percent(90) && model.canOffer && model.canSteer && model.offSwitches.count == 1
-    }
+    try await waitUntil("the cached reading was not painted") { model.tiles.first?.value == .percent(90) }
     try await waitUntil("the live reading did not replace the cache") { model.tiles.first?.value == .percent(10) }
-}
-
-@MainActor
-@Test func accountBanWritesItsScopeAndPublishesTheCLIReadback() async throws {
-    let cli = try UsageCLI()
-    defer { cli.remove() }
-    let takenAt = Date(timeIntervalSince1970: 1_790_985_600)
-    try cli.succeed(takenAt: takenAt, used: 0.42)
-    let model = StripModel(runner: Runner(binary: cli.binary), defaults: cli.defaults, now: { takenAt })
-    model.refresh()
-    try await waitUntil { model.canOffer && !model.busy }
-
-    let reads = try cli.calledCommands().filter { $0.hasPrefix("read") }.count
-    try cli.publishSwitches([Runner.Switch(target: "openai", account: "fixture")])
-    model.offer("openai", account: "fixture", true)
-    #expect(model.steeringPending)
-    try await waitUntil { !model.steeringPending }
-    #expect(try cli.arguments() == ["off", "openai", "--account", "fixture"])
-    #expect(model.tiles.first?.off == true)
-    #expect(model.offerProblem == nil)
-    #expect(model.readings["openai/fixture"] != nil)
-    #expect(model.prefs.hidden.isEmpty)
-    #expect(try cli.calledCommands().filter { $0.hasPrefix("read") }.count == reads,
-            "a switch flips the mark, not the readings")
-
-    try cli.publishSwitches([])
-    model.offer("openai", account: "fixture", false)
-    try await waitUntil { !model.steeringPending }
-    #expect(try cli.arguments() == ["on", "openai", "--account", "fixture"])
-    #expect(model.tiles.first?.off == false)
-    #expect(try cli.calledCommands().filter { $0.hasPrefix("read") }.count == reads)
-}
-
-@MainActor
-@Test func steeringReannotatesHeldReadingsInsteadOfReadingEveryVendorAgain() async throws {
-    let cli = try UsageCLI()
-    defer { cli.remove() }
-    let takenAt = Date(timeIntervalSince1970: 1_790_985_600)
-    try cli.succeed(takenAt: takenAt, used: 0.42)
-    let model = StripModel(runner: Runner(binary: cli.binary), defaults: cli.defaults, now: { takenAt })
-    model.refresh()
-    try await waitUntil { model.canSteer && model.readings["openai/fixture"] != nil && !model.busy }
-    let reads = try cli.calledCommands().filter { $0.hasPrefix("read") }.count
-
-    model.steer(target: "openai", multiplier: "0.01x", account: "fixture", duration: "12h")
-    try await waitUntil { !model.steeringPending }
-
-    #expect(model.steeringProblem == nil)
-    #expect(try cli.calledCommands().filter { $0.hasPrefix("annotate") }.count == 1)
-    #expect(try cli.calledCommands().filter { $0.hasPrefix("read") }.count == reads,
-            "a policy change applies to the readings held, without asking a vendor again")
-}
-
-@MainActor
-@Test func aRefusedAnnotationFallsBackToReadingAndStillPublishes() async throws {
-    let cli = try UsageCLI()
-    defer { cli.remove() }
-    let takenAt = Date(timeIntervalSince1970: 1_790_985_600)
-    try cli.succeed(takenAt: takenAt, used: 0.42)
-    let model = StripModel(runner: Runner(binary: cli.binary), defaults: cli.defaults, now: { takenAt })
-    model.refresh()
-    try await waitUntil { model.canSteer && model.readings["openai/fixture"] != nil && !model.busy }
-    let reads = try cli.calledCommands().filter { $0.hasPrefix("read") }.count
-    try cli.refuseAnnotation()
-
-    model.steer(target: "openai", multiplier: "5x", account: "fixture", duration: "12h")
-    try await waitUntil { !model.steeringPending }
-
-    #expect(model.steeringProblem == nil)
-    #expect(try cli.calledCommands().filter { $0.hasPrefix("read") }.count == reads + 1)
-    #expect(model.readings["openai/fixture"] != nil, "the fallback still publishes the readings")
-}
-
-@MainActor
-@Test func accountMultiplierTransportsDurationAndKeepsNeutralDifferentFromClear() async throws {
-    let cli = try UsageCLI()
-    defer { cli.remove() }
-    let takenAt = Date(timeIntervalSince1970: 1_790_985_600)
-    try cli.succeed(takenAt: takenAt, used: 0.42)
-    let model = StripModel(runner: Runner(binary: cli.binary), defaults: cli.defaults, now: { takenAt })
-    model.refresh()
-    try await waitUntil { model.canSteer }
-    try cli.publishIncentives(#"[{"target":"openai","account":"fixture","multiplier":1,"activated_at":"2026-10-03T00:00:00Z","until":"2026-10-04T00:00:00Z"}]"#)
-    model.steer(target: "openai", multiplier: "1x", account: "fixture", duration: "12h")
-    try await waitUntil { !model.steeringPending }
-    #expect(try cli.arguments() == ["incentive", "openai", "1x", "--account", "fixture", "--for", "12h"])
-    #expect(model.incentives.first?.multiplier == 1)
-    #expect(model.incentives.first?.account == "fixture")
-    #expect(model.steeringProblem == nil)
-
-    try cli.publishIncentives("[]")
-    model.steer(target: "openai", multiplier: "off", account: "fixture")
-    try await waitUntil { !model.steeringPending }
-    #expect(try cli.arguments() == ["incentive", "openai", "off", "--account", "fixture"])
-    #expect(model.incentives.isEmpty)
-}
-
-@MainActor
-@Test func refusedPolicyWritesSurfaceTheirReasonWithoutOptimisticState() async throws {
-    let cli = try UsageCLI()
-    defer { cli.remove() }
-    let takenAt = Date(timeIntervalSince1970: 1_790_985_600)
-    try cli.succeed(takenAt: takenAt, used: 0.42)
-    let model = StripModel(runner: Runner(binary: cli.binary), defaults: cli.defaults, now: { takenAt })
-    model.refresh()
-    try await waitUntil { model.canOffer && model.canSteer }
-    try cli.refuseMutation()
-    model.offer("openai", account: "fixture", true)
-    try await waitUntil { !model.steeringPending }
-    #expect(model.offerProblem == "fixture policy write refused")
-    #expect(model.offSwitches.isEmpty)
-    #expect(model.tiles.first?.off == false)
-
-    model.steer(target: "openai", multiplier: "5x", account: "fixture", duration: "12h")
-    try await waitUntil { !model.steeringPending }
-    #expect(model.steeringProblem == "fixture policy write refused")
-    #expect(model.incentives.isEmpty)
 }
 
 @MainActor
@@ -324,8 +200,7 @@ import UnlimitedKit
     let cli = try UsageCLI()
     defer { cli.remove() }
     let takenAt = Date(timeIntervalSince1970: 1_790_985_600)
-    try cli.succeedMany(takenAt: takenAt)
-    try cli.publishSwitches([Runner.Switch(target: "anthropic", account: "fixture-2")])
+    try cli.succeedMany(takenAt: takenAt, throttled: 2)
     let model = StripModel(runner: Runner(binary: cli.binary), defaults: cli.defaults, now: { takenAt })
     model.refresh()
     try await waitUntil { model.accounts.count == 12 }
@@ -339,7 +214,6 @@ import UnlimitedKit
     #expect(!model.displayedTiles.contains { $0.id == "anthropic/fixture-3" })
     #expect(model.readings.count == 12)
     #expect(cli.defaults.data(forKey: "preferences") == saved)
-    #expect(!FileManager.default.fileExists(atPath: cli.directory.appending(path: "command").path))
     model.hoverExpanded = false
     model.open = true
     #expect(model.displayedTiles == model.tiles)
@@ -425,12 +299,7 @@ struct UsageCLI {
     var binary: URL { directory.appending(path: "unlimited") }
     private var failure: URL { directory.appending(path: "failure") }
     private var readings: URL { directory.appending(path: "readings.json") }
-    private var switches: URL { directory.appending(path: "switches.json") }
-    private var incentives: URL { directory.appending(path: "incentives.json") }
-    private var command: URL { directory.appending(path: "command") }
     private var calls: URL { directory.appending(path: "calls") }
-    private var mutationFailure: URL { directory.appending(path: "mutation-failure") }
-    private var annotateFailure: URL { directory.appending(path: "annotate-failure") }
     private var warmReadings: URL { directory.appending(path: "warm.json") }
     private var slowLive: URL { directory.appending(path: "slow-live") }
 
@@ -459,28 +328,9 @@ struct UsageCLI {
                 if [ -f '\(slowLive.path)' ]; then sleep 2; fi
                 /bin/cat '\(readings.path)' ;;
             esac ;;
-          annotate)
-            if [ -f '\(annotateFailure.path)' ]; then
-              printf 'fixture annotate refused\\n' >&2
-              exit 2
-            fi
-            /bin/cat ;;
-          off|on|incentive)
-            if [ "$2" = '--json' ]; then
-              if [ "$1" = 'off' ]; then /bin/cat '\(switches.path)'
-              else /bin/cat '\(incentives.path)'; fi
-            else
-              printf '%s\\n' "$@" > '\(command.path)'
-              if [ -f '\(mutationFailure.path)' ]; then
-                printf 'fixture policy write refused\\n' >&2
-                exit 2
-              fi
-            fi ;;
           *) exit 2 ;;
         esac
         """.write(to: binary, atomically: true, encoding: .utf8)
-        try "[]".write(to: switches, atomically: true, encoding: .utf8)
-        try "[]".write(to: incentives, atomically: true, encoding: .utf8)
         try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: binary.path)
     }
 
@@ -527,31 +377,20 @@ struct UsageCLI {
             .write(to: readings, atomically: true, encoding: .utf8)
     }
 
-    func succeedMany(takenAt: Date) throws {
+    /// Twelve routine accounts; `throttled` names one the vendor is backing off, which the strip
+    /// keeps on show.
+    func succeedMany(takenAt: Date, throttled: Int? = nil) throws {
         let timestamp = ISO8601DateFormatter().string(from: takenAt)
+        let retry = ISO8601DateFormatter().string(from: takenAt.addingTimeInterval(3_600))
         let values: [[String: Any]] = (1...12).map { index in
-            ["schema": 1, "vendor": "anthropic", "account": "fixture-\(index)",
+            var value: [String: Any] = ["schema": 1, "vendor": "anthropic", "account": "fixture-\(index)",
              "names": ["account\(index)"], "status": "ok", "taken_at": timestamp,
              "limits": [["name": "weekly", "role": "weekly", "window_minutes": 10080,
                          "used_at_least": 0.42, "resets_at": "2026-10-10T00:00:00Z"]]]
+            if index == throttled { value["retry_until"] = retry }
+            return value
         }
         try JSONSerialization.data(withJSONObject: values).write(to: readings)
-    }
-
-    func publishSwitches(_ value: [Runner.Switch]) throws {
-        try JSONEncoder().encode(value).write(to: switches)
-    }
-
-    func publishIncentives(_ json: String) throws {
-        try json.write(to: incentives, atomically: true, encoding: .utf8)
-    }
-
-    func refuseMutation() throws {
-        try Data().write(to: mutationFailure)
-    }
-
-    func refuseAnnotation() throws {
-        try Data().write(to: annotateFailure)
     }
 
     func publishWarm(takenAt: Date, used: Double) throws {
@@ -565,10 +404,6 @@ struct UsageCLI {
 
     func slowLiveRead() throws {
         try Data().write(to: slowLive)
-    }
-
-    func arguments() throws -> [String] {
-        try String(contentsOf: command, encoding: .utf8).split(separator: "\n").map(String.init)
     }
 
     func calledCommands() throws -> [String] {

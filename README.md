@@ -51,10 +51,8 @@ Click a tile for its account's windows. On each bar, the line is where an even p
 now, ▼ is where today's pace reaches by the reset and ▲ is the forecast. Below it: 🔥 when it
 runs out, 🎲 the chance it does, ↻ when it resets and 📈 the forecast. A forecast in a thinner
 weight rests on this window alone, before past windows back it. Click another tile to switch
-accounts. Settings relabels, hides and reorders tiles. Its steering controls apply an incentive
-until reset or for a chosen duration. Beside an account name, a compact green upward or red
-downward fast-forward icon shows encouragement or discouragement; its stacked arrowheads
-increase with strength. The underline remains a quota-room recommendation, not a steering score.
+accounts. Settings relabels, hides and reorders tiles. The underline is a quota-room
+recommendation.
 
 The app reads no credential and calls no vendor: it runs `unlimited read --json`. To build it,
 with Command Line Tools only:
@@ -154,8 +152,6 @@ first; `--provider P` prints one model id; `--catalog` prints the whole merged c
 machine, with no release. Format and merge rules: [docs/catalog.md](docs/catalog.md).
 
 ## Manual steering
-
-![Vertical steering indicators](docs/img/incentives.png)
 
 ```sh
 unlimited incentive openai 10x                         # until each account's latest quota reset
