@@ -12,8 +12,7 @@ fields of an offering.
 ## Delivery (after critic round 2: decompose)
 
 1. **Catalog identity**: `schema = 2` with models and offerings, `Catalog.routes`
-   listing every live route, schema-1 local files converted, bans and switches by vendor or
-   offering id.
+   listing every live route, schema-1 local files converted, bans by vendor or offering id.
 2. **Choice over routes**: `choose --quota` keyed by offering id (the caller's projection for the
    account it would launch that route on; routes on one account get the same value), attempts record
    an explicit `offering` field, statistics keyed by it (a failure on one vendor's route leaves
