@@ -15,11 +15,9 @@ SECOND = ('schema = 2\n[[offerings]]\nid = "commandcode/deepseek/deepseek-v4.1-f
           'model = "deepseek-v4-1-flash"\nvendor = "commandcode"\n')
 
 
-def load(text: str, off: list | None = None) -> catalog.Catalog:
+def load(text: str) -> catalog.Catalog:
     d = Path(scratch.mkdtemp())
     (d / "catalog.toml").write_text(text)
-    if off:
-        catalog.write_switches(off, d / "switches.json")
     return catalog.load(d / "catalog.toml")
 
 
@@ -32,12 +30,6 @@ class Routes(unittest.TestCase):
         self.assertEqual({c.provider_of(i) for i, _ in ds}, {"deepseek"})
         self.assertEqual([x.model for x in c.candidates("standard", NOW) if x.provider == "deepseek"],
                          [i for i, _ in ds], "every route is a candidate, none hidden")
-
-    def test_switching_a_vendor_off_takes_only_its_routes(self):
-        c = load(SECOND, off=[{"target": "commandcode"}])
-        ids = [r["id"] for r in c.routes(NOW, "standard")]
-        self.assertIn("opencode-go/deepseek-v4.1-flash", ids)
-        self.assertFalse([i for i in ids if i.startswith("commandcode/")], ids)
 
     def test_a_local_offering_replaces_the_shipped_one_with_its_id(self):
         c = load('schema = 2\n[[offerings]]\nid = "opencode-go/deepseek-v4.1-flash"\n'

@@ -35,10 +35,7 @@ picks an account or draws a threshold. Choosing what to do with a reading is up 
 
 Each tile shows an account's weekly use. When another of its windows is in worse shape, the tile
 cross-fades to it now and then. The thin bar beside each figure is how much of the week has
-passed. Where a vendor has several accounts, the one to use next is underlined. A tile whose
-account is switched off (`unlimited off`, the vendor or the account alone) keeps
-its exact colours at half transparency and is never the one to use next; Settings' "Never offer"
-rows flip those switches. An unavailable or stale usage figure is `?`; `—` means no usage window
+passed. Where a vendor has several accounts, the one to use next is underlined. An unavailable or stale usage figure is `?`; `—` means no usage window
 and `…` means the first reading is pending. These glyphs are grey. The popover explains failed
 reads; Claude sign-in failures offer **Sign in**, opening the account's wrapper in iTerm.
 
@@ -156,16 +153,6 @@ first; `--provider P` prints one model id; `--catalog` prints the whole merged c
 [`catalog.toml`](src/unlimited/catalog.toml). `~/.config/unlimited/catalog.toml` overrides it on one
 machine, with no release. Format and merge rules: [docs/catalog.md](docs/catalog.md).
 
-`unlimited off TARGET [--for 90m|12h|1d|1w] [--why TEXT]` switches a provider (`stealth`), a model, a vendor (by its
-usage name, also one with no catalog route here — its accounts then stop being `verdict`'s to offer), an offering
-id, or a `provider:model` pair off on this machine, until `unlimited on TARGET` or the `--for` time
-passes; `--account NAME` narrows a vendor switch to one account (its id or an identity name like
-`claude-glm-2`, matched only by `verdict` — the vendor's routes and other accounts stay offerable;
-a name no account here answers to is accepted and simply matches nothing).
-`unlimited off` lists what is off, `unlimited off --json` as a JSON array. A target with a catalog
-route drops out of `models` and `--catalog` like a ban. The switches live in
-`~/.config/unlimited/switches.json`.
-
 ## Manual steering
 
 ![Vertical steering indicators](docs/img/incentives.png)
@@ -222,8 +209,7 @@ own vendor has no card shows another vendor's as a guideline only. Design:
 
 `unlimited verdict --work SECONDS [--offering ID] [--model-scope M] [--max-age S] [--vendor V]... --json` says, for
 each account, whether it can take a unit of work of that length on that model family: `unread`,
-`excluded` (with the window that binds and when it lifts; or, for a vendor switched off here, when
-the switch lifts), or `ranked` (with a tier and a score). Advisory: it reserves nothing.
+`excluded` (with the window that binds and when it lifts), or `ranked` (with a tier and a score). Advisory: it reserves nothing.
 Each row adds local `steering`; ranked verdicts add `preference` while retaining raw quota fields.
 `--offering ID` evaluates policy for an actual route and, without `--vendor`, reads that route's
 usage vendor only. It is separate from the model-family limit selector `--model-scope`.

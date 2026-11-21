@@ -15,26 +15,19 @@ Three parts, each usable on its own:
 ## 1. Verdict
 
 `unlimited verdict --work SECONDS [--offering ID] [--model-scope M] [--max-age S] [--vendor V]... --json`, or
-`unlimited.verdict.verdict(reading, model_scope=, now=, work=, max_age=, starts=None, off=, policy=None)`, over one
+`unlimited.verdict.verdict(reading, model_scope=, now=, work=, max_age=, starts=None, policy=None)`, over one
 schema-1 reading:
 
 - `unread` (no reading, not ok, stale, an expected window missing or malformed),
 - `excluded` (the vendor stopped the account, a window is used up, one runs out before the work
-  would finish, or the vendor is switched off here; with the window and when it lifts), or
+  would finish; with the window and when it lifts), or
 - `ranked`, with a `tier` (0: no window projected past its limit; 1: one is, but after the work) and
   a `score` (tier 0: quota projected unused at reset per fraction of the window left; tier 1: hours
   until the first window runs out).
 
-The `off` exclusion is the owner's policy, not a vendor window: it carries no window name, and its
-`until` is the switch's end (null when it has none). The CLI passes the machine's live switches
-over usage vendors (`catalog.off_policy(now)`, keyed by vendor — `zai` — for a whole-vendor
-switch, or `vendor/account` — `zai/claude-glm-2` — for one account's); a reading matches an
-account key when the key's account is its account id or one of its identity names. A Python
-caller passes the same map to apply the policy.
-
 `unlimited read` and `unlimited.incentives.annotate` add `policy_projection="unlimited-policy-keys-v1"`
 and an opaque `policy_keys` array after factual cache reads. Require the marker and array before
-intersecting with [JSON switch keys](catalog.md#switches); do not construct or parse keys in clients.
+intersecting them with keys of your own policy; do not construct or parse keys in clients.
 Empty arrays are authoritative. `identity.project_reading` recomputes a copied projection from
 factual identity, ignoring supplied projection fields. Raw SDK reads, account IDs, names and
 cache/history remain factual and do not gain this output metadata.
@@ -117,7 +110,7 @@ unlimited choose --tier heavy --candidates gpt-6.1-sol --deadline 900 \
 ```
 
 A name is a provider (its live routes at the tier, promotions first), a model (each of its live
-routes) or an offering id (that route), as the catalog has them; switched-off and banned routes are
+routes) or an offering id (that route), as the catalog has them; banned routes are
 never candidates. `--exclude` rules out routes the caller cannot use; a reason is the caller's,
 recorded and never read. Nor is a route on a vendor this machine has no account with:
 `--vendors` names the vendors instead, or `any` for all of them, for a caller that launches
@@ -154,10 +147,10 @@ With explicit `contexts`, each supplied `accounts` entry must be a dictionary wi
 canonical `account`; alias-only or bare-string bindings are rejected. A well-formed context header
 can supply that canonical identity independently of missing, malformed or unavailable policy.
 A supplied non-null account must match the context's non-null account; vendor/account conflicts
-raise `ValueError` before account exclusions or policy decoding. Receiver-local `names` on a
-matching supplied binding still enforce alias off switches, but never affect context policy.
-A null or invalid header does not erase independently supplied identity. Uncovered bindings are
-for exclusions only; null-account context settings remain unbound.
+raise `ValueError` before policy decoding. Receiver-local `names` on a matching supplied binding
+never affect context policy.
+A null or invalid header does not erase independently supplied identity. Null-account context
+settings remain unbound.
 
 The decision logs supplied policy and account bindings as asked. Explicit contexts are retained
 whole in `request.contexts`, including caller metadata and entries not used by this decision.

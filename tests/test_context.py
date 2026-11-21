@@ -180,7 +180,7 @@ class Context(unittest.TestCase):
         before = copy.deepcopy(ctx)
         with mock.patch.object(incentives, "read", side_effect=AssertionError("policy I/O")), \
                 mock.patch.object(catalog, "load_metadata", side_effect=AssertionError("catalog I/O")), \
-                mock.patch.object(catalog, "load", side_effect=AssertionError("switch I/O")), \
+                mock.patch.object(catalog, "load", side_effect=AssertionError("catalog load I/O")), \
                 mock.patch.object(incentives, "datetime") as clock, \
                 mock.patch.object(transport, "get", side_effect=AssertionError("vendor request")):
             clock.now.side_effect = AssertionError("implicit clock")

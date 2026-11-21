@@ -14,8 +14,7 @@ from collections.abc import Collection
 from datetime import datetime
 
 from . import outcomes
-from .catalog import Catalog, live
-from .identity import names as identity_names, policy_key, policy_keys
+from .catalog import Catalog
 from .schema import number
 
 SCORED = ("ok", "timeout", "error", "unavailable")  # the outcomes an attempt given to rank may have
@@ -59,17 +58,6 @@ def _time_cost(p: float, t_ok: float, t_fail: float, t_next: float, multiplier: 
     if not math.isfinite(value):
         raise ValueError("incentive produces a non-finite time cost")
     return value
-
-
-def _account_off(cat: Catalog, candidate: dict, accounts: dict[str, object] | None, now: datetime) -> bool:
-    """An account switch excludes only a route explicitly bound to that account."""
-    route = cat.route(candidate["model"])
-    binding = (accounts or {}).get(candidate["model"])
-    bound = identity_names(binding)
-    return route is not None and bool(bound) and any(
-        live(switch, now) and switch["target"] in cat.route_names(route)
-        and policy_key(switch["target"], switch["account"]) in policy_keys(switch["target"], binding)[1:]
-        for switch in cat.off if switch.get("account") is not None)
 
 
 def score(cands: list[dict], quota: dict[str, float], stats: dict, deadline: float,
@@ -256,7 +244,7 @@ def rank(cat: Catalog, *, tier: str, candidates: list[str], attempts: list[dict]
     cands = named(cat, tier, candidates, now)
     bound = _context_accounts(cands, contexts, accounts) if contexts is not None else accounts
     cands = [c for c in cands
-             if c["model"] not in exclude and not _account_off(cat, c, bound, now)
+             if c["model"] not in exclude
              and (vendors is None or c["vendor"] in vendors)]
     if not cands:
         return None

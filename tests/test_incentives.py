@@ -209,27 +209,6 @@ class Incentives(unittest.TestCase):
             {"role": "month", "window_minutes": 100, "resets_at": "2026-10-02T11:00:00+00:00"},
         ]}, NOW))
 
-    def test_account_switch_excludes_only_the_explicitly_bound_candidate_despite_incentive(self):
-        self.cat.off = [{"target": "openai", "account": "a"}]
-        policy = [{"target": "openai", "multiplier": 10, "activated_at": NOW.isoformat(),
-                   "until": "2026-10-03T12:00:00+00:00"}]
-        blocked = choice.rank(self.cat, tier="heavy", candidates=["codex"], attempts=[], quota={}, deadline=900,
-                              now=NOW, temperature=0, incentives=policy, accounts={"gpt-6.1-sol": "a"})
-        sibling = choice.rank(self.cat, tier="heavy", candidates=["codex"], attempts=[], quota={}, deadline=900,
-                              now=NOW, temperature=0, incentives=policy, accounts={"gpt-6.1-sol": "b"})
-        self.assertIsNone(blocked)
-        self.assertIsNotNone(sibling)
-        self.assertEqual(sibling["candidates"][0]["multiplier"], 10)
-
-    def test_overlay_keeps_live_steering_for_a_vendor_switched_off_from_choice(self):
-        self.cat.off = [{"target": "openai"}]
-        policy = [{"target": "openai", "multiplier": 10, "activated_at": NOW.isoformat(),
-                   "until": "2026-10-03T12:00:00+00:00"}]
-        reading = {"vendor": "openai", "account": "a", "names": [], "status": "ok", "limits": []}
-        self.assertTrue(incentives.overlay([reading], self.cat, policy, NOW)[0]["steering"]["routes"])
-        self.assertIsNone(choice.rank(self.cat, tier="heavy", candidates=["codex"], attempts=[], quota={}, deadline=900,
-                                       now=NOW, temperature=0, incentives=policy))
-
     def test_reset_bindings_without_aliases_decode_without_a_key_error(self):
         group = {"target": "openai", "multiplier": 10, "activated_at": NOW.isoformat(), "bindings": [
             {"vendor": "openai", "account": "a", "until": "2026-10-03T12:00:00+00:00"}]}

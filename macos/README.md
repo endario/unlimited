@@ -1,12 +1,9 @@
 # Unlimited for the menu bar
 
 One tile per account, showing its monthly window where the plan enforces one, else its weekly
-window, drawn from `unlimited read --json`. A switched-off account (`unlimited off`, whole
-vendor or one account) is ghosted — its exact colours at half transparency — and never the
-one to use next; Settings can flip those switches per account. The app reads no credential, calls
-no vendor, and writes only through the CLI (`unlimited off`/`on`/`incentive`). It needs `unlimited` 0.0.23 or
-later in `~/.local/bin`, `/opt/homebrew/bin` or `/usr/local/bin` (0.1.1 or later for the
-switching; an older CLI simply loses the greying).
+window, drawn from `unlimited read --json`. The app reads no credential, calls no vendor, and
+writes only through the CLI (`unlimited incentive`). It needs `unlimited` 0.0.23 or later in
+`~/.local/bin`, `/opt/homebrew/bin` or `/usr/local/bin`.
 
 Unavailable or stale usage displays `?`; the popover explains the reported failure. A window that
 has spent its limit displays `✘` instead of its percentage. Where the CLI supplies
